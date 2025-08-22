@@ -1,0 +1,160 @@
+from pathlib import Path
+from datetime import timedelta
+import environ
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+
+env = environ.Env(
+    DEBUG=(bool, False)
+)
+environ.Env.read_env(BASE_DIR / ".env")
+
+SECRET_KEY = env("SECRET_KEY")
+DEBUG = env("DEBUG")
+ALLOWED_HOSTS = env.list("ALLOWED_HOSTS")
+
+
+INSTALLED_APPS = [
+    "jazzmin",
+    "django.contrib.admin",
+    "django.contrib.auth",
+    "django.contrib.contenttypes",
+    "django.contrib.sessions",
+    "django.contrib.messages",
+    "django.contrib.staticfiles",
+
+    # DRF va JWT
+    "rest_framework",
+    "rest_framework.authtoken",
+    "drf_spectacular",
+    "corsheaders",
+
+    # Local app
+    "home",
+]
+
+MIDDLEWARE = [
+    "corsheaders.middleware.CorsMiddleware",
+    "django.middleware.security.SecurityMiddleware",
+    "django.contrib.sessions.middleware.SessionMiddleware", 
+    "django.middleware.common.CommonMiddleware",
+    "django.middleware.csrf.CsrfViewMiddleware",
+    "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "django.contrib.messages.middleware.MessageMiddleware",
+    "django.middleware.clickjacking.XFrameOptionsMiddleware",
+]
+
+ROOT_URLCONF = "deposite.urls"
+
+TEMPLATES = [
+    {
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "DIRS": [],
+        "APP_DIRS": True,
+        "OPTIONS": {
+            "context_processors": [
+                "django.template.context_processors.request",
+                "django.contrib.auth.context_processors.auth",
+                "django.contrib.messages.context_processors.messages",
+            ],
+        },
+    },
+]
+
+WSGI_APPLICATION = "deposite.wsgi.application"
+
+DATABASES = {
+    "default": {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": env("DB_NAME"),
+        "USER": env("DB_USER"),
+        "PASSWORD": env("DB_PASSWORD"),
+        "HOST": env("DB_HOST"),
+        "PORT": env("DB_PORT"),
+    }
+}
+
+AUTH_PASSWORD_VALIDATORS = [
+    {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
+    {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
+    {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
+    {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
+]
+
+LANGUAGE_CODE = "uz"     
+TIME_ZONE = "Asia/Tashkent"
+USE_I18N = True
+USE_L10N = True   
+USE_TZ = True 
+
+
+STATIC_URL = "/static/"
+STATIC_ROOT = BASE_DIR / "static"
+
+MEDIA_URL = "/media/"
+MEDIA_ROOT = BASE_DIR / "media"
+
+DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+
+
+
+REST_FRAMEWORK = {
+    "DEFAULT_AUTHENTICATION_CLASSES": (
+        "rest_framework_simplejwt.authentication.JWTAuthentication",
+        "rest_framework.authentication.SessionAuthentication",
+    ),
+    "DEFAULT_PERMISSION_CLASSES": (
+        "rest_framework.permissions.IsAuthenticatedOrReadOnly",
+    ),
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+}
+
+SIMPLE_JWT = {
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=60),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
+    "ROTATE_REFRESH_TOKENS": False,
+    "BLACKLIST_AFTER_ROTATION": True,
+    "AUTH_HEADER_TYPES": ("Bearer",),
+}
+
+CORS_ALLOW_ALL_ORIGINS = True
+AUTH_USER_MODEL = "home.CustomUser"
+
+# --- Jazzmin ---
+JAZZMIN_SETTINGS = {
+    "site_title": "Deposite Admin",
+    "site_header": "Deposite Dashboard",
+    "site_brand": "Deposite",
+    "welcome_sign": "Xush kelibsiz, Deposite Admin paneliga!",
+    "copyright": "© 2025 Deposite",
+
+    # Sidebar sozlash
+    "show_sidebar": True,
+    "navigation_expanded": True,
+    "order_with_respect_to": ["home"],
+
+    # Icon sozlash
+    "icons": {
+        "home.CustomUser": "fas fa-user",
+        "auth.Group": "fas fa-users-cog",
+        "home.TamirTuri": "fas fa-tools",
+        "home.ElektroDepo": "fas fa-charging-station",
+        "home.EhtiyotQismlari": "fas fa-cogs",
+        "home.HarakatTarkibi": "fas fa-train",
+        "home.TexnikKorik": "fas fa-clipboard-check",
+        "token": "fas fa-key",
+    },
+}
+
+JAZZMIN_UI_TWEAKS = {
+    "theme": "superhero",
+    "navbar": "navbar-dark",
+    "sidebar": "sidebar-dark-info",
+    "brand_colour": "navbar-dark",
+    "accent": "accent-cyan",
+    "sidebar_fixed": True,
+    "footer_fixed": True,
+    "no_navbar_border": True,
+}
