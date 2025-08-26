@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import TamirTuri, ElektroDepo, EhtiyotQismlari, HarakatTarkibi, TexnikKorik, CustomUser, Nossozliklar
+from .models import TamirTuri, ElektroDepo, EhtiyotQismlari, HarakatTarkibi, TexnikKorik, CustomUser, Nosozliklar
 from django.contrib.auth import get_user_model
 
 from django.contrib.auth import authenticate
@@ -38,7 +38,7 @@ class EhtiyotQismlariSerializer(serializers.ModelSerializer):
 
 
 class HarakatTarkibiSerializer(serializers.ModelSerializer):
-    depo = ElektroDepoSerializer(read_only=True)
+    depo = serializers.SlugRelatedField(read_only=True, slug_field="qisqacha_nomi")
     depo_id = serializers.PrimaryKeyRelatedField(
         queryset=ElektroDepo.objects.all(), source="depo", write_only=True
     )
@@ -47,46 +47,65 @@ class HarakatTarkibiSerializer(serializers.ModelSerializer):
         model = HarakatTarkibi
         fields = "__all__"
 
+
 class TexnikKorikSerializer(serializers.ModelSerializer):
     username = serializers.CharField(write_only=True)
     password = serializers.CharField(write_only=True)
-    created_by = serializers.SerializerMethodField(read_only=True)  # yangi maydon
+    created_by = serializers.CharField(source="created_by.username", read_only=True)
+
+    # Read va Write uchun nom / kod orqali
+    tamir_turi = serializers.SlugRelatedField(
+        queryset=TamirTuri.objects.all(),
+        slug_field="tamir_nomi"
+    )
+    ehtiyot_qism = serializers.SlugRelatedField(
+        queryset=EhtiyotQismlari.objects.all(),
+        slug_field="ehtiyotqism_nomi"
+    )
+    tarkib = serializers.SlugRelatedField(
+        queryset=HarakatTarkibi.objects.all(),
+        slug_field="tarkib_raqami"
+    )
 
     class Meta:
         model = TexnikKorik
         fields = '__all__'
-    
-    def get_created_by(self, obj):
-        # obj.user bo'lmaganligi uchun request.user ni olamiz
-        request = self.context.get("request")
-        return request.user.username if request else None
 
-    def validate(self, data):
-        username = data.pop('username')
-        password = data.pop('password')
+    def create(self, validated_data):
+        username = validated_data.pop("username")
+        password = validated_data.pop("password")
         user = authenticate(username=username, password=password)
-        if not user:
-            raise serializers.ValidationError("Username yoki parol xato.")
-        return data
+        request_user = self.context["request"].user
+        if not user or user != request_user:
+            raise serializers.ValidationError("Login qilingan foydalanuvchi bilan mos emas!")
+        validated_data["created_by"] = request_user
+        return super().create(validated_data)
 
 
-class NossozliklarSerializer(serializers.ModelSerializer):
+class NosozliklarSerializer(serializers.ModelSerializer):
     username = serializers.CharField(write_only=True)
     password = serializers.CharField(write_only=True)
-    created_by = serializers.SerializerMethodField(read_only=True)
+    created_by = serializers.CharField(source="created_by.username", read_only=True)
+
+    ehtiyot_qism = serializers.SlugRelatedField(
+        queryset=EhtiyotQismlari.objects.all(),
+        slug_field="ehtiyotqism_nomi"
+    )
+    tarkib = serializers.SlugRelatedField(
+        queryset=HarakatTarkibi.objects.all(),
+        slug_field="tarkib_raqami"
+    )
 
     class Meta:
-        model = Nossozliklar
+        model = Nosozliklar
         fields = '__all__'
-    
-    def get_created_by(self, obj):
-        request = self.context.get("request")
-        return request.user.username if request else None
 
-    def validate(self, data):
-        username = data.pop('username')
-        password = data.pop('password')
+    def create(self, validated_data):
+        username = validated_data.pop("username")
+        password = validated_data.pop("password")
         user = authenticate(username=username, password=password)
-        if not user:
-            raise serializers.ValidationError("Username yoki parol xato.")
-        return data
+        request_user = self.context["request"].user
+        if not user or user != request_user:
+            raise serializers.ValidationError("Login qilingan foydalanuvchi bilan mos emas!")
+        validated_data["created_by"] = request_user
+        return super().create(validated_data)

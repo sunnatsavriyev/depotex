@@ -41,7 +41,7 @@ class ElektroDepo(models.Model):
 
 
 class EhtiyotQismlari(models.Model):
-    ehtiyotqism_nomi = models.CharField(max_length=255)
+    ehtiyotqism_nomi = models.CharField(max_length=255,unique=True)
     nomenklatura_raqami = models.CharField(max_length=100)
 
     def __str__(self):
@@ -69,17 +69,23 @@ class TexnikKorik(models.Model):
     kirgan_vaqti = models.DateTimeField(default=timezone.now)
     chiqqan_vaqti = models.DateTimeField(default=timezone.now)
     kamchiliklar = models.TextField()
+    created_by = models.ForeignKey(
+        "CustomUser", on_delete=models.SET_NULL, null=True, blank=True
+    )
 
     def __str__(self):
         return f"{self.tarkib} - {self.kirgan_vaqti}"
 
 
-class Nossozliklar(models.Model):
+class Nosozliklar(models.Model):
     ehtiyot_qism = models.ForeignKey('EhtiyotQismlari', on_delete=models.CASCADE, related_name="nosozliklar")
     tarkib = models.ForeignKey('HarakatTarkibi', on_delete=models.CASCADE, related_name="nosozliklar")
     nosozliklar = models.TextField()
     aniqlangan_vaqti = models.DateTimeField(default=timezone.now)         
-    bartarafqilingan_vaqti = models.DateTimeField(default=timezone.now)   
+    bartarafqilingan_vaqti = models.DateTimeField(default=timezone.now) 
+    created_by = models.ForeignKey(
+        "CustomUser", on_delete=models.SET_NULL, null=True, blank=True
+    )
 
     def __str__(self):
         return f"{self.tarkib} - {self.aniqlangan_vaqti}"

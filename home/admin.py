@@ -7,7 +7,7 @@ from .models import (
     EhtiyotQismlari,
     HarakatTarkibi,
     TexnikKorik,
-    Nossozliklar,
+    Nosozliklar,
 )
 
 
@@ -100,7 +100,7 @@ class HarakatTarkibiAdmin(admin.ModelAdmin):
 
 @admin.register(TexnikKorik)
 class TexnikKorikAdmin(admin.ModelAdmin):
-    list_display = ("id", "tarkib", "depo_nomi", "tamir_turi", "ehtiyot_qism", "kirgan_vaqti", "chiqqan_vaqti")
+    list_display = ("id", "tarkib", "depo_nomi", "tamir_turi", "ehtiyot_qism", "kirgan_vaqti", "chiqqan_vaqti","created_by")
     search_fields = ("tarkib__tarkib_raqami", "natija")
     list_filter = ("tamir_turi", "kirgan_vaqti")
 
@@ -109,8 +109,8 @@ class TexnikKorikAdmin(admin.ModelAdmin):
     depo_nomi.short_description = "Depo"
 
 
-@admin.register(Nossozliklar)
-class NossozliklarAdmin(admin.ModelAdmin):
-    list_display = ("id", "tarkib", "ehtiyot_qism", "aniqlangan_vaqti", "bartarafqilingan_vaqti")
+@admin.register(Nosozliklar)
+class NosozliklarAdmin(admin.ModelAdmin):
+    list_display = ("id", "tarkib", "ehtiyot_qism", "aniqlangan_vaqti", "bartarafqilingan_vaqti", "created_by")
     search_fields = ("tarkib__tarkib_raqami", "nosozliklar")
     list_filter = ("aniqlangan_vaqti", "bartarafqilingan_vaqti")
