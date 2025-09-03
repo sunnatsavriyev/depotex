@@ -11,9 +11,8 @@ router.register(r"tamir-turi", TamirTuriViewSet)
 router.register(r"elektro-depo", ElektroDepoViewSet)
 router.register(r"ehtiyot-qismlari", EhtiyotQismlariViewSet)
 router.register(r"harakat-tarkibi", HarakatTarkibiViewSet)
-router.register(r"texnik-korik", TexnikKorikViewSet)
 router.register(r"nosozliklar", NosozliklarViewSet)
-
+router.register(r'texnik-korik', TexnikKorikViewSet, basename='texnik-korik')
 urlpatterns = [
     path("users/", UserViewSet.as_view({"get": "list", "post": "create"})),  
     path("", include(router.urls)),

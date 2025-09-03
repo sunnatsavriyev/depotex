@@ -26,3 +26,15 @@ class CustomPermission(BasePermission):
 
         # Boshqa holatlarda ruxsat yo'q
         return False
+
+
+
+class IsOwnerOrReadOnly(BasePermission):
+    """
+    Foydalanuvchi faqat o‘z yozuvini update/delete qilishi mumkin,
+    lekin boshqalarni faqat o‘qiy oladi.
+    """
+    def has_object_permission(self, request, view, obj):
+        if request.method in SAFE_METHODS:  # GET, HEAD, OPTIONS
+            return True
+        return obj.created_by == request.user

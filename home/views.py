@@ -18,6 +18,7 @@ from .permissions import CustomPermission
 from django.contrib.auth import authenticate
 from .pagination import CustomPagination
 from django_filters.rest_framework import DjangoFilterBackend
+from rest_framework.exceptions import PermissionDenied
 
 
 class UserViewSet(viewsets.ModelViewSet):
@@ -30,7 +31,7 @@ class BaseViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, CustomPermission]
     require_login_fields = False
     filter_backends = [filters.SearchFilter, filters.OrderingFilter, DjangoFilterBackend]
-    search_fields = []  # har bir child ViewSet da override qilinadi
+    search_fields = []  
     ordering_fields = "__all__"
 
     def get_serializer_context(self):
@@ -57,10 +58,9 @@ class BaseViewSet(viewsets.ModelViewSet):
                     status=status.HTTP_403_FORBIDDEN
                 )
 
-            # request.user ni serializerga yuborish
             context = {"request": request}
         else:
-            context = {"request": request}  # boshqa viewlar uchun oddiy context
+            context = {"request": request}  
 
         serializer = self.get_serializer(data=request.data, context=context)
         serializer.is_valid(raise_exception=True)
@@ -106,7 +106,6 @@ class BaseViewSet(viewsets.ModelViewSet):
         ws = wb.active
         ws.title = self.basename
 
-        # dict_keys -> list ga aylantirish
         headers = list(serializer.data[0].keys()) if serializer.data else []
         ws.append(headers)
 
@@ -152,7 +151,7 @@ class EhtiyotQismlariViewSet(BaseViewSet):
     ordering_fields = ['nomenklatura_raqami', 'id']
 
 class HarakatTarkibiViewSet(BaseViewSet):
-    queryset = HarakatTarkibi.objects.all()
+    queryset = HarakatTarkibi.objects.all().order_by("-id")
     serializer_class = HarakatTarkibiSerializer
     basename = "Harakat Tarkibi"
     permission_classes = [IsAuthenticated, CustomPermission]
@@ -162,65 +161,52 @@ class HarakatTarkibiViewSet(BaseViewSet):
     search_fields = ['guruhi','tarkib_raqami','turi','ishga_tushgan_vaqti','eksplutatsiya_vaqti']   
     ordering_fields = ['ishga_tushgan_vaqti', 'id']
 
-class TexnikKorikViewSet(BaseViewSet):
-    queryset = TexnikKorik.objects.all()
+
+class TexnikKorikViewSet(viewsets.ModelViewSet):
+    queryset = (
+    TexnikKorik.objects
+    .select_related("tarkib", "tamir_turi", "created_by")
+    .prefetch_related("ehtiyot_qismlar")
+    .order_by("-id")   
+)
     serializer_class = TexnikKorikSerializer
     permission_classes = [IsAuthenticated, CustomPermission]
-    pagination_class = CustomPagination
-    filter_backends = [filters.SearchFilter, DjangoFilterBackend]
-    search_fields = ['tamir_nomi','ehtiyotqism_nomi','tarkib_raqami']
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter, DjangoFilterBackend]
+    search_fields = ["tarkib__nomi", "kamchiliklar", "comment", "created_by__username"]
+    ordering_fields = ["created_at", "approved_at", "kirgan_vaqti"]
 
-    def get_serializer_context(self):
-        context = super().get_serializer_context()
-        context["request"] = self.request
-        return context
+    def perform_update(self, serializer):
+        instance = self.get_object()
+        if instance.created_by != self.request.user and not self.request.user.is_superuser:
+            raise PermissionDenied("Siz faqat o‘z yozuvlaringizni tahrirlashingiz mumkin.")
+        serializer.save()
 
-    def create(self, request, *args, **kwargs):
-        username = request.data.get("username")
-        password = request.data.get("password")
-
-        if not username or not password:
-            return Response({"detail": "Username va parol talab qilinadi."},
-                            status=status.HTTP_400_BAD_REQUEST)
-
-        user = authenticate(username=username, password=password)
-        if not user:
-            return Response({"detail": "Username yoki parol xato."},
-                            status=status.HTTP_403_FORBIDDEN)
-
-        serializer = self.get_serializer(data=request.data, context={"request": request})
-        serializer.is_valid(raise_exception=True)
-        self.perform_create(serializer)
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
+    def perform_destroy(self, instance):
+        if instance.created_by != self.request.user and not self.request.user.is_superuser:
+            raise PermissionDenied("Siz faqat o‘z yozuvlaringizni o‘chira olasiz.")
+        instance.delete()
 
 
-class NosozliklarViewSet(BaseViewSet):
-    queryset = Nosozliklar.objects.all()
+class NosozliklarViewSet(viewsets.ModelViewSet):
+    queryset = (
+        Nosozliklar.objects
+        .select_related("tarkib", "created_by")  # tamir_turi yo'q, shuning uchun olib tashlandi
+        .prefetch_related("ehtiyot_qismlar")
+        .order_by("-id")
+    )
     serializer_class = NosozliklarSerializer
     permission_classes = [IsAuthenticated, CustomPermission]
-    pagination_class = CustomPagination
-    filter_backends = [filters.SearchFilter, DjangoFilterBackend]
-    search_fields = ['tamir_nomi','ehtiyotqism_nomi','tarkib_raqami']
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter, DjangoFilterBackend]
+    search_fields = ["nosozliklar", "comment", "tarkib__turi", "created_by__username"]
+    ordering_fields = ["created_at", "approved_at", "aniqlangan_vaqti"]
 
-    def get_serializer_context(self):
-        context = super().get_serializer_context()
-        context["request"] = self.request
-        return context
+    def perform_update(self, serializer):
+        instance = self.get_object()
+        if instance.created_by != self.request.user and not self.request.user.is_superuser:
+            raise PermissionDenied("Siz faqat o‘z yozuvlaringizni tahrirlashingiz mumkin.")
+        serializer.save()
 
-    def create(self, request, *args, **kwargs):
-        username = request.data.get("username")
-        password = request.data.get("password")
-
-        if not username or not password:
-            return Response({"detail": "Username va parol talab qilinadi."},
-                            status=status.HTTP_400_BAD_REQUEST)
-
-        user = authenticate(username=username, password=password)
-        if not user:
-            return Response({"detail": "Username yoki parol xato."},
-                            status=status.HTTP_403_FORBIDDEN)
-
-        serializer = self.get_serializer(data=request.data, context={"request": request})
-        serializer.is_valid(raise_exception=True)
-        self.perform_create(serializer)
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
+    def perform_destroy(self, instance):
+        if instance.created_by != self.request.user and not self.request.user.is_superuser:
+            raise PermissionDenied("Siz faqat o‘z yozuvlaringizni o‘chira olasiz.")
+        instance.delete()

@@ -32,6 +32,7 @@ INSTALLED_APPS = [
 
     # Local app
     "home",
+    "django_filters"
     
 ]
 
@@ -111,10 +112,13 @@ REST_FRAMEWORK = {
     ),
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     "DEFAULT_FILTER_BACKENDS": [
-        "django_filters.rest_framework.DjangoFilterBackend"
+        "django_filters.rest_framework.DjangoFilterBackend",
+        "rest_framework.filters.SearchFilter",
+        "rest_framework.filters.OrderingFilter",
     ],
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 10,
+    
 }
 
 SIMPLE_JWT = {
@@ -126,6 +130,8 @@ SIMPLE_JWT = {
 }
 
 CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOW_CREDENTIALS = True
+
 AUTH_USER_MODEL = "home.CustomUser"
 
 # --- Jazzmin ---

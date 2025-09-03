@@ -70,16 +70,24 @@ class TamirTuriAdmin(admin.ModelAdmin):
 
 @admin.register(ElektroDepo)
 class ElektroDepoAdmin(admin.ModelAdmin):
-    list_display = ("id", "depo_nomi", "qisqacha_nomi", "joylashuvi", "created_by", "created_at")
+    list_display = ("id", "depo_nomi", "qisqacha_nomi", "joylashuvi", "created_by", "created_at", "image")
     search_fields = ("depo_nomi", "qisqacha_nomi")
     list_filter = ("joylashuvi",)
 
 
 @admin.register(EhtiyotQismlari)
 class EhtiyotQismlariAdmin(admin.ModelAdmin):
-    list_display = ("id", "ehtiyotqism_nomi", "nomenklatura_raqami", "created_by", "created_at")
+    list_display = ("id", "ehtiyotqism_nomi", "nomenklatura_raqami", "created_by", "created_at", "birligi")
     search_fields = ("ehtiyotqism_nomi", "nomenklatura_raqami")
 
+
+class EhtiyotQismlarInline(admin.TabularInline):
+    model = TexnikKorik.ehtiyot_qismlar.through  # through model
+    extra = 1
+
+class NosozlikEhtiyotQismlarInline(admin.TabularInline):
+    model = Nosozliklar.ehtiyot_qismlar.through  # faqat Nosozliklar uchun
+    extra = 1
 
 @admin.register(HarakatTarkibi)
 class HarakatTarkibiAdmin(admin.ModelAdmin):
@@ -100,19 +108,20 @@ class HarakatTarkibiAdmin(admin.ModelAdmin):
     readonly_fields = ("image",)  # rasmni ko‘rsatadi lekin tahrir qilmaydi
 
 
+
 @admin.register(TexnikKorik)
 class TexnikKorikAdmin(admin.ModelAdmin):
-    list_display = ("id", "tarkib", "depo_nomi", "tamir_turi", "ehtiyot_qism", "kirgan_vaqti", "chiqqan_vaqti","created_by", "created_at")
-    search_fields = ("tarkib__tarkib_raqami", "natija")
-    list_filter = ("tamir_turi", "kirgan_vaqti")
-
-    def depo_nomi(self, obj):
-        return obj.tarkib.depo.depo_nomi
-    depo_nomi.short_description = "Depo"
-
+    list_display = ("id", "tarkib", "status", "created_by", "created_at", "approved")
+    list_filter = ("status", "created_at")
+    search_fields = ("tarkib__tarkib_raqami", "created_by__username")
+    inlines = [EhtiyotQismlarInline]
+    exclude = ("ehtiyot_qismlar",) 
 
 @admin.register(Nosozliklar)
 class NosozliklarAdmin(admin.ModelAdmin):
-    list_display = ("id", "tarkib", "ehtiyot_qism", "aniqlangan_vaqti", "bartarafqilingan_vaqti", "created_by", "created_at")
-    search_fields = ("tarkib__tarkib_raqami", "nosozliklar")
-    list_filter = ("aniqlangan_vaqti", "bartarafqilingan_vaqti")
+    list_display = ("id", "tarkib", "status", "created_by", "approved", "aniqlangan_vaqti", "bartarafqilingan_vaqti")
+    list_filter = ("status", "approved", "created_at")
+    search_fields = ("nosozliklar", "comment", "tarkib__turi", "created_by__username")
+    autocomplete_fields = ("tarkib", "ehtiyot_qismlar", "created_by")
+    inlines = [NosozlikEhtiyotQismlarInline]
+    exclude = ("ehtiyot_qismlar",)
