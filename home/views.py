@@ -16,6 +16,8 @@ from .serializers import (
 )
 from .permissions import CustomPermission
 from django.contrib.auth import authenticate
+from .pagination import CustomPagination
+from django_filters.rest_framework import DjangoFilterBackend
 
 
 class UserViewSet(viewsets.ModelViewSet):
@@ -27,6 +29,9 @@ class UserViewSet(viewsets.ModelViewSet):
 class BaseViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, CustomPermission]
     require_login_fields = False
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter, DjangoFilterBackend]
+    search_fields = []  # har bir child ViewSet da override qilinadi
+    ordering_fields = "__all__"
 
     def get_serializer_context(self):
         context = super().get_serializer_context()
@@ -121,6 +126,9 @@ class TamirTuriViewSet(BaseViewSet):
     basename = "Tamir Turi"
     permission_classes = [IsAuthenticated, CustomPermission]
     require_login_fields = False
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter, DjangoFilterBackend]
+    search_fields = ['tamir_nomi', 'tamirlash_davri', 'tamirlanish_vaqti']   
+    ordering_fields = ['tamirlanish_vaqti', 'id']
 
 class ElektroDepoViewSet(BaseViewSet):
     queryset = ElektroDepo.objects.all()
@@ -128,6 +136,9 @@ class ElektroDepoViewSet(BaseViewSet):
     basename = "Elektro Depo"
     permission_classes = [IsAuthenticated, CustomPermission]
     require_login_fields = False
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter, DjangoFilterBackend]
+    search_fields = ['depo_nomi', 'qisqacha_nomi', 'joylashuvi']   
+    ordering_fields = ['qisqacha_nomi', 'id']
 
 class EhtiyotQismlariViewSet(BaseViewSet):
     queryset = EhtiyotQismlari.objects.all()
@@ -135,6 +146,10 @@ class EhtiyotQismlariViewSet(BaseViewSet):
     basename = "Ehtiyot Qismlari"
     permission_classes = [IsAuthenticated, CustomPermission]
     require_login_fields = False
+    pagination_class = CustomPagination
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter, DjangoFilterBackend]
+    search_fields = ['ehtiyotqism_nomi', 'nomenklatura_raqami']   
+    ordering_fields = ['nomenklatura_raqami', 'id']
 
 class HarakatTarkibiViewSet(BaseViewSet):
     queryset = HarakatTarkibi.objects.all()
@@ -142,11 +157,18 @@ class HarakatTarkibiViewSet(BaseViewSet):
     basename = "Harakat Tarkibi"
     permission_classes = [IsAuthenticated, CustomPermission]
     require_login_fields = False
+    pagination_class = CustomPagination
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter, DjangoFilterBackend]
+    search_fields = ['guruhi','tarkib_raqami','turi','ishga_tushgan_vaqti','eksplutatsiya_vaqti']   
+    ordering_fields = ['ishga_tushgan_vaqti', 'id']
 
 class TexnikKorikViewSet(BaseViewSet):
     queryset = TexnikKorik.objects.all()
     serializer_class = TexnikKorikSerializer
     permission_classes = [IsAuthenticated, CustomPermission]
+    pagination_class = CustomPagination
+    filter_backends = [filters.SearchFilter, DjangoFilterBackend]
+    search_fields = ['tamir_nomi','ehtiyotqism_nomi','tarkib_raqami']
 
     def get_serializer_context(self):
         context = super().get_serializer_context()
@@ -176,6 +198,9 @@ class NosozliklarViewSet(BaseViewSet):
     queryset = Nosozliklar.objects.all()
     serializer_class = NosozliklarSerializer
     permission_classes = [IsAuthenticated, CustomPermission]
+    pagination_class = CustomPagination
+    filter_backends = [filters.SearchFilter, DjangoFilterBackend]
+    search_fields = ['tamir_nomi','ehtiyotqism_nomi','tarkib_raqami']
 
     def get_serializer_context(self):
         context = super().get_serializer_context()

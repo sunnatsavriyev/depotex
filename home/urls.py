@@ -17,4 +17,5 @@ router.register(r"nosozliklar", NosozliklarViewSet)
 urlpatterns = [
     path("users/", UserViewSet.as_view({"get": "list", "post": "create"})),  
     path("", include(router.urls)),
+    
 ]

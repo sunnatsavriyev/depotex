@@ -17,35 +17,68 @@ class UserSerializer(serializers.ModelSerializer):
             role=validated_data["role"],
         )
         return user
-
-
 class TamirTuriSerializer(serializers.ModelSerializer):
+    created_by = serializers.CharField(source="created_by.username", read_only=True)
+
     class Meta:
         model = TamirTuri
         fields = "__all__"
+        read_only_fields = ["created_by", "created_at"]
+
+    def create(self, validated_data):
+        validated_data["created_by"] = self.context["request"].user
+        return super().create(validated_data)
 
 
 class ElektroDepoSerializer(serializers.ModelSerializer):
+    created_by = serializers.CharField(source="created_by.username", read_only=True)
+
     class Meta:
         model = ElektroDepo
         fields = "__all__"
+        read_only_fields = ["created_by", "created_at"]
+
+    def create(self, validated_data):
+        validated_data["created_by"] = self.context["request"].user
+        return super().create(validated_data)
 
 
 class EhtiyotQismlariSerializer(serializers.ModelSerializer):
+    created_by = serializers.CharField(source="created_by.username", read_only=True)
+
     class Meta:
         model = EhtiyotQismlari
         fields = "__all__"
+        read_only_fields = ["created_by", "created_at"]
+
+    def create(self, validated_data):
+        validated_data["created_by"] = self.context["request"].user
+        return super().create(validated_data)
 
 
 class HarakatTarkibiSerializer(serializers.ModelSerializer):
     depo = serializers.SlugRelatedField(read_only=True, slug_field="qisqacha_nomi")
     depo_id = serializers.PrimaryKeyRelatedField(
-        queryset=ElektroDepo.objects.all(), source="depo", write_only=True
+        queryset=ElektroDepo.objects.all(), 
+        source="depo"
+    )
+
+    created_by = serializers.CharField(source="created_by.username", read_only=True)
+
+    
+    ishga_tushgan_vaqti = serializers.DateField(
+        format="%d.%m.%Y",
+        input_formats=["%d.%m.%Y", "%Y-%m-%d"]  
     )
 
     class Meta:
         model = HarakatTarkibi
         fields = "__all__"
+        read_only_fields = ["created_by", "created_at"]
+
+    def create(self, validated_data):
+        validated_data["created_by"] = self.context["request"].user
+        return super().create(validated_data)
 
 
 class TexnikKorikSerializer(serializers.ModelSerializer):

@@ -26,6 +26,13 @@ class TamirTuri(models.Model):
         help_text="Masalan: 1 soat, 6 oy, 30 daqiqa",
         default="1 soat"
     )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
         return self.tamir_nomi
@@ -35,15 +42,27 @@ class ElektroDepo(models.Model):
     depo_nomi = models.CharField(max_length=255)
     qisqacha_nomi = models.CharField(max_length=50)
     joylashuvi = models.CharField(max_length=255)
-
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
     def __str__(self):
         return self.depo_nomi
-
+    
 
 class EhtiyotQismlari(models.Model):
     ehtiyotqism_nomi = models.CharField(max_length=255,unique=True)
     nomenklatura_raqami = models.CharField(max_length=100)
-
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
     def __str__(self):
         return self.ehtiyotqism_nomi
 
@@ -56,7 +75,19 @@ class HarakatTarkibi(models.Model):
     ishga_tushgan_vaqti = models.DateField()
     eksplutatsiya_vaqti = models.IntegerField(help_text="Oylar sonida")
     image = models.ImageField(upload_to="tarkiblar/", blank=True, null=True)
-    holati = models.CharField(max_length=50)
+    choise = [
+        ("Liniyada","Liniyada"),
+        ("Texnik ko'rikda","Texnik ko'rikda"),
+        ("Faoliyati tugagan","Faoliyati tugagan"),
+    ]
+    holati = models.CharField(choices=choise, max_length=100, default="Liniyada")
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
         return f"{self.tarkib_raqami} - {self.turi}" 
@@ -72,7 +103,7 @@ class TexnikKorik(models.Model):
     created_by = models.ForeignKey(
         "CustomUser", on_delete=models.SET_NULL, null=True, blank=True
     )
-
+    created_at = models.DateTimeField(auto_now_add=True)
     def __str__(self):
         return f"{self.tarkib} - {self.kirgan_vaqti}"
 
@@ -86,6 +117,6 @@ class Nosozliklar(models.Model):
     created_by = models.ForeignKey(
         "CustomUser", on_delete=models.SET_NULL, null=True, blank=True
     )
-
+    created_at = models.DateTimeField(auto_now_add=True)
     def __str__(self):
         return f"{self.tarkib} - {self.aniqlangan_vaqti}"

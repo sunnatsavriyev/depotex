@@ -32,6 +32,7 @@ INSTALLED_APPS = [
 
     # Local app
     "home",
+    
 ]
 
 MIDDLEWARE = [
@@ -109,11 +110,16 @@ REST_FRAMEWORK = {
         "rest_framework.permissions.IsAuthenticatedOrReadOnly",
     ),
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    "DEFAULT_FILTER_BACKENDS": [
+        "django_filters.rest_framework.DjangoFilterBackend"
+    ],
+    "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
+    "PAGE_SIZE": 10,
 }
 
 SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=60),
-    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
+    "ACCESS_TOKEN_LIFETIME": timedelta(days=1),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=1),
     "ROTATE_REFRESH_TOKENS": False,
     "BLACKLIST_AFTER_ROTATION": True,
     "AUTH_HEADER_TYPES": ("Bearer",),
@@ -157,4 +163,10 @@ JAZZMIN_UI_TWEAKS = {
     "sidebar_fixed": True,
     "footer_fixed": True,
     "no_navbar_border": True,
+}
+
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'DRF depo tex',
+    'DESCRIPTION': 'Drf depo tex',
+    'VERSION': '1.0.0',
 }

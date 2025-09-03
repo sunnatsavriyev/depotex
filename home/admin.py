@@ -63,21 +63,21 @@ class CustomUserAdmin(UserAdmin):
 
 @admin.register(TamirTuri)
 class TamirTuriAdmin(admin.ModelAdmin):
-    list_display = ("id", "tamir_nomi", "tamirlash_davri", "tamirlanish_vaqti")
+    list_display = ("id", "tamir_nomi", "tamirlash_davri", "tamirlanish_vaqti", "created_by", "created_at")
     search_fields = ("tamir_nomi",)
     list_filter = ("tamirlash_davri",)
 
 
 @admin.register(ElektroDepo)
 class ElektroDepoAdmin(admin.ModelAdmin):
-    list_display = ("id", "depo_nomi", "qisqacha_nomi", "joylashuvi")
+    list_display = ("id", "depo_nomi", "qisqacha_nomi", "joylashuvi", "created_by", "created_at")
     search_fields = ("depo_nomi", "qisqacha_nomi")
     list_filter = ("joylashuvi",)
 
 
 @admin.register(EhtiyotQismlari)
 class EhtiyotQismlariAdmin(admin.ModelAdmin):
-    list_display = ("id", "ehtiyotqism_nomi", "nomenklatura_raqami")
+    list_display = ("id", "ehtiyotqism_nomi", "nomenklatura_raqami", "created_by", "created_at")
     search_fields = ("ehtiyotqism_nomi", "nomenklatura_raqami")
 
 
@@ -92,6 +92,8 @@ class HarakatTarkibiAdmin(admin.ModelAdmin):
         "ishga_tushgan_vaqti",
         "eksplutatsiya_vaqti",
         "holati",
+        "created_by",
+        "created_at",
     )
     search_fields = ("tarkib_raqami", "turi", "guruhi")
     list_filter = ("depo", "holati")
@@ -100,7 +102,7 @@ class HarakatTarkibiAdmin(admin.ModelAdmin):
 
 @admin.register(TexnikKorik)
 class TexnikKorikAdmin(admin.ModelAdmin):
-    list_display = ("id", "tarkib", "depo_nomi", "tamir_turi", "ehtiyot_qism", "kirgan_vaqti", "chiqqan_vaqti","created_by")
+    list_display = ("id", "tarkib", "depo_nomi", "tamir_turi", "ehtiyot_qism", "kirgan_vaqti", "chiqqan_vaqti","created_by", "created_at")
     search_fields = ("tarkib__tarkib_raqami", "natija")
     list_filter = ("tamir_turi", "kirgan_vaqti")
 
@@ -111,6 +113,6 @@ class TexnikKorikAdmin(admin.ModelAdmin):
 
 @admin.register(Nosozliklar)
 class NosozliklarAdmin(admin.ModelAdmin):
-    list_display = ("id", "tarkib", "ehtiyot_qism", "aniqlangan_vaqti", "bartarafqilingan_vaqti", "created_by")
+    list_display = ("id", "tarkib", "ehtiyot_qism", "aniqlangan_vaqti", "bartarafqilingan_vaqti", "created_by", "created_at")
     search_fields = ("tarkib__tarkib_raqami", "nosozliklar")
     list_filter = ("aniqlangan_vaqti", "bartarafqilingan_vaqti")

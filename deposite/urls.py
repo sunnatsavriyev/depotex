@@ -13,7 +13,7 @@ from rest_framework_simplejwt.views import (
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
 urlpatterns = [
-    path("admin/", admin.site.urls),
+    path("depo_admin/", admin.site.urls),
 
     # Home app API
     path("api/", include("home.urls")),
