@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import TamirTuri, ElektroDepo, EhtiyotQismlari, HarakatTarkibi, TexnikKorik, CustomUser, Nosozliklar
+from .models import TamirTuri, ElektroDepo, EhtiyotQismlari, HarakatTarkibi, TexnikKorik, CustomUser, Nosozliklar, TexnikKorikEhtiyotQism, NosozlikEhtiyotQism
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 from django.contrib.auth import authenticate
@@ -54,15 +54,31 @@ class EhtiyotQismlariSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         validated_data["created_by"] = self.context["request"].user
         return super().create(validated_data)
-    
 
 class EhtiyotQismWithMiqdorSerializer(serializers.ModelSerializer):
-    miqdor = serializers.IntegerField()
+    miqdor = serializers.SerializerMethodField()
 
     class Meta:
         model = EhtiyotQismlari
         fields = ["id", "ehtiyotqism_nomi", "birligi", "miqdor"]
- 
+
+    def get_miqdor(self, obj):
+        # kontekstdan korik yoki nosozlik obyektini olish
+        parent = self.context.get("parent_instance")
+        if not parent:
+            return None
+        if isinstance(parent, TexnikKorik):
+            through_obj = TexnikKorikEhtiyotQism.objects.filter(
+                korik=parent, ehtiyot_qism=obj
+            ).first()
+        elif isinstance(parent, Nosozliklar):
+            through_obj = NosozlikEhtiyotQism.objects.filter(
+                nosozlik=parent, ehtiyot_qism=obj
+            ).first()
+        else:
+            through_obj = None
+        return through_obj.miqdor if through_obj else None
+
 
 
 class HarakatTarkibiSerializer(serializers.ModelSerializer):
@@ -83,17 +99,22 @@ class HarakatTarkibiSerializer(serializers.ModelSerializer):
     class Meta:
         model = HarakatTarkibi
         fields = "__all__"
-        read_only_fields = ["created_by", "created_at"]
+        read_only_fields = ["created_by", "created_at","holati"]
 
     def create(self, validated_data):
         validated_data["created_by"] = self.context["request"].user
         return super().create(validated_data)
+    
+    def update(self, instance, validated_data):
+        validated_data.pop("holati", None)
+        return super().update(instance, validated_data)
 
 
 class TexnikKorikSerializer(serializers.ModelSerializer):
     created_by = serializers.CharField(source="created_by.username", read_only=True)
+    akt_file = serializers.FileField(required=False, allow_null=True)
+    image = serializers.ImageField(required=False, allow_null=True)
 
-    # INPUT
     tarkib_id = serializers.PrimaryKeyRelatedField(
         queryset=HarakatTarkibi.objects.all(),
         source="tarkib",
@@ -114,12 +135,11 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
         required=False
     )
 
-    # OUTPUT
     tarkib = serializers.SerializerMethodField(read_only=True)
     tamir_turi = serializers.SerializerMethodField(read_only=True)
     ehtiyot_qismlar = serializers.SerializerMethodField(read_only=True)
     approved = serializers.SerializerMethodField(read_only=True)
-
+    status = serializers.CharField(read_only=True)
     password = serializers.CharField(write_only=True, required=True)
 
     class Meta:
@@ -128,77 +148,99 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
             "id", "created_by",
             "tarkib_id", "tamir_turi_id", "ehtiyot_qismlar_id",
             "tarkib", "tamir_turi", "ehtiyot_qismlar",
-            "kamchiliklar", "comment", "status",
+            "kamchiliklar_haqida", "bartaraf_etilgan_kamchiliklar",
+            "image", "akt_file",
+            "status",
             "kirgan_vaqti", "chiqqan_vaqti",
             "approved", "created_at",
             "password"
         ]
 
-    # GETTERS
-    def get_tarkib(self, obj):
-        return obj.tarkib.turi if obj.tarkib else None
-
-    def get_tamir_turi(self, obj):
-        return obj.tamir_turi.tamir_nomi if obj.tamir_turi else None
-
-    def get_ehtiyot_qismlar(self, obj):
-        return [q.ehtiyotqism_nomi for q in obj.ehtiyot_qismlar.all()]
-
-    def get_approved(self, obj):
-        return "Tasdiqlangan" if obj.approved else "Tasdiqlanmagan"
-
-    # VALIDATION
-    def validate(self, attrs):
-        request = self.context.get("request")
-        user = request.user if request else None
-        password = attrs.pop("password", None)
-
-        if not user or not password:
-            raise serializers.ValidationError("Parol kiritilishi shart.")
-
-        if not user.check_password(password):
-            raise serializers.ValidationError("Parol noto‘g‘ri.")
-
-        attrs["created_by"] = user
-        attrs["approved"] = True
-        attrs["approved_at"] = timezone.now()
-
-        tarkib = attrs.get("tarkib")
-
-        # Shu tarkib uchun oxirgi yozuvni topamiz
-        last_record = (
-            TexnikKorik.objects.filter(tarkib=tarkib)
-            .order_by("-created_at")
-            .first()
-        )
-
-        if last_record:
-            # ❗️Agar avvalgi yozuv bo‘lsa, tamir_turi avtomatik oxirgidan olinadi
-            attrs["tamir_turi"] = last_record.tamir_turi
-
-        return attrs
-
-    # OUTPUT’ni tozalash
     def to_representation(self, instance):
         rep = super().to_representation(instance)
 
-        # ❌ approved_at umuman chiqmasin
-        rep.pop("approved_at", None)
+        # Default bo'sh qiymatlarni olib tashlash
+        rep = {k: v for k, v in rep.items() if v not in [None, "", [], {}]}
 
-        # ✅ chiqqan_vaqti faqat BARTARAF_ETILDI va comment bo‘lsa chiqsin
-        if instance.status != TexnikKorik.Status.BARTARAF_ETILDI or not instance.comment:
+        # 🔹 Bitta tarkib bo‘yicha barcha yozuvlarni olish
+        all_records = TexnikKorik.objects.filter(tarkib=instance.tarkib).order_by("id")
+        first = all_records.first()
+        last = all_records.last()
+
+        rep["status"] = instance.status
+
+        # 🔹 Agar bu birinchi yozuv bo‘lsa → kirgan_vaqti chiqsin
+        if instance.id == first.id:
+            rep["kirgan_vaqti"] = instance.kirgan_vaqti
+        else:
+            rep.pop("kirgan_vaqti", None)
+
+        # 🔹 Agar bu oxirgi yozuv bo‘lsa → chiqqan_vaqti + akt_file bo‘lsin
+        if instance.id == last.id and instance.chiqqan_vaqti:
+            rep["chiqqan_vaqti"] = instance.chiqqan_vaqti
+            if instance.akt_file:
+                rep["akt_file"] = instance.akt_file.url
+        else:
             rep.pop("chiqqan_vaqti", None)
+            rep.pop("akt_file", None)
 
-        # ❌ bo‘sh qiymatlarni chiqarib tashlash
-        return {k: v for k, v in rep.items() if v not in [None, "", []]}
+        return rep
 
+    def get_tarkib(self, obj):
+        return str(obj.tarkib) if obj.tarkib else None
 
+    def get_tamir_turi(self, obj):
+        return str(obj.tamir_turi) if obj.tamir_turi else None
+
+    def get_ehtiyot_qismlar(self, obj):
+        return [str(e) for e in obj.ehtiyot_qismlar.all()]
+    
+    def get_approved(self, obj):
+        return "Tasdiqlangan" if obj.approved else "Tasdiqlanmagan"
+
+    def get_ehtiyot_qismlar(self, obj):
+        serializer = EhtiyotQismWithMiqdorSerializer(
+            obj.ehtiyot_qismlar.all(),
+            many=True,
+            context={"parent_instance": obj}
+        )
+        return serializer.data
+
+    def validate(self, attrs):
+        # parolni tekshirish
+        request = self.context.get("request")
+        password = attrs.pop("password", None)
+        if not password or not request.user.check_password(password):
+            raise serializers.ValidationError({"password": "Parol noto‘g‘ri."})
+
+        # chiqish sanasi bo‘lsa, akt fayl majburiy
+        if attrs.get("chiqqan_vaqti") and not attrs.get("akt_file"):
+            raise serializers.ValidationError({
+                "akt_file": "Chiqish sanasi kiritilganda, akt fayl majburiy."
+            })
+        return attrs
+
+    def create(self, validated_data):
+        tamir_turi = validated_data.get("tamir_turi", None)
+        tarkib = validated_data["tarkib"]
+
+        if tamir_turi is None:
+            oxirgi = TexnikKorik.objects.filter(tarkib=tarkib).order_by("-id").first()
+            if oxirgi:
+                validated_data["tamir_turi"] = oxirgi.tamir_turi
+
+        validated_data["created_by"] = self.context["request"].user
+        validated_data["approved"] = True
+        validated_data["approved_at"] = timezone.now()
+
+        return super().create(validated_data)
 
 
 class NosozliklarSerializer(serializers.ModelSerializer):
     created_by = serializers.CharField(source="created_by.username", read_only=True)
+    akt_file = serializers.FileField(required=False, allow_null=True)
+    image = serializers.ImageField(required=False, allow_null=True)
 
-    # --- INPUT ---
     tarkib_id = serializers.PrimaryKeyRelatedField(
         queryset=HarakatTarkibi.objects.all(),
         source="tarkib",
@@ -212,12 +254,10 @@ class NosozliklarSerializer(serializers.ModelSerializer):
         required=False
     )
 
-    # --- OUTPUT ---
     tarkib = serializers.SerializerMethodField(read_only=True)
-    tamir_turi = serializers.SerializerMethodField(read_only=True)  # 👈 qo‘shildi
     ehtiyot_qismlar = serializers.SerializerMethodField(read_only=True)
     approved = serializers.SerializerMethodField(read_only=True)
-
+    status = serializers.CharField(read_only=True)
     password = serializers.CharField(write_only=True, required=True)
 
     class Meta:
@@ -225,75 +265,71 @@ class NosozliklarSerializer(serializers.ModelSerializer):
         fields = [
             "id", "created_by",
             "tarkib_id", "ehtiyot_qismlar_id",
-            "tarkib", "tamir_turi", "ehtiyot_qismlar",   # 👈 tamir_turi ham chiqadi
-            "nosozliklar", "comment", "status",
+            "tarkib", "ehtiyot_qismlar",
+            "nosozliklar_haqida", "bartaraf_etilgan_nosozliklar",
+            "image", "akt_file", 
+            "status",
             "aniqlangan_vaqti", "bartarafqilingan_vaqti",
             "approved", "created_at",
             "password"
         ]
 
-    # --- GETTERS ---
-    def get_tarkib(self, obj):
-        return obj.tarkib.turi if obj.tarkib else None
+    def to_representation(self, instance):
+        rep = super().to_representation(instance)
+        rep = {k: v for k, v in rep.items() if v not in [None, "", [], {}]}
 
-    def get_tamir_turi(self, obj):
-        """
-        Har doim shu tarkib uchun oxirgi TexnikKorik yozuvining tamir_turi ni chiqaradi.
-        """
-        last_korik = (
-            TexnikKorik.objects.filter(tarkib=obj.tarkib)
-            .order_by("-created_at")
-            .first()
-        )
-        return last_korik.tamir_turi.tamir_nomi if last_korik and last_korik.tamir_turi else None
+        # 🔹 Shu tarkib bo‘yicha barcha yozuvlar
+        all_records = Nosozliklar.objects.filter(tarkib=instance.tarkib).order_by("id")
+        first = all_records.first()
+        last = all_records.last()
+
+        rep["status"] = instance.status
+
+        # 🔹 Birinchisida aniqlangan_vaqti chiqsin
+        if instance.id == first.id:
+            rep["aniqlangan_vaqti"] = instance.aniqlangan_vaqti
+        else:
+            rep.pop("aniqlangan_vaqti", None)
+
+        # 🔹 Oxirgida bartarafqilingan_vaqti + akt_file chiqsin
+        if instance.id == last.id and instance.bartarafqilingan_vaqti:
+            rep["bartarafqilingan_vaqti"] = instance.bartarafqilingan_vaqti
+            if instance.akt_file:
+                rep["akt_file"] = instance.akt_file.url
+        else:
+            rep.pop("bartarafqilingan_vaqti", None)
+            rep.pop("akt_file", None)
+
+        return rep
+
+    def get_tarkib(self, obj):
+        return str(obj.tarkib) if obj.tarkib else None
 
     def get_ehtiyot_qismlar(self, obj):
-        return [q.ehtiyotqism_nomi for q in obj.ehtiyot_qismlar.all()]
+        serializer = EhtiyotQismWithMiqdorSerializer(
+            obj.ehtiyot_qismlar.all(),
+            many=True,
+            context={"parent_instance": obj}
+        )
+        return serializer.data
 
     def get_approved(self, obj):
         return "Tasdiqlangan" if obj.approved else "Tasdiqlanmagan"
 
-    # --- VALIDATION ---
     def validate(self, attrs):
         request = self.context.get("request")
-        user = request.user if request else None
         password = attrs.pop("password", None)
+        if not password or not request.user.check_password(password):
+            raise serializers.ValidationError({"password": "Parol noto‘g‘ri."})
 
-        if not user or not password:
-            raise serializers.ValidationError("Parol kiritilishi shart.")
-
-        if not user.check_password(password):
-            raise serializers.ValidationError("Parol noto‘g‘ri.")
-
-        attrs["created_by"] = user
-        attrs["approved"] = True
-        attrs["approved_at"] = timezone.now()
-
-        # Bartaraf etilgan bo‘lsa, comment majburiy
-        if attrs.get("status") == Nosozliklar.Status.BARTARAF_ETILDI and not attrs.get("comment"):
-            raise serializers.ValidationError("Bartaraf etilgan nosozlik uchun comment majburiy.")
-
+        if attrs.get("bartarafqilingan_vaqti") and not attrs.get("akt_file"):
+            raise serializers.ValidationError({
+                "akt_file": "Bartaraf qilingan vaqt kiritilganda, akt fayl majburiy."
+            })
         return attrs
 
-    # --- OUTPUT TOZALASH ---
-    def to_representation(self, instance):
-        rep = super().to_representation(instance)
-
-        # ❌ approved_at chiqmasin
-        rep.pop("approved_at", None)
-
-        # ✅ aniqlangan_vaqti faqat birinchi yozuvda chiqadi
-        first_record = (
-            Nosozliklar.objects.filter(tarkib=instance.tarkib)
-            .order_by("created_at")
-            .first()
-        )
-        if not first_record or first_record.id != instance.id:
-            rep.pop("aniqlangan_vaqti", None)
-
-        # ✅ bartarafqilingan_vaqti faqat status = BARTARAF_ETILDI bo‘lsa chiqsin
-        if instance.status != Nosozliklar.Status.BARTARAF_ETILDI:
-            rep.pop("bartarafqilingan_vaqti", None)
-
-        # ❌ Bo‘sh qiymatlarni chiqarib tashlash
-        return {k: v for k, v in rep.items() if v not in [None, "", []]}
+    def create(self, validated_data):
+        validated_data["created_by"] = self.context["request"].user
+        validated_data["approved"] = True
+        validated_data["approved_at"] = timezone.now()
+        return super().create(validated_data)

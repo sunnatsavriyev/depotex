@@ -19,12 +19,32 @@ from django.contrib.auth import authenticate
 from .pagination import CustomPagination
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.exceptions import PermissionDenied
-
-
+from rest_framework.decorators import api_view, permission_classes, action
+from reportlab.lib import colors
 class UserViewSet(viewsets.ModelViewSet):
     queryset = CustomUser.objects.all()
     serializer_class = UserSerializer
     permission_classes = [IsAuthenticated]
+
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_me(request):
+    user = request.user
+    
+    # Headerdan tokenni olish
+    auth_header = request.headers.get("Authorization", None)
+    token = None
+    if auth_header and auth_header.startswith("Bearer "):
+        token = auth_header.split(" ")[1]
+
+    return Response({
+        "id": user.id,
+        "username": user.username,
+        "role": user.role,
+        "token": token,  
+    })
 
 
 class BaseViewSet(viewsets.ModelViewSet):
@@ -75,21 +95,46 @@ class BaseViewSet(viewsets.ModelViewSet):
 
         p = canvas.Canvas(response)
         p.setFont("Helvetica-Bold", 14)
+        p.setFillColor(colors.darkblue)  # sarlavha rangini o'zgartirish
         p.drawString(100, 800, f"{self.basename} ro'yxati:")
 
         y = 780
         queryset = self.get_queryset()
         serializer = self.get_serializer(queryset, many=True)
 
+        # Serializer data ni o'zgartirish: kalitlarni o'zbekchaga aylantirish
+        data = []
         for obj in serializer.data:
+            new_obj = {}
             for key, value in obj.items():
+                if key == "created_by":
+                    new_obj["Yaratdi"] = value
+                elif key == "created_at":
+                    new_obj["Yaratilgan vaqti"] = value
+                elif key == "eksplutatsiya_vaqti":
+                    new_obj["Eksplutatsiya masofasi(km)"] = value 
+                else:
+                    new_obj[key] = value
+            data.append(new_obj)
+
+        for obj in data:
+            for key, value in obj.items():
+                # Kalit (nom) rangini o'zgartirish
+                p.setFont("Helvetica-Bold", 11)
+                p.setFillColor(colors.blue)  
+                p.drawString(100, y, f"{key}:")
+                
+                # Qiymatni qora rangda yozish
                 p.setFont("Helvetica", 11)
-                p.drawString(100, y, f"{key}: {value}")
+                p.setFillColor(colors.black)
+                p.drawString(250, y, f"{value}")  # Qiymatni keydan biroz o'ngroqda yozish
+                
                 y -= 15
                 if y < 50:
                     p.showPage()
                     y = 800
                     p.setFont("Helvetica-Bold", 14)
+                    p.setFillColor(colors.darkblue)
                     p.drawString(100, 820, f"{self.basename} ro'yxati (davomi):")
             y -= 10
 
@@ -102,15 +147,41 @@ class BaseViewSet(viewsets.ModelViewSet):
         queryset = self.get_queryset()
         serializer = self.get_serializer(queryset, many=True)
 
+        # Kalitlarni o'zbekchaga o'zgartirish va maxsus nom berish
+        data = []
+        for obj in serializer.data:
+            new_obj = {}
+            for key, value in obj.items():
+                if key == "created_by":
+                    new_obj["Yaratdi"] = value
+                elif key == "created_at":
+                    new_obj["Yaratilgan vaqti"] = value
+                elif key == "eksplutatsiya_vaqti":
+                    new_obj["Eksplutatsiya masofasi (km)"] = value
+                else:
+                    new_obj[key] = value
+            data.append(new_obj)
+
         wb = Workbook()
         ws = wb.active
         ws.title = self.basename
 
-        headers = list(serializer.data[0].keys()) if serializer.data else []
+        # Ustun sarlavhalari
+        headers = list(data[0].keys()) if data else []
         ws.append(headers)
 
-        for obj in serializer.data:
-            ws.append([obj.get(h) for h in headers])
+        # Qiymatlarni bir xil joylashtirish
+        for obj in data:
+            row = []
+            for h in headers:
+                row.append(obj.get(h, ""))  # Agar qiymat yo'q bo'lsa, bo'sh qator
+            ws.append(row)
+
+        # Ba'zi ustunlarga kenglik berish (ixtiyoriy, chiroyli ko'rinish uchun)
+        for col in ws.columns:
+            max_length = max(len(str(cell.value)) if cell.value else 0 for cell in col)
+            adjusted_width = (max_length + 2)
+            ws.column_dimensions[col[0].column_letter].width = adjusted_width
 
         response = HttpResponse(
             content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -128,6 +199,9 @@ class TamirTuriViewSet(BaseViewSet):
     filter_backends = [filters.SearchFilter, filters.OrderingFilter, DjangoFilterBackend]
     search_fields = ['tamir_nomi', 'tamirlash_davri', 'tamirlanish_vaqti']   
     ordering_fields = ['tamirlanish_vaqti', 'id']
+    pagination_class = CustomPagination
+    
+
 
 class ElektroDepoViewSet(BaseViewSet):
     queryset = ElektroDepo.objects.all()
@@ -138,6 +212,7 @@ class ElektroDepoViewSet(BaseViewSet):
     filter_backends = [filters.SearchFilter, filters.OrderingFilter, DjangoFilterBackend]
     search_fields = ['depo_nomi', 'qisqacha_nomi', 'joylashuvi']   
     ordering_fields = ['qisqacha_nomi', 'id']
+    
 
 class EhtiyotQismlariViewSet(BaseViewSet):
     queryset = EhtiyotQismlari.objects.all()
@@ -162,17 +237,18 @@ class HarakatTarkibiViewSet(BaseViewSet):
     ordering_fields = ['ishga_tushgan_vaqti', 'id']
 
 
+
 class TexnikKorikViewSet(viewsets.ModelViewSet):
     queryset = (
-    TexnikKorik.objects
-    .select_related("tarkib", "tamir_turi", "created_by")
-    .prefetch_related("ehtiyot_qismlar")
-    .order_by("-id")   
-)
+        TexnikKorik.objects
+        .select_related("tarkib", "tamir_turi", "created_by")
+        .prefetch_related("ehtiyot_qismlar")  
+        .order_by("-id")
+    )
     serializer_class = TexnikKorikSerializer
     permission_classes = [IsAuthenticated, CustomPermission]
     filter_backends = [filters.SearchFilter, filters.OrderingFilter, DjangoFilterBackend]
-    search_fields = ["tarkib__nomi", "kamchiliklar", "comment", "created_by__username"]
+    search_fields = ["tarkib__nomi", "kamchiliklar_haqida", "bartaraf_etilgan_kamchiliklar", "created_by__username"]
     ordering_fields = ["created_at", "approved_at", "kirgan_vaqti"]
 
     def perform_update(self, serializer):
@@ -190,14 +266,14 @@ class TexnikKorikViewSet(viewsets.ModelViewSet):
 class NosozliklarViewSet(viewsets.ModelViewSet):
     queryset = (
         Nosozliklar.objects
-        .select_related("tarkib", "created_by")  # tamir_turi yo'q, shuning uchun olib tashlandi
-        .prefetch_related("ehtiyot_qismlar")
+        .select_related("tarkib", "created_by")
+        .prefetch_related("ehtiyot_qismlar") 
         .order_by("-id")
     )
     serializer_class = NosozliklarSerializer
     permission_classes = [IsAuthenticated, CustomPermission]
     filter_backends = [filters.SearchFilter, filters.OrderingFilter, DjangoFilterBackend]
-    search_fields = ["nosozliklar", "comment", "tarkib__turi", "created_by__username"]
+    search_fields = ["nosozliklar_haqida", "bartaraf_etilgan_nosozliklar", "tarkib__turi", "created_by__username"]
     ordering_fields = ["created_at", "approved_at", "aniqlangan_vaqti"]
 
     def perform_update(self, serializer):

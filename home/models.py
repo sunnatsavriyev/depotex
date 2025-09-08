@@ -88,6 +88,13 @@ class TexnikKorikEhtiyotQism(models.Model):
     def __str__(self):
         return f"{self.ehtiyot_qism.ehtiyotqism_nomi} - {self.miqdor} {self.ehtiyot_qism.birligi}"
 
+    def save(self, *args, **kwargs):
+        # Bu yerda kerak bo‘lsa miqdorni tekshirish yoki avtomatik formatlash
+        # Masalan, agar moy bo‘lsa, avtomatik "litr" qo‘shish
+        if self.ehtiyot_qism.birligi.lower() == "litr" and not isinstance(self.miqdor, float):
+            self.miqdor = float(self.miqdor)  # yoki boshqa formatlash
+        super().save(*args, **kwargs)
+
 
 class NosozlikEhtiyotQism(models.Model):
     nosozlik = models.ForeignKey("Nosozliklar", on_delete=models.CASCADE)
@@ -96,7 +103,13 @@ class NosozlikEhtiyotQism(models.Model):
 
     def __str__(self):
         return f"{self.ehtiyot_qism.ehtiyotqism_nomi} - {self.miqdor} {self.ehtiyot_qism.birligi}"
-    
+
+    def save(self, *args, **kwargs):
+        # Agar kerak bo'lsa, miqdorni float qilish yoki maxsus formatlash
+        if self.ehtiyot_qism.birligi.lower() == "litr" and not isinstance(self.miqdor, float):
+            self.miqdor = float(self.miqdor)
+        super().save(*args, **kwargs)
+
 
 
 
@@ -106,15 +119,15 @@ class HarakatTarkibi(models.Model):
     turi = models.CharField(max_length=100)
     tarkib_raqami = models.CharField(max_length=100, unique=True)
     ishga_tushgan_vaqti = models.DateField()
-    eksplutatsiya_vaqti = models.IntegerField(help_text="km da")
+    eksplutatsiya_vaqti = models.BigIntegerField(help_text="km da")
     image = models.ImageField(upload_to="tarkiblar/", blank=True, null=True)
 
     CHOICES = [
-        ("Sof holatda", "Sof holatda"),
-        ("Texnik ko'rikda", "Texnik ko'rikda"),
+        ("Soz_holatda", "Soz_holatda"),
+        ("Texnik_korikda", "Texnik_korikda"),
         ("Nosozlikda", "Nosozlikda"),
     ]
-    holati = models.CharField(choices=CHOICES, max_length=100, default="Sof holatda")
+    holati = models.CharField(choices=CHOICES, max_length=100, default="Soz_holatda")
 
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -129,10 +142,11 @@ class HarakatTarkibi(models.Model):
 
 
 
+
 class TexnikKorik(models.Model):
     class Status(models.TextChoices):
-        JARAYONDA = "Texnik ko'rikda", "Texnik ko'rikda"
-        BARTARAF_ETILDI = "Sof holatda", "Sof holatda"
+        JARAYONDA = "Texnik_korikda", "Texnik_korikda"
+        BARTARAF_ETILDI = "Soz_holatda", "Soz_holatda"
 
     tarkib = models.ForeignKey('HarakatTarkibi', on_delete=models.CASCADE, related_name="koriklar")
     tamir_turi = models.ForeignKey('TamirTuri', on_delete=models.SET_NULL, null=True, blank=True, related_name="koriklar")
@@ -142,15 +156,16 @@ class TexnikKorik(models.Model):
         related_name="koriklar",
         blank=True
     )
+    kamchiliklar_haqida = models.TextField(blank=True)
+    bartaraf_etilgan_kamchiliklar = models.TextField(blank=True)
 
-    kamchiliklar = models.TextField(blank=True)
-    comment = models.TextField(blank=True)
-
-    status = models.CharField(max_length=32, choices=Status.choices, default=Status.JARAYONDA)
+    status = models.CharField(max_length=32, choices=Status.choices, default=Status.JARAYONDA, editable=False)
 
     kirgan_vaqti = models.DateTimeField(default=timezone.now)
     chiqqan_vaqti = models.DateTimeField(null=True, blank=True)
 
+    akt_file = models.FileField(upload_to="korik_aktlar/", null=True, blank=True)  
+    image = models.ImageField(upload_to="korik_images/", null=True, blank=True)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -165,47 +180,62 @@ class TexnikKorik(models.Model):
     def save(self, *args, **kwargs):
         if not self.id:
             self.kirgan_vaqti = timezone.now()
+            self.status = TexnikKorik.Status.JARAYONDA
+            self.tarkib.holati = "Texnik_korikda"
+            self.tarkib.save()
         else:
             old = TexnikKorik.objects.filter(id=self.id).first()
             if old:
                 self.kirgan_vaqti = old.kirgan_vaqti
 
-        if self.status == TexnikKorik.Status.BARTARAF_ETILDI:
+        # ✅ faqat tugatish bosilganda akt fayl yuklanadi
+        if self.akt_file and self.status != TexnikKorik.Status.BARTARAF_ETILDI:
+            self.status = TexnikKorik.Status.BARTARAF_ETILDI
             self.chiqqan_vaqti = timezone.now()
+            self.tarkib.holati = "Soz_holatda"
+            self.tarkib.save()
 
         super().save(*args, **kwargs)
 
-        # 🔄 Tarkib holatini sinxronlash
-        if self.status == TexnikKorik.Status.JARAYONDA:
-            self.tarkib.holati = "Texnik ko'rikda"
-        elif self.status == TexnikKorik.Status.BARTARAF_ETILDI:
-            self.tarkib.holati = "Sof holatda"
-        self.tarkib.save()
-
     def __str__(self):
         return f"{self.tarkib} — {self.status} ({self.created_by})"
+    
+    @property
+    def ehtiyot_qismlar_miqdor(self):
+        """
+        List of spare parts with quantity and unit.
+        """
+        result = []
+        for eq in self.ehtiyot_qismlar.all():
+            through_obj = TexnikKorikEhtiyotQism.objects.get(korik=self, ehtiyot_qism=eq)
+            result.append(f"{eq.ehtiyotqism_nomi} - {through_obj.miqdor} {eq.birligi}")
+        return result
+
+
 
 
 
 class Nosozliklar(models.Model):
     class Status(models.TextChoices):
         JARAYONDA = "Nosozlikda", "Nosozlikda"
-        BARTARAF_ETILDI = "Sof holatda", "Sof holatda"
-    ehtiyot_qismlar = models.ManyToManyField(
-            "EhtiyotQismlari",
-            through="NosozlikEhtiyotQism",
-            related_name="nosozliklar",
-            blank=True
-        )
-    tarkib = models.ForeignKey('HarakatTarkibi', on_delete=models.CASCADE, related_name="nosozliklar")
-    nosozliklar = models.TextField(null=True, blank=True)
+        BARTARAF_ETILDI = "Soz_holatda", "Soz_holatda"
 
-    status = models.CharField(max_length=32, choices=Status.choices, default=Status.JARAYONDA)
+    ehtiyot_qismlar = models.ManyToManyField(
+        "EhtiyotQismlari",
+        through="NosozlikEhtiyotQism",
+        related_name="nosozliklar",
+        blank=True
+    )
+    tarkib = models.ForeignKey('HarakatTarkibi', on_delete=models.CASCADE, related_name="nosozliklar")
+    nosozliklar_haqida = models.TextField(null=True, blank=True)
+    status = models.CharField(max_length=32, choices=Status.choices, default=Status.JARAYONDA, editable=False)
 
     aniqlangan_vaqti = models.DateTimeField(default=timezone.now)         
     bartarafqilingan_vaqti = models.DateTimeField(null=True, blank=True)
 
-    comment = models.TextField(blank=True, help_text="Bartaraf etilish jarayonida bajarilgan ishlar")
+    bartaraf_etilgan_nosozliklar = models.TextField(blank=True, help_text="Bartaraf etilish jarayonida bajarilgan ishlar")
+    image = models.ImageField(upload_to="nosozlik_images/", blank=True)
+    akt_file = models.FileField(upload_to="nosozlik_aktlar/", null=True, blank=True) 
 
     created_by = models.ForeignKey("CustomUser", on_delete=models.SET_NULL, null=True, blank=True)
     approved = models.BooleanField(default=False)
@@ -214,19 +244,30 @@ class Nosozliklar(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     def save(self, *args, **kwargs):
-        if self.status == Nosozliklar.Status.BARTARAF_ETILDI:
-            if not self.comment:
-                raise ValueError("Bartaraf etilgan nosozlik uchun comment yozilishi shart.")
+        if not self.id:
+            self.dastlabki_holat = self.tarkib.holati
+            self.status = Nosozliklar.Status.JARAYONDA
+            self.tarkib.holati = "Nosozlikda"
+            self.tarkib.save()
+
+        # ✅ tugatishda akt fayl yuklanadi
+        if self.akt_file and self.status != Nosozliklar.Status.BARTARAF_ETILDI:
+            if not self.bartaraf_etilgan_nosozliklar:
+                raise ValueError("Nosozlik tugatish uchun 'bartaraf etilgan nosozliklar' yozilishi shart.")
+            self.status = Nosozliklar.Status.BARTARAF_ETILDI
             self.bartarafqilingan_vaqti = timezone.now()
+            self.tarkib.holati = "Soz_holatda"
+            self.tarkib.save()
 
         super().save(*args, **kwargs)
 
-        # 🔄 Tarkib holatini sinxronlash
-        if self.status == Nosozliklar.Status.JARAYONDA:
-            self.tarkib.holati = "Nosozlikda"
-        elif self.status == Nosozliklar.Status.BARTARAF_ETILDI:
-            self.tarkib.holati = "Sof holatda"
-        self.tarkib.save()
-
     def __str__(self):
         return f"{self.tarkib} - {self.status} ({self.created_by})"
+
+    @property
+    def ehtiyot_qismlar_miqdor(self):
+        result = []
+        for eq in self.ehtiyot_qismlar.all():
+            through_obj = NosozlikEhtiyotQism.objects.get(nosozlik=self, ehtiyot_qism=eq)
+            result.append(f"{eq.ehtiyotqism_nomi} - {through_obj.miqdor} {eq.birligi}")
+        return result

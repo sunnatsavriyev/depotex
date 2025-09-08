@@ -3,7 +3,8 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     TamirTuriViewSet, ElektroDepoViewSet,
     EhtiyotQismlariViewSet, HarakatTarkibiViewSet,
-    TexnikKorikViewSet, UserViewSet, NosozliklarViewSet
+    TexnikKorikViewSet, UserViewSet, NosozliklarViewSet,
+    get_me
 )
 
 router = DefaultRouter()
@@ -16,5 +17,5 @@ router.register(r'texnik-korik', TexnikKorikViewSet, basename='texnik-korik')
 urlpatterns = [
     path("users/", UserViewSet.as_view({"get": "list", "post": "create"})),  
     path("", include(router.urls)),
-    
+    path('me/', get_me, name='get_me'),
 ]

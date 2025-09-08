@@ -112,10 +112,10 @@ class HarakatTarkibiAdmin(admin.ModelAdmin):
 @admin.register(TexnikKorik)
 class TexnikKorikAdmin(admin.ModelAdmin):
     list_display = ("id", "tarkib", "status", "created_by", "created_at", "approved")
-    list_filter = ("status", "created_at")
-    search_fields = ("tarkib__tarkib_raqami", "created_by__username")
-    inlines = [EhtiyotQismlarInline]
-    exclude = ("ehtiyot_qismlar",) 
+    list_filter = ("status", "created_at", "approved")
+    search_fields = ("tarkib__tarkib_raqami", "created_by__username", "bartaraf_etilgan_kamchiliklar")
+    exclude = ("ehtiyot_qismlar",)
+
 
 @admin.register(Nosozliklar)
 class NosozliklarAdmin(admin.ModelAdmin):
@@ -123,5 +123,4 @@ class NosozliklarAdmin(admin.ModelAdmin):
     list_filter = ("status", "approved", "created_at")
     search_fields = ("nosozliklar", "comment", "tarkib__turi", "created_by__username")
     autocomplete_fields = ("tarkib", "ehtiyot_qismlar", "created_by")
-    inlines = [NosozlikEhtiyotQismlarInline]
     exclude = ("ehtiyot_qismlar",)
