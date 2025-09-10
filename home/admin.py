@@ -8,6 +8,8 @@ from .models import (
     HarakatTarkibi,
     TexnikKorik,
     Nosozliklar,
+    TexnikKorikStep,
+    NosozlikStep
 )
 
 
@@ -81,14 +83,6 @@ class EhtiyotQismlariAdmin(admin.ModelAdmin):
     search_fields = ("ehtiyotqism_nomi", "nomenklatura_raqami")
 
 
-class EhtiyotQismlarInline(admin.TabularInline):
-    model = TexnikKorik.ehtiyot_qismlar.through  # through model
-    extra = 1
-
-class NosozlikEhtiyotQismlarInline(admin.TabularInline):
-    model = Nosozliklar.ehtiyot_qismlar.through  # faqat Nosozliklar uchun
-    extra = 1
-
 @admin.register(HarakatTarkibi)
 class HarakatTarkibiAdmin(admin.ModelAdmin):
     list_display = (
@@ -109,18 +103,59 @@ class HarakatTarkibiAdmin(admin.ModelAdmin):
 
 
 
+# @admin.register(TexnikKorik)
+# class TexnikKorikAdmin(admin.ModelAdmin):
+#     list_display = ("id", "tarkib", "status", "created_by", "created_at", "approved")
+#     list_filter = ("status", "created_at", "approved")
+#     search_fields = ("tarkib__tarkib_raqami", "created_by__username", "bartaraf_etilgan_kamchiliklar")
+#     exclude = ("ehtiyot_qismlar",)
+
+
 @admin.register(TexnikKorik)
 class TexnikKorikAdmin(admin.ModelAdmin):
-    list_display = ("id", "tarkib", "status", "created_by", "created_at", "approved")
-    list_filter = ("status", "created_at", "approved")
-    search_fields = ("tarkib__tarkib_raqami", "created_by__username", "bartaraf_etilgan_kamchiliklar")
-    exclude = ("ehtiyot_qismlar",)
+    list_display = ("id", "tarkib", "status", "created_by", "created_at")
+    list_filter = ("status", "created_at")
+    search_fields = ("tarkib__tarkib_raqami", "created_by__username")
+
+@admin.register(TexnikKorikStep)
+class TexnikKorikStepAdmin(admin.ModelAdmin):
+    list_display = ("id", "korik", "created_by", "created_at")
+    list_filter = ("created_at",)
+    search_fields = ("korik__tarkib__tarkib_raqami", "created_by__username")
 
 
+# @admin.register(Nosozliklar)
+# class NosozliklarAdmin(admin.ModelAdmin):
+#     list_display = ("id", "tarkib", "status", "created_by", "approved", "aniqlangan_vaqti", "bartarafqilingan_vaqti")
+#     list_filter = ("status", "approved", "created_at")
+#     search_fields = ("nosozliklar", "comment", "tarkib__turi", "created_by__username")
+#     autocomplete_fields = ("tarkib", "ehtiyot_qismlar", "created_by")
+#     exclude = ("ehtiyot_qismlar",)
+
+
+
+
+# ---------------- Nosozliklar ----------------
 @admin.register(Nosozliklar)
 class NosozliklarAdmin(admin.ModelAdmin):
-    list_display = ("id", "tarkib", "status", "created_by", "approved", "aniqlangan_vaqti", "bartarafqilingan_vaqti")
-    list_filter = ("status", "approved", "created_at")
-    search_fields = ("nosozliklar", "comment", "tarkib__turi", "created_by__username")
-    autocomplete_fields = ("tarkib", "ehtiyot_qismlar", "created_by")
+    list_display = (
+        "id", "tarkib", "status", "created_by", "aniqlangan_vaqti", "bartarafqilingan_vaqti"
+    )
+    list_filter = ("status", "created_at")
+    search_fields = (
+        "nosozliklar_haqida",
+        "bartaraf_etilgan_nosozliklar",
+        "tarkib__turi",
+        "created_by__username"
+    )
+    autocomplete_fields = ("tarkib", "created_by")
     exclude = ("ehtiyot_qismlar",)
+
+
+# ---------------- Nosozlik step ----------------
+@admin.register(NosozlikStep)
+class NosozlikStepAdmin(admin.ModelAdmin):
+    list_display = ("id", "nosozlik", "status", "created_by", "created_at")
+    list_filter = ("status", "created_at")
+    search_fields = ("nosozlik__tarkib__tarkib_raqami", "created_by__username")
+    autocomplete_fields = ("created_by",)

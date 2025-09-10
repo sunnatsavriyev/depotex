@@ -81,34 +81,26 @@ class EhtiyotQismlari(models.Model):
 
 # ✅ ManyToMany uchun oraliq jadval
 class TexnikKorikEhtiyotQism(models.Model):
-    korik = models.ForeignKey("TexnikKorik", on_delete=models.CASCADE)
-    ehtiyot_qism = models.ForeignKey("EhtiyotQismlari", on_delete=models.CASCADE)
-    miqdor = models.PositiveIntegerField(default=1)  # masalan 3 litr yoki 2 dona
-
-    def __str__(self):
-        return f"{self.ehtiyot_qism.ehtiyotqism_nomi} - {self.miqdor} {self.ehtiyot_qism.birligi}"
-
-    def save(self, *args, **kwargs):
-        # Bu yerda kerak bo‘lsa miqdorni tekshirish yoki avtomatik formatlash
-        # Masalan, agar moy bo‘lsa, avtomatik "litr" qo‘shish
-        if self.ehtiyot_qism.birligi.lower() == "litr" and not isinstance(self.miqdor, float):
-            self.miqdor = float(self.miqdor)  # yoki boshqa formatlash
-        super().save(*args, **kwargs)
-
-
-class NosozlikEhtiyotQism(models.Model):
-    nosozlik = models.ForeignKey("Nosozliklar", on_delete=models.CASCADE)
-    ehtiyot_qism = models.ForeignKey("EhtiyotQismlari", on_delete=models.CASCADE)
+    korik = models.ForeignKey('TexnikKorik', on_delete=models.CASCADE)
+    ehtiyot_qism = models.ForeignKey('EhtiyotQismlari', on_delete=models.CASCADE)
     miqdor = models.PositiveIntegerField(default=1)
 
     def __str__(self):
-        return f"{self.ehtiyot_qism.ehtiyotqism_nomi} - {self.miqdor} {self.ehtiyot_qism.birligi}"
+        return f"{self.korik} - {self.ehtiyot_qism} ({self.miqdor})"
 
-    def save(self, *args, **kwargs):
-        # Agar kerak bo'lsa, miqdorni float qilish yoki maxsus formatlash
-        if self.ehtiyot_qism.birligi.lower() == "litr" and not isinstance(self.miqdor, float):
-            self.miqdor = float(self.miqdor)
-        super().save(*args, **kwargs)
+
+
+class TexnikKorikEhtiyotQismStep(models.Model):
+    korik_step = models.ForeignKey('TexnikKorikStep', on_delete=models.CASCADE)
+    ehtiyot_qism = models.ForeignKey('EhtiyotQismlari', on_delete=models.CASCADE)
+    miqdor = models.PositiveIntegerField(default=1)
+
+    def __str__(self):
+        return f"{self.korik_step} - {self.ehtiyot_qism} ({self.miqdor})"
+        
+
+
+
 
 
 
@@ -141,77 +133,117 @@ class HarakatTarkibi(models.Model):
         return f"{self.tarkib_raqami} - {self.turi} ({self.holati})"
 
 
-
-
 class TexnikKorik(models.Model):
     class Status(models.TextChoices):
         JARAYONDA = "Texnik_korikda", "Texnik_korikda"
         BARTARAF_ETILDI = "Soz_holatda", "Soz_holatda"
 
     tarkib = models.ForeignKey('HarakatTarkibi', on_delete=models.CASCADE, related_name="koriklar")
-    tamir_turi = models.ForeignKey('TamirTuri', on_delete=models.SET_NULL, null=True, blank=True, related_name="koriklar")
-    ehtiyot_qismlar = models.ManyToManyField(
-        "EhtiyotQismlari",
-        through="TexnikKorikEhtiyotQism",
-        related_name="koriklar",
-        blank=True
-    )
+    tamir_turi = models.ForeignKey('TamirTuri', on_delete=models.SET_NULL, null=True, blank=True)
+    status = models.CharField(max_length=32, choices=Status.choices, default=Status.JARAYONDA, editable=False)
+    ehtiyot_qismlar = models.ManyToManyField("EhtiyotQismlari", through="TexnikKorikEhtiyotQism", blank=True)
     kamchiliklar_haqida = models.TextField(blank=True)
     bartaraf_etilgan_kamchiliklar = models.TextField(blank=True)
-
-    status = models.CharField(max_length=32, choices=Status.choices, default=Status.JARAYONDA, editable=False)
-
     kirgan_vaqti = models.DateTimeField(default=timezone.now)
     chiqqan_vaqti = models.DateTimeField(null=True, blank=True)
-
-    akt_file = models.FileField(upload_to="korik_aktlar/", null=True, blank=True)  
-    image = models.ImageField(upload_to="korik_images/", null=True, blank=True)
-    created_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
-        null=True, blank=True,
-        related_name='kirgan_foydalanuvchilar'
-    )
-    approved = models.BooleanField(default=False)
-    approved_at = models.DateTimeField(null=True, blank=True)
-
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
+    yakunlash = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def save(self, *args, **kwargs):
+        # 🔹 Yangi korik ochilsa
         if not self.id:
+            ongoing = TexnikKorik.objects.filter(
+                tarkib=self.tarkib,
+                status=TexnikKorik.Status.JARAYONDA
+            )
+            if ongoing.exists():
+                raise ValueError("Bu tarkib bo'yicha yakunlanmagan texnik ko'rik mavjud!")
+
             self.kirgan_vaqti = timezone.now()
             self.status = TexnikKorik.Status.JARAYONDA
+
+            # ✅ Tarkibni "Texnik_korikda" holatiga o'tkazamiz
             self.tarkib.holati = "Texnik_korikda"
             self.tarkib.save()
+
         else:
+            # eski yozuvni olib kelamiz
             old = TexnikKorik.objects.filter(id=self.id).first()
             if old:
                 self.kirgan_vaqti = old.kirgan_vaqti
 
-        # ✅ faqat tugatish bosilganda akt fayl yuklanadi
-        if self.akt_file and self.status != TexnikKorik.Status.BARTARAF_ETILDI:
-            self.status = TexnikKorik.Status.BARTARAF_ETILDI
-            self.chiqqan_vaqti = timezone.now()
-            self.tarkib.holati = "Soz_holatda"
-            self.tarkib.save()
+        # 🔹 Korikni yakunlash
+        if self.yakunlash:
+            if not self.chiqqan_vaqti or not self.akt_file:
+                raise ValueError("Yakunlash uchun chiqish vaqti va akt fayl majburiy!")
+
+            if self.status != TexnikKorik.Status.BARTARAF_ETILDI:
+                self.status = TexnikKorik.Status.BARTARAF_ETILDI
+                # ✅ Yakunlanganda tarkibni "Soz_holatda" qilamiz
+                self.tarkib.holati = "Soz_holatda"
+                self.tarkib.save()
 
         super().save(*args, **kwargs)
 
+
+class TexnikKorikStep(models.Model):
+    class Status(models.TextChoices):
+        JARAYONDA = "Jarayonda", "Jarayonda"
+        BARTARAF_ETILDI = "Yakunlandi", "Yakunlandi"
+    korik = models.ForeignKey(TexnikKorik, on_delete=models.CASCADE, related_name="steps")
+    tamir_turi = models.ForeignKey('TamirTuri', on_delete=models.SET_NULL, null=True, blank=True)
+    ehtiyot_qismlar = models.ManyToManyField(
+    "EhtiyotQismlari",
+    through="TexnikKorikEhtiyotQismStep",
+    blank=True
+    )
+    status = models.CharField(
+        max_length=20, 
+        choices=Status.choices, 
+        default=Status.JARAYONDA
+    )
+    kamchiliklar_haqida = models.TextField(blank=True)
+    bartaraf_etilgan_kamchiliklar = models.TextField(blank=True)
+    akt_file = models.FileField(upload_to="akt/", null=True, blank=True)
+    chiqqan_vaqti = models.DateTimeField(null=True, blank=True)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def save(self, *args, **kwargs):
+        # Step qo'shish faqat yakunlanmagan korikka
+        if self.korik.status == TexnikKorik.Status.BARTARAF_ETILDI:
+            raise ValueError("Bu korik yakunlangan, yangi step qo'shib bo'lmaydi!")
+        super().save(*args, **kwargs)
+
     def __str__(self):
-        return f"{self.tarkib} — {self.status} ({self.created_by})"
-    
-    @property
-    def ehtiyot_qismlar_miqdor(self):
-        """
-        List of spare parts with quantity and unit.
-        """
-        result = []
-        for eq in self.ehtiyot_qismlar.all():
-            through_obj = TexnikKorikEhtiyotQism.objects.get(korik=self, ehtiyot_qism=eq)
-            result.append(f"{eq.ehtiyotqism_nomi} - {through_obj.miqdor} {eq.birligi}")
-        return result
+        return f"Step: {self.korik.tarkib} — {self.created_by}"
 
 
+
+class NosozlikEhtiyotQismStep(models.Model):
+    step = models.ForeignKey('NosozlikStep', on_delete=models.CASCADE, related_name="ehtiyot_qismlar_step")
+    ehtiyot_qism = models.ForeignKey('EhtiyotQismlari', on_delete=models.CASCADE)
+    miqdor = models.PositiveIntegerField(default=1)
+
+    def __str__(self):
+        return f"{self.step} - {self.ehtiyot_qism.ehtiyotqism_nomi} ({self.miqdor} {self.ehtiyot_qism.birligi})"
+
+
+
+class NosozlikEhtiyotQism(models.Model):
+    nosozlik = models.ForeignKey("Nosozliklar", on_delete=models.CASCADE, related_name="ehtiyot_qism_aloqalari")
+    ehtiyot_qism = models.ForeignKey("EhtiyotQismlari", on_delete=models.CASCADE)
+    miqdor = models.PositiveIntegerField(default=1)
+
+    def __str__(self):
+        return f"{self.ehtiyot_qism.ehtiyotqism_nomi} - {self.miqdor} {self.ehtiyot_qism.birligi}"
+
+    def save(self, *args, **kwargs):
+        # Agar kerak bo'lsa, miqdorni float qilish yoki maxsus formatlash
+        if self.ehtiyot_qism.birligi.lower() == "litr" and not isinstance(self.miqdor, float):
+            self.miqdor = float(self.miqdor)
+        super().save(*args, **kwargs)
 
 
 
@@ -238,26 +270,29 @@ class Nosozliklar(models.Model):
     akt_file = models.FileField(upload_to="nosozlik_aktlar/", null=True, blank=True) 
 
     created_by = models.ForeignKey("CustomUser", on_delete=models.SET_NULL, null=True, blank=True)
-    approved = models.BooleanField(default=False)
-    approved_at = models.DateTimeField(null=True, blank=True)
-
+    yakunlash = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def save(self, *args, **kwargs):
+        # yangi yozuv bo‘lsa
         if not self.id:
-            self.dastlabki_holat = self.tarkib.holati
+            self.aniqlangan_vaqti = timezone.now()
             self.status = Nosozliklar.Status.JARAYONDA
             self.tarkib.holati = "Nosozlikda"
             self.tarkib.save()
+        else:
+            old = Nosozliklar.objects.filter(id=self.id).first()
+            if old:
+                self.aniqlangan_vaqti = old.aniqlangan_vaqti
 
-        # ✅ tugatishda akt fayl yuklanadi
-        if self.akt_file and self.status != Nosozliklar.Status.BARTARAF_ETILDI:
-            if not self.bartaraf_etilgan_nosozliklar:
-                raise ValueError("Nosozlik tugatish uchun 'bartaraf etilgan nosozliklar' yozilishi shart.")
-            self.status = Nosozliklar.Status.BARTARAF_ETILDI
-            self.bartarafqilingan_vaqti = timezone.now()
-            self.tarkib.holati = "Soz_holatda"
-            self.tarkib.save()
+        # ✅ yakunlash sharti
+        if self.yakunlash:
+            if not self.bartarafqilingan_vaqti or not self.akt_file:
+                raise ValueError("Yakunlash uchun bartaraf etilgan vaqt va akt fayl majburiy!")
+            if self.status != Nosozliklar.Status.BARTARAF_ETILDI:
+                self.status = Nosozliklar.Status.BARTARAF_ETILDI
+                self.tarkib.holati = "Soz_holatda"
+                self.tarkib.save()
 
         super().save(*args, **kwargs)
 
@@ -271,3 +306,40 @@ class Nosozliklar(models.Model):
             through_obj = NosozlikEhtiyotQism.objects.get(nosozlik=self, ehtiyot_qism=eq)
             result.append(f"{eq.ehtiyotqism_nomi} - {through_obj.miqdor} {eq.birligi}")
         return result
+
+
+
+
+class NosozlikStep(models.Model):
+    class Status(models.TextChoices):
+        JARAYONDA = "Jarayonda", "Jarayonda"
+        BARTARAF_ETILDI = "Yakunlandi", "Yakunlandi"
+
+    nosozlik = models.ForeignKey(Nosozliklar, on_delete=models.CASCADE, related_name="steps")
+    tamir_turi = models.ForeignKey('TamirTuri', on_delete=models.SET_NULL, null=True, blank=True)
+    ehtiyot_qismlar = models.ManyToManyField(
+        'EhtiyotQismlari',
+        through='NosozlikEhtiyotQismStep',
+        blank=True
+    )
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.JARAYONDA)
+    nosozliklar_haqida = models.TextField(blank=True)
+    bartaraf_etilgan_nosozliklar = models.TextField(blank=True)
+    akt_file = models.FileField(upload_to='nosozlik_step_aktlar/', null=True, blank=True)
+    bartaraf_qilingan_vaqti = models.DateTimeField(null=True, blank=True)
+    created_by = models.ForeignKey('CustomUser', on_delete=models.SET_NULL, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def save(self, *args, **kwargs):
+        # Step faqat yakunlanmagan nosozliklarga qo‘shiladi
+        if self.nosozlik.status == Nosozliklar.Status.BARTARAF_ETILDI:
+            raise ValueError("Bu nosozlik yakunlangan, yangi step qo'shib bo'lmaydi!")
+
+        # Agar step yakunlanayotgan bo‘lsa
+        if self.bartaraf_qilingan_vaqti and self.akt_file:
+            self.status = self.Status.BARTARAF_ETILDI
+
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.nosozlik.tarkib} — Step ({self.status})"
