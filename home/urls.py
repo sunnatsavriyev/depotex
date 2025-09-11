@@ -6,7 +6,7 @@ from .views import (
     EhtiyotQismlariViewSet, HarakatTarkibiViewSet,
     TexnikKorikViewSet, UserViewSet, NosozliklarViewSet,
     HarakatTarkibiGetViewSet, NosozliklarGetViewSet,
-    TexnikKorikGetViewSet, TexnikKorikStepViewSet,NosozlikStepViewSet,
+    TexnikKorikGetViewSet, TexnikKorikStepViewSet,NosozlikStepViewSet,KorikNosozlikStatisticsView,
     get_me
 )
 
@@ -30,6 +30,7 @@ nosozlik_router.register(r"steps", NosozlikStepViewSet, basename="nosozlik-steps
 
 
 urlpatterns = [
+    path("korik-nosozlik/", KorikNosozlikStatisticsView.as_view(), name="korik-nosozlik-statistics"),
     path("users/", UserViewSet.as_view({"get": "list", "post": "create"})),  
     path("", include(router.urls)),           # asosiy router
     path("", include(korik_router.urls)),    # nested router (steps)

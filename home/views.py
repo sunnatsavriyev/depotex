@@ -3,11 +3,10 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.http import HttpResponse
-from reportlab.pdfgen import canvas
 from openpyxl import Workbook
 from .models import (
     TamirTuri, ElektroDepo, EhtiyotQismlari,
-    HarakatTarkibi, TexnikKorik, CustomUser, Nosozliklar, TexnikKorikEhtiyotQism, NosozlikEhtiyotQism, TexnikKorikStep,
+    HarakatTarkibi, TexnikKorik, CustomUser, Nosozliklar, NosozlikEhtiyotQism, TexnikKorikStep,
 )
 from .serializers import (
     TamirTuriSerializer, ElektroDepoSerializer,
@@ -28,7 +27,12 @@ from reportlab.lib.styles import getSampleStyleSheet
 import requests
 import django_filters
 from rest_framework.exceptions import ValidationError
-
+from reportlab.platypus import Paragraph, Spacer, HRFlowable, Image
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from django.db.models import Count
+from django.utils.timezone import now
+from datetime import timedelta
+from rest_framework.views import APIView
 
 class UserViewSet(viewsets.ModelViewSet):
     queryset = CustomUser.objects.all()
@@ -99,25 +103,28 @@ class BaseViewSet(viewsets.ModelViewSet):
 
     def generate_pdf_detail(self, filename, title, data_list):
         buffer = io.BytesIO()
-        doc = SimpleDocTemplate(
-            buffer,
-            pagesize=A4,
-            title=title
-        )
+        doc = SimpleDocTemplate(buffer, pagesize=A4, title=title)
 
         styles = getSampleStyleSheet()
+        # Rangli va chiroyli style’lar
+        title_style = ParagraphStyle('title_style', parent=styles['Title'], textColor=colors.darkblue)
+        header_style = ParagraphStyle('header_style', parent=styles['Heading2'], backColor=colors.lightblue, textColor=colors.white)
+        step_style = ParagraphStyle('step_style', parent=styles['Heading3'], textColor=colors.darkgreen)
+        field_style = ParagraphStyle('field_style', parent=styles['Normal'], textColor=colors.black, leftIndent=10)
+        eq_style = ParagraphStyle('eq_style', parent=styles['Normal'], textColor=colors.purple, leftIndent=20)
+
         elements = []
 
-        # Title
-        elements.append(Paragraph(f"<b>{title}</b>", styles["Title"]))
+        # Document title
+        elements.append(Paragraph(f"{title}", title_style))
         elements.append(Spacer(1, 12))
 
-        # Har bir obyekt uchun alohida blok
         for idx, item in enumerate(data_list, start=1):
-            elements.append(Paragraph(f"<b>Obyekt #{idx}</b>", styles["Heading2"]))
+            # Asosiy obyekt
+            elements.append(Paragraph(f"Obyekt #{idx}", header_style))
             elements.append(Spacer(1, 6))
 
-            # 🔹 Avval IMAGE chiqadi
+            # IMAGE
             if "image" in item and item["image"]:
                 try:
                     img_resp = requests.get(item["image"], timeout=5)
@@ -126,30 +133,41 @@ class BaseViewSet(viewsets.ModelViewSet):
                         img = Image(img_data, width=120, height=80)
                         elements.append(img)
                         elements.append(Spacer(1, 6))
-                    else:
-                        elements.append(Paragraph("<b>image:</b> [Rasm yuklanmadi]", styles["Normal"]))
-                except Exception:
-                    elements.append(Paragraph("<b>image:</b> [Rasm yuklashda xato]", styles["Normal"]))
+                except:
+                    elements.append(Paragraph("<b>image:</b> [Rasm yuklashda xato]", field_style))
 
-            # 🔹 Keyin qolgan maydonlar
+            # Asosiy maydonlar
             for key, value in item.items():
                 if key.lower() == "image":
-                    continue  # image allaqachon chiqarildi
-                text = f'<font color="blue"><b>{key}:</b></font> {value}'
-                elements.append(Paragraph(text, styles["Normal"]))
-                elements.append(Spacer(1, 3))
+                    continue
+                if key == "steps" and isinstance(value, list):
+                    # Step’larni tartib bilan chiqarish
+                    for s_idx, step in enumerate(value, start=1):
+                        elements.append(Paragraph(f"{idx}.{s_idx} Step", step_style))
+                        for skey, svalue in step.items():
+                            if skey.lower() == "ehtiyot_qismlar_detail":
+                                # Ehtiyot qismlar ro'yxati
+                                for eq in svalue:
+                                    eq_text = f"- {eq.get('ehtiyotqism_nomi')} ({eq.get('birligi')}) x {eq.get('miqdor')}"
+                                    elements.append(Paragraph(eq_text, eq_style))
+                            else:
+                                elements.append(Paragraph(f"<b>{skey}:</b> {svalue}", field_style))
+                        elements.append(Spacer(1, 4))
+                    continue
 
-            # Ajratish chizig‘i
+                elements.append(Paragraph(f"<b>{key}:</b> {value}", field_style))
+                elements.append(Spacer(1, 2))
+
             elements.append(Spacer(1, 6))
             elements.append(HRFlowable(width="100%", color=colors.grey, thickness=0.7, lineCap='round'))
             elements.append(Spacer(1, 12))
 
         doc.build(elements)
-
         buffer.seek(0)
         response = HttpResponse(buffer, content_type="application/pdf")
         response["Content-Disposition"] = f'attachment; filename="{filename}.pdf"'
         return response
+
 
     # 🔹 Action endpoint
     @action(detail=False, methods=["get"], url_path="export-pdf")
@@ -166,41 +184,54 @@ class BaseViewSet(viewsets.ModelViewSet):
         queryset = self.get_queryset()
         serializer = self.get_serializer(queryset, many=True)
 
-        # Kalitlarni o'zbekchaga o'zgartirish va maxsus nom berish
-        data = []
-        for obj in serializer.data:
-            new_obj = {}
-            for key, value in obj.items():
-                if key == "created_by":
-                    new_obj["Yaratdi"] = value
-                elif key == "created_at":
-                    new_obj["Yaratilgan vaqti"] = value
-                elif key == "eksplutatsiya_vaqti":
-                    new_obj["Eksplutatsiya masofasi (km)"] = value
-                else:
-                    new_obj[key] = value
-            data.append(new_obj)
-
         wb = Workbook()
         ws = wb.active
         ws.title = self.basename
 
-        # Ustun sarlavhalari
-        headers = list(data[0].keys()) if data else []
+        # Asosiy ustunlar + step uchun ustunlar
+        headers = [
+            "ID", "Tarkib", "Tarkib nomi", "Tamir turi", "Tamir turi nomi", 
+            "Status", "Kamchiliklar", "Ehtiyot qismlar", "Bartaraf etilgan", 
+            "Kirgan vaqti", "Yaratdi", "Yaratilgan vaqti",
+            "Step raqami", "Step kamchilik", "Step ehtiyot qismlar", 
+            "Step bartaraf etilgan", "Step yaratuvchi", "Step vaqti", "Step status"
+        ]
         ws.append(headers)
 
-        # Qiymatlarni bir xil joylashtirish
-        for obj in data:
-            row = []
-            for h in headers:
-                row.append(obj.get(h, ""))  # Agar qiymat yo'q bo'lsa, bo'sh qator
-            ws.append(row)
+        for obj in serializer.data:
+            # Ehtiyot qismlar
+            eq_text = ", ".join(f"{eq['ehtiyotqism_nomi']} ({eq['birligi']}) x {eq['miqdor']}" for eq in obj.get("ehtiyot_qismlar_detail", []))
 
-        # Ba'zi ustunlarga kenglik berish (ixtiyoriy, chiroyli ko'rinish uchun)
+            # Asosiy obyekt info
+            base_data = [
+                obj.get("id"), obj.get("tarkib"), obj.get("tarkib_nomi"), obj.get("tamir_turi"),
+                obj.get("tamir_turi_nomi"), obj.get("status"), obj.get("kamchiliklar_haqida"),
+                eq_text, obj.get("bartaraf_etilgan_kamchiliklar"), obj.get("kirgan_vaqti"),
+                obj.get("created_by"), obj.get("created_at")
+            ]
+
+            steps = obj.get("steps", [])
+            if steps:
+                for s_idx, step in enumerate(steps, start=1):
+                    step_eq = ", ".join(f"{eq['ehtiyotqism_nomi']} ({eq['birligi']}) x {eq['miqdor']}" for eq in step.get("ehtiyot_qismlar_detail", []))
+                    step_data = [
+                        f"{s_idx}",  # Step raqami
+                        step.get("kamchiliklar_haqida", ""),
+                        step_eq,
+                        step.get("bartaraf_etilgan_kamchiliklar", ""),
+                        step.get("created_by", ""),
+                        step.get("created_at", ""),
+                        step.get("status", "")
+                    ]
+                    ws.append(base_data + step_data)
+            else:
+                # Step bo'lmasa, faqat obyekt
+                ws.append(base_data + [""]*7)
+
+        # Kenglik berish
         for col in ws.columns:
             max_length = max(len(str(cell.value)) if cell.value else 0 for cell in col)
-            adjusted_width = (max_length + 2)
-            ws.column_dimensions[col[0].column_letter].width = adjusted_width
+            ws.column_dimensions[col[0].column_letter].width = max_length + 2
 
         response = HttpResponse(
             content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -208,6 +239,8 @@ class BaseViewSet(viewsets.ModelViewSet):
         response["Content-Disposition"] = f'attachment; filename="{self.basename}.xlsx"'
         wb.save(response)
         return response
+
+
 
 class TamirTuriViewSet(BaseViewSet):
     queryset = TamirTuri.objects.all()
@@ -328,46 +361,7 @@ class TexnikKorikGetViewSet(mixins.ListModelMixin,
 
 
 
-# class TexnikKorikViewSet(viewsets.ModelViewSet):
-#     queryset = (
-#         TexnikKorik.objects
-#         .select_related("tarkib", "tamir_turi", "created_by")
-#         .prefetch_related("ehtiyot_qismlar")
-#         .order_by("-id")
-#     )
-#     serializer_class = TexnikKorikSerializer
-#     permission_classes = [IsAuthenticated, CustomPermission]
-
-#     @action(detail=True, methods=["get", "post"], url_path="add-note")
-#     def add_note(self, request, pk=None):
-#         korik = self.get_object()
-
-#         if request.method == "GET":
-#             # Shu korik va uning stepsni ko‘rsatish
-#             steps = korik.steps.all().order_by("id")
-#             return Response(TexnikKorikSerializer([korik]+list(steps), many=True).data)
-
-#         ehtiyot_qismlar = request.data.get("ehtiyot_qismlar", [])
-#         kamchilik = request.data.get("kamchiliklar_haqida", None)
-#         bartaraf = request.data.get("bartaraf_etilgan_kamchiliklar", None)
-
-#         # 🔹 Yangi step yaratish
-#         serializer = TexnikKorikSerializer(
-#             data=request.data, context={"request": request}
-#         )
-#         serializer.is_valid(raise_exception=True)
-#         new_step = serializer.save(parent=korik)
-
-#         # 🔹 Matn maydonlarini append
-#         if kamchilik:
-#             new_step.kamchiliklar_haqida = (korik.kamchiliklar_haqida or "") + f"\n{kamchilik}"
-#         if bartaraf:
-#             new_step.bartaraf_etilgan_kamchiliklar = (korik.bartaraf_etilgan_kamchiliklar or "") + f"\n{bartaraf}"
-#         new_step.save()
-
-#         return Response(TexnikKorikSerializer(new_step).data, status=status.HTTP_201_CREATED)
-
-class TexnikKorikViewSet(viewsets.ModelViewSet):
+class TexnikKorikViewSet(BaseViewSet):
     queryset = TexnikKorik.objects.prefetch_related("steps").all().order_by("-id")
     serializer_class = TexnikKorikSerializer
     permission_classes = [IsAuthenticated, CustomPermission]
@@ -483,7 +477,7 @@ class NosozlikStepViewSet(viewsets.ModelViewSet):
         instance.delete()
 
 
-class NosozliklarViewSet(viewsets.ModelViewSet):
+class NosozliklarViewSet(BaseViewSet):
     queryset = (
         Nosozliklar.objects
         .select_related("tarkib", "created_by") 
@@ -551,3 +545,76 @@ class NosozliklarViewSet(viewsets.ModelViewSet):
             nosozlik.bartaraf_etilgan_nosozliklar = (nosozlik.bartaraf_etilgan_nosozliklar or "") + f"\n{bartaraf}"
         nosozlik.save()
         return Response(NosozliklarSerializer(nosozlik).data, status=status.HTTP_200_OK)
+    
+class KorikNosozlikStatisticsView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        today = now().date()
+        first_day_this_month = today.replace(day=1)
+        first_day_last_month = (first_day_this_month - timedelta(days=1)).replace(day=1)
+        last_day_last_month = first_day_this_month - timedelta(days=1)
+
+        # 1) Umumiy texnik ko‘riklar soni
+        total_korik = TexnikKorik.objects.count()
+
+        # 2) Umumiy nosozliklar soni
+        total_nosozlik = Nosozliklar.objects.count()
+
+        # 3) Oxirgi oyda bajarilgan texnik ko‘riklar soni
+        last_month_korik = TexnikKorik.objects.filter(
+            created_at__date__gte=first_day_last_month,
+            created_at__date__lte=last_day_last_month
+        ).count()
+
+        # 4) Oxirgi oydagi nosozliklar soni
+        last_month_nosozlik = Nosozliklar.objects.filter(
+            created_at__date__gte=first_day_last_month,
+            created_at__date__lte=last_day_last_month
+        ).count()
+
+        # 5) Eng ko‘p texnik ko‘rik va nosozlik qayd etilgan 5 ta tarkib
+        korik_counts = (
+            TexnikKorik.objects.values("tarkib__id", "tarkib__tarkib_raqami", "tarkib__turi")
+            .annotate(total=Count("id"))
+        )
+        nosozlik_counts = (
+            Nosozliklar.objects.values("tarkib__id", "tarkib__tarkib_raqami", "tarkib__turi")
+            .annotate(total=Count("id"))
+        )
+
+        combined = {}
+
+        # Texnik ko‘riklardan yig‘ish
+        for item in korik_counts:
+            tid = item["tarkib__id"]
+            combined[tid] = {
+                "id": tid,
+                "raqam": item["tarkib__tarkib_raqami"],
+                "turi": item["tarkib__turi"],
+                "total": combined.get(tid, {}).get("total", 0) + item["total"],
+            }
+
+        # Nosozliklardan yig‘ish
+        for item in nosozlik_counts:
+            tid = item["tarkib__id"]
+            if tid in combined:
+                combined[tid]["total"] += item["total"]
+            else:
+                combined[tid] = {
+                    "id": tid,
+                    "raqam": item["tarkib__tarkib_raqami"],
+                    "turi": item["tarkib__turi"],
+                    "total": item["total"],
+                }
+
+        # eng ko‘pdan eng kamgacha saralash
+        top_5_tarkib = sorted(combined.values(), key=lambda x: x["total"], reverse=True)[:5]
+
+        return Response({
+            "total_korik": total_korik,
+            "total_nosozlik": total_nosozlik,
+            "last_month_korik": last_month_korik,
+            "last_month_nosozlik": last_month_nosozlik,
+            "top_5_tarkib": top_5_tarkib,
+        })
