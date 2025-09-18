@@ -129,33 +129,8 @@ SIMPLE_JWT = {
     "AUTH_HEADER_TYPES": ("Bearer",),
 }
 
-# CORS_ALLOW_ALL_ORIGINS = env.bool("CORS_ALLOW_ALL_ORIGINS", default=False)
-CORS_ALLOWED_ORIGINS = env.list("CORS_ALLOWED_ORIGINS", default=[
-    "http://localhost:5173",
-    "http://localhost:5174",
-    "http://127.0.0.1:5173",
-    "http://192.168.0.28:5173",
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-    "http://192.168.0.123:5173",
-    "http://192.168.0.123:5174",
-    "https://marketing-five-rose.vercel.app",
-    "https://2abfcea964d1.ngrok-free.app",
-    "http://localhost:9000",
-])
+CORS_ALLOW_ALL_ORIGINS = True
 CORS_ALLOW_CREDENTIALS = True
-
-CSRF_TRUSTED_ORIGINS = env.list("CSRF_TRUSTED_ORIGINS", default=[
-    "http://localhost:5173",
-    "http://localhost:5174",
-    "http://127.0.0.1:5173",
-    "http://192.168.0.28:5173",
-    "http://192.168.0.123:5173",
-    "http://192.168.0.123:5174",
-    "https://marketing-five-rose.vercel.app",
-    "https://2abfcea964d1.ngrok-free.app",
-    "http://localhost:9000",
-])
 
 AUTH_USER_MODEL = "home.CustomUser"
 

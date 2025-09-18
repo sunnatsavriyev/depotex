@@ -1,13 +1,13 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
+from rest_framework_nested import routers
 from .views import (
     TamirTuriViewSet, ElektroDepoViewSet,
     EhtiyotQismlariViewSet, HarakatTarkibiViewSet,
     TexnikKorikViewSet, UserViewSet, NosozliklarViewSet,
     HarakatTarkibiGetViewSet, NosozliklarGetViewSet,
-    TexnikKorikGetViewSet, TexnikKorikStepViewSet,
-    NosozlikStepViewSet, KorikNosozlikStatisticsView,
-    KunlikYurishViewSet, get_me
+    TexnikKorikGetViewSet, TexnikKorikStepViewSet,NosozlikStepViewSet,KorikNosozlikStatisticsView,KunlikYurishViewSet,
+    get_me
 )
 
 # 🔹 Main router
@@ -20,14 +20,22 @@ router.register(r"nosozliklar", NosozliklarViewSet)
 router.register(r"texnik-korik", TexnikKorikViewSet, basename="texnik-korik")
 router.register(r"kunlik-yurish", KunlikYurishViewSet, basename="kunlik-yurish")
 
-# 🔹 Steps end-pointlarini alohida ro‘yxatdan o‘tkazamiz (nested emas)
-router.register(r"texnik-korik-steps", TexnikKorikStepViewSet, basename="texnik-korik-steps")
-router.register(r"nosozlik-steps", NosozlikStepViewSet, basename="nosozlik-steps")
+# 🔹 Nested router (steps uchun)
+korik_router = routers.NestedDefaultRouter(router, r"texnik-korik", lookup="korik")
+korik_router.register(r"steps", TexnikKorikStepViewSet, basename="texnik-korik-steps")
+
+# 🔹 Nested router (steps uchun)
+nosozlik_router = routers.NestedDefaultRouter(router, r"nosozliklar", lookup="nosozlik")
+nosozlik_router.register(r"steps", NosozlikStepViewSet, basename="nosozlik-steps")
+
+
 
 urlpatterns = [
     path("korik-nosozlik/", KorikNosozlikStatisticsView.as_view(), name="korik-nosozlik-statistics"),
-    path("users/", UserViewSet.as_view({"get": "list", "post": "create"})),
-    path("", include(router.urls)),  # faqat bitta router, nested yo‘q
+    path("users/", UserViewSet.as_view({"get": "list", "post": "create"})),  
+    path("", include(router.urls)),           # asosiy router
+    path("", include(korik_router.urls)),    # nested router (steps)
+    path("", include(nosozlik_router.urls)),
     path("me/", get_me, name="get_me"),
     path("harakat-tarkibi-get/", HarakatTarkibiGetViewSet.as_view({"get": "list"}), name="harakat-tarkibi-get"),
     path("nosozliklar-get/", NosozliklarGetViewSet.as_view({"get": "list"}), name="nosozliklar-get"),

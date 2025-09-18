@@ -510,12 +510,15 @@ class TexnikKorikStepViewSet(BaseViewSet):
     permission_classes = [IsAuthenticated, CustomPermission]
     pagination_class = CustomPagination
     filter_backends = [filters.SearchFilter, filters.OrderingFilter, DjangoFilterBackend]
+
     search_fields = [
-    "id",
-    "kamchiliklar_haqida",
-    "bartaraf_etilgan_kamchiliklar",
-    "created_by__username",
-]
+        "id",
+        "kamchiliklar_haqida",
+        "bartaraf_etilgan_kamchiliklar",
+        "created_by__username",
+        "korik__tarkib__tarkib_raqami",  
+        "tamir_turi__tamir_nomi",        
+    ]
 
 
     def get_queryset(self):
