@@ -6,13 +6,14 @@ from django.http import HttpResponse
 from openpyxl import Workbook
 from .models import (
     TamirTuri, ElektroDepo, EhtiyotQismlari,
-    HarakatTarkibi, TexnikKorik, CustomUser, Nosozliklar, NosozlikEhtiyotQism, TexnikKorikStep,
+    HarakatTarkibi, TexnikKorik, CustomUser, Nosozliklar, NosozlikEhtiyotQism, TexnikKorikStep,KunlikYurish
 )
 from .serializers import (
     TamirTuriSerializer, ElektroDepoSerializer,
     EhtiyotQismlariSerializer, HarakatTarkibiSerializer,
-    TexnikKorikSerializer, UserSerializer, NosozliklarSerializer, TexnikKorikStepSerializer, NosozlikStepSerializer, NosozlikStep
+    TexnikKorikSerializer, UserSerializer, NosozliklarSerializer, TexnikKorikStepSerializer, NosozlikStepSerializer, NosozlikStep,KunlikYurishSerializer
 )
+from django.db.models import Sum
 from .permissions import CustomPermission
 from django.contrib.auth import authenticate
 from .pagination import CustomPagination
@@ -33,6 +34,7 @@ from django.db.models import Count
 from django.utils.timezone import now
 from datetime import timedelta
 from rest_framework.views import APIView
+from drf_spectacular.utils import extend_schema, OpenApiParameter
 
 class UserViewSet(viewsets.ModelViewSet):
     queryset = CustomUser.objects.all()
@@ -66,6 +68,11 @@ class BaseViewSet(viewsets.ModelViewSet):
     filter_backends = [filters.SearchFilter, filters.OrderingFilter, DjangoFilterBackend]
     search_fields = []  
     ordering_fields = "__all__"
+    
+    def get_queryset(self):
+        if self.queryset is not None:
+            return self.queryset
+        return self.serializer_class.Meta.model.objects.none()
 
     def get_serializer_context(self):
         context = super().get_serializer_context()
@@ -140,13 +147,13 @@ class BaseViewSet(viewsets.ModelViewSet):
             for key, value in item.items():
                 if key.lower() == "image":
                     continue
-                if key == "steps" and isinstance(value, list):
-                    # Step’larni tartib bilan chiqarish
-                    for s_idx, step in enumerate(value, start=1):
-                        elements.append(Paragraph(f"{idx}.{s_idx} Step", step_style))
+                if key == "steps" and isinstance(value, dict):
+                    results = value.get("results", [])
+                    for s_idx, step in enumerate(results, start=1):
+                        elements.append(Paragraph(f"{idx},{s_idx} Step", step_style))
                         for skey, svalue in step.items():
                             if skey.lower() == "ehtiyot_qismlar_detail":
-                                # Ehtiyot qismlar ro'yxati
+                                # Step ehtiyot qismlar
                                 for eq in svalue:
                                     eq_text = f"- {eq.get('ehtiyotqism_nomi')} ({eq.get('birligi')}) x {eq.get('miqdor')}"
                                     elements.append(Paragraph(eq_text, eq_style))
@@ -155,6 +162,15 @@ class BaseViewSet(viewsets.ModelViewSet):
                         elements.append(Spacer(1, 4))
                     continue
 
+                if key.lower() == "ehtiyot_qismlar_detail" and isinstance(value, list):
+                    # Asosiy obyekt ehtiyot qismlarini ham chiroyli chiqaramiz
+                    for eq in value:
+                        eq_text = f"- {eq.get('ehtiyotqism_nomi')} ({eq.get('birligi')}) x {eq.get('miqdor')}"
+                        elements.append(Paragraph(eq_text, eq_style))
+                    elements.append(Spacer(1, 4))
+                    continue
+
+                # Oddiy maydonlar
                 elements.append(Paragraph(f"<b>{key}:</b> {value}", field_style))
                 elements.append(Spacer(1, 2))
 
@@ -212,8 +228,15 @@ class BaseViewSet(viewsets.ModelViewSet):
 
             steps = obj.get("steps", [])
             if steps:
+                # steps dict bo'lsa -> results ichidan olish
+                if isinstance(steps, dict):
+                    steps = steps.get("results", [])
+
                 for s_idx, step in enumerate(steps, start=1):
-                    step_eq = ", ".join(f"{eq['ehtiyotqism_nomi']} ({eq['birligi']}) x {eq['miqdor']}" for eq in step.get("ehtiyot_qismlar_detail", []))
+                    step_eq = ", ".join(
+                        f"{eq['ehtiyotqism_nomi']} ({eq['birligi']}) x {eq['miqdor']}"
+                        for eq in step.get("ehtiyot_qismlar_detail", [])
+                    )
                     step_data = [
                         f"{s_idx}",  # Step raqami
                         step.get("kamchiliklar_haqida", ""),
@@ -225,8 +248,8 @@ class BaseViewSet(viewsets.ModelViewSet):
                     ]
                     ws.append(base_data + step_data)
             else:
-                # Step bo'lmasa, faqat obyekt
                 ws.append(base_data + [""]*7)
+
 
         # Kenglik berish
         for col in ws.columns:
@@ -283,6 +306,22 @@ class HarakatTarkibiViewSet(BaseViewSet):
     basename = "Harakat Tarkibi"
     permission_classes = [IsAuthenticated, CustomPermission]
     require_login_fields = False
+    def get_queryset(self):
+        user = self.request.user
+
+        # superuser hammasini ko‘radi
+        if user.is_superuser:
+            return HarakatTarkibi.objects.all().order_by("-id")
+
+        # texnik faqat o‘z deposidagi tarkiblarni ko‘radi
+        if user.role == "texnik" and user.depo:
+            return HarakatTarkibi.objects.all().order_by("-id")
+
+        # monitoring hammasini faqat o‘qiy oladi
+        if user.role == "monitoring":
+            return HarakatTarkibi.objects.all().order_by("-id")
+
+        return HarakatTarkibi.objects.none()
     pagination_class = CustomPagination
     filter_backends = [filters.SearchFilter, filters.OrderingFilter, DjangoFilterBackend]
     search_fields = ['guruhi','tarkib_raqami','turi','ishga_tushgan_vaqti','eksplutatsiya_vaqti']   
@@ -290,7 +329,7 @@ class HarakatTarkibiViewSet(BaseViewSet):
 
 
 class HarakatTarkibiGetViewSet(BaseViewSet):
-    queryset = HarakatTarkibi.objects.all().order_by("-id")
+    queryset = HarakatTarkibi.objects.annotate(total_kilometr=Sum("kunlik_yurishlar__kilometr")).order_by("-id")
     serializer_class = HarakatTarkibiSerializer
     basename = "Harakat Tarkibi"
     permission_classes = [IsAuthenticated, CustomPermission]
@@ -299,7 +338,8 @@ class HarakatTarkibiGetViewSet(BaseViewSet):
     filter_backends = [filters.SearchFilter, filters.OrderingFilter, DjangoFilterBackend]
     search_fields = ['guruhi', 'tarkib_raqami', 'turi', 'ishga_tushgan_vaqti', 'eksplutatsiya_vaqti']
     ordering_fields = ['ishga_tushgan_vaqti', 'id']
-    filterset_fields = ['depo']   
+    filterset_fields = ['depo']
+
 
     @action(detail=False, methods=["get"], url_path="by-depo")
     def by_depo(self, request):
@@ -315,6 +355,66 @@ class HarakatTarkibiGetViewSet(BaseViewSet):
 
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
+
+
+
+class KunlikYurishViewSet(BaseViewSet):
+    serializer_class = KunlikYurishSerializer
+    permission_classes = [IsAuthenticated, CustomPermission]
+    pagination_class = CustomPagination
+
+    def get_queryset(self):
+        user = self.request.user
+        qs = KunlikYurish.objects.select_related("tarkib", "created_by")
+
+        if user.role == "texnik" and user.depo:
+            qs = qs.filter(tarkib__depo=user.depo)
+            
+            
+        if self.action == "list":
+            qs = qs.filter(tarkib__holati="Soz_holatda")
+
+        return qs.order_by("-sana", "-id")
+
+    def perform_create(self, serializer):
+        user = self.request.user
+        tarkib = serializer.validated_data["tarkib"]
+
+        if user.role == "texnik" and tarkib.depo != user.depo:
+            raise PermissionDenied("Siz faqat o‘z depo tarkiblaringiz uchun ma’lumot qo‘shishingiz mumkin.")
+
+        serializer.save(created_by=user)
+
+    # 🔹  Umumiy jami yurilgan km
+    @action(detail=True, methods=["get"])
+    def total(self, request, pk=None):
+        tarkib = self.get_object().tarkib
+        total_km = KunlikYurish.objects.filter(tarkib=tarkib).aggregate(Sum("kilometr"))["kilometr__sum"] or 0
+        return Response({"tarkib": tarkib.tarkib_raqami, "total_km": total_km})
+
+    # 🔹 Sana bo‘yicha hisoblash
+    @action(detail=False, methods=["get"])
+    def by_date(self, request):
+        tarkib_id = request.query_params.get("tarkib_id")
+        sana = request.query_params.get("sana")  # YYYY-MM-DD format
+
+        if not tarkib_id or not sana:
+            return Response({"error": "tarkib_id va sana kerak"}, status=400)
+
+        qs = KunlikYurish.objects.filter(tarkib_id=tarkib_id)
+
+        # o‘sha kunda nechchi km
+        daily_km = qs.filter(sana=sana).aggregate(Sum("kilometr"))["kilometr__sum"] or 0
+
+        # shu kungacha jami km
+        total_until = qs.filter(sana__lte=sana).aggregate(Sum("kilometr"))["kilometr__sum"] or 0
+
+        return Response({
+            "tarkib_id": tarkib_id,
+            "sana": sana,
+            "daily_km": daily_km,
+            "total_until": total_until
+        })
 
 
 
@@ -365,7 +465,33 @@ class TexnikKorikViewSet(BaseViewSet):
     queryset = TexnikKorik.objects.prefetch_related("steps").all().order_by("-id")
     serializer_class = TexnikKorikSerializer
     permission_classes = [IsAuthenticated, CustomPermission]
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter, DjangoFilterBackend]
+    search_fields = [
+        "tarkib__tarkib_raqami",
+        "tamir_turi__tamir_nomi",
+        "created_by__username",
+        "id",
+    ]
+    pagination_class = CustomPagination
+    def get_queryset(self):
+        user = self.request.user
+        qs = TexnikKorik.objects.prefetch_related("steps").order_by("-id")
 
+        if user.role == "texnik" and user.depo:
+            qs = qs.filter(tarkib__depo=user.depo)
+        return qs
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(name="page", type=int, location=OpenApiParameter.QUERY, description="Step pagination page"),
+            OpenApiParameter(name="limit", type=int, location=OpenApiParameter.QUERY, description="Step page size"),
+            OpenApiParameter(name="search", type=str, location=OpenApiParameter.QUERY, description="Step search"),
+        ]
+    )
+    def retrieve(self, request, *args, **kwargs):
+        """Detail with steps pagination"""
+        return super().retrieve(request, *args, **kwargs)
+    
     @action(detail=True, methods=["post"], url_path="add-step")
     def add_step(self, request, pk=None):
         korik = self.get_object()
@@ -379,23 +505,35 @@ class TexnikKorikViewSet(BaseViewSet):
         return Response(TexnikKorikStepSerializer(step).data, status=status.HTTP_201_CREATED)
 
 
-class TexnikKorikStepViewSet(viewsets.ModelViewSet):
+class TexnikKorikStepViewSet(BaseViewSet):
     serializer_class = TexnikKorikStepSerializer
     permission_classes = [IsAuthenticated, CustomPermission]
+    pagination_class = CustomPagination
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter, DjangoFilterBackend]
+    search_fields = [
+    "id",
+    "kamchiliklar_haqida",
+    "bartaraf_etilgan_kamchiliklar",
+    "created_by__username",
+]
+
 
     def get_queryset(self):
-        korik_id = self.kwargs.get("korik_pk")  # nested lookup
-        return TexnikKorikStep.objects.filter(korik_id=korik_id).order_by("-id")
+            user = self.request.user
+            qs = TexnikKorikStep.objects.all().order_by("-id")
+
+            if user.role == "texnik" and user.depo:
+                qs = qs.filter(korik__tarkib__depo=user.depo)
+
+            return qs
 
     def perform_create(self, serializer):
-        user = self.request.user
-        korik_id = self.kwargs.get("korik_pk")
-        korik = TexnikKorik.objects.filter(id=korik_id).first()
+        korik = serializer.validated_data.get("korik")
 
         if not korik or korik.status != TexnikKorik.Status.JARAYONDA:
             raise ValidationError("Avval Texnik Korik boshlang yoki u tugallanmagan!")
 
-        serializer.save(created_by=user, korik=korik)
+        serializer.save(created_by=self.request.user)
 
 
 
@@ -462,8 +600,15 @@ class NosozlikStepViewSet(viewsets.ModelViewSet):
 
 
     def get_queryset(self):
+        user = self.request.user
         nosozlik_id = self.kwargs.get("nosozlik_pk")
-        return NosozlikStep.objects.filter(nosozlik_id=nosozlik_id)
+        qs = NosozlikStep.objects.filter(nosozlik_id=nosozlik_id)
+
+        # faqat texnik foydalanuvchilar uchun depoga qarab filterlash
+        if user.role == "texnik" and user.depo_id:
+            qs = qs.filter(nosozlik__tarkib__depo=user.depo)
+
+        return qs
     
     def perform_update(self, serializer):
         instance = self.get_object()
@@ -496,6 +641,16 @@ class NosozliklarViewSet(BaseViewSet):
     ]
     ordering_fields = ["created_at", "approved_at", "aniqlangan_vaqti"]
     pagination_class = CustomPagination
+    
+    def get_queryset(self):
+        user = self.request.user
+        qs = Nosozliklar.objects.all()
+
+        # texnik bo‘lsa faqat o‘z deposidagilar
+        if user.role == "texnik" and user.depo_id:
+            qs = qs.filter(tarkib__depo=user.depo)
+
+        return qs
 
     def perform_update(self, serializer):
         instance = self.get_object()
@@ -545,6 +700,8 @@ class NosozliklarViewSet(BaseViewSet):
             nosozlik.bartaraf_etilgan_nosozliklar = (nosozlik.bartaraf_etilgan_nosozliklar or "") + f"\n{bartaraf}"
         nosozlik.save()
         return Response(NosozliklarSerializer(nosozlik).data, status=status.HTTP_200_OK)
+   
+   
     
 class KorikNosozlikStatisticsView(APIView):
     permission_classes = [IsAuthenticated]

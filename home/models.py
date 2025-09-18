@@ -11,21 +11,43 @@ class CustomUser(AbstractUser):
     ]
     role = models.CharField(max_length=20, choices=ROLE_CHOICES)
 
+    depo = models.ForeignKey(
+        "ElektroDepo",
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name="users"
+    )
+
     def __str__(self):
-        return f"{self.username} - {self.role}"
+        return f"{self.username} - {self.role} ({self.depo.qisqacha_nomi if self.depo else 'Depo yo‘q'})"
+
 
 
 class TamirTuri(models.Model):
     tamir_nomi = models.CharField(max_length=255)
+
+    # masofa uchun
     tamirlash_davri = models.CharField(
         max_length=50,
         help_text="Masofa bo‘yicha: 5505 ± 10 km"
     )
-    tamirlanish_vaqti = models.CharField(
-        max_length=50,
-        help_text="Masalan: 1 soat, 6 oy, 30 daqiqa",
-        default="1 soat"
+
+    # vaqt uchun
+    Vaqt_Choices = [
+        ("soat", "Soat"),
+        ("kun", "Kun"),
+        ("oy", "Oy"),
+    ]
+    tamirlanish_miqdori = models.PositiveIntegerField(
+        null=True, blank=True,
+        help_text="Vaqt soni: masalan, 4"
     )
+    tamirlanish_vaqti = models.CharField(
+        max_length=10,
+        choices=Vaqt_Choices,
+        help_text="Vaqt birligi: soat/kun/oy"
+    )
+
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -35,7 +57,8 @@ class TamirTuri(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        return self.tamir_nomi
+        # Masalan: "To-1 (5000 km, 4 soat)"
+        return f"{self.tamir_nomi} ({self.tamirlash_davri}, {self.tamirlanish_miqdori} {self.tamirlanish_vaqti})"
 
 
 class ElektroDepo(models.Model):
@@ -131,6 +154,30 @@ class HarakatTarkibi(models.Model):
 
     def __str__(self):
         return f"{self.tarkib_raqami} - {self.turi} ({self.holati})"
+    
+    
+    
+class KunlikYurish(models.Model):
+    tarkib = models.ForeignKey(
+        HarakatTarkibi,
+        on_delete=models.CASCADE,
+        related_name="kunlik_yurishlar"
+    )
+    sana = models.DateField(default=timezone.now)
+    kilometr = models.PositiveIntegerField(help_text="Yurilgan km")
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True, blank=True
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-sana", "-id"]
+
+    def __str__(self):
+        return f"{self.tarkib.tarkib_raqami} - {self.sana} - {self.kilometr} km"
+ 
 
 
 class TexnikKorik(models.Model):
@@ -146,6 +193,7 @@ class TexnikKorik(models.Model):
     bartaraf_etilgan_kamchiliklar = models.TextField(blank=True)
     kirgan_vaqti = models.DateTimeField(default=timezone.now)
     chiqqan_vaqti = models.DateTimeField(null=True, blank=True)
+    akt_file = models.FileField(upload_to="texnik_korik_aktlar/", null=True, blank=True)
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
     yakunlash = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)

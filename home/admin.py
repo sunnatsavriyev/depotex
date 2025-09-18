@@ -7,35 +7,32 @@ from .models import (
     EhtiyotQismlari,
     HarakatTarkibi,
     TexnikKorik,
-    Nosozliklar,
     TexnikKorikStep,
-    NosozlikStep
+    Nosozliklar,
+    NosozlikStep,
+    TexnikKorikEhtiyotQism,
+    TexnikKorikEhtiyotQismStep,
 )
 
-
+# ---------------- Custom User ----------------
 @admin.register(CustomUser)
 class CustomUserAdmin(UserAdmin):
     fieldsets = (
-        (None, {"fields": ("username", "password")}),
+        (None, {"fields": ("username", "password", "depo")}),
         ("Permissions", {"fields": ("is_active", "is_staff", "is_superuser", "groups", "user_permissions")}),
         ("Important dates", {"fields": ("last_login", "date_joined")}),
     )
-
     add_fieldsets = (
         (None, {
             "classes": ("wide",),
-            "fields": ("username", "password1", "password2", "role"),
+            "fields": ("username", "password1", "password2", "role", "depo"),
         }),
     )
-
-    list_display = ("username", "role", "is_staff", "is_superuser")
+    list_display = ("username", "role", "depo", "is_staff", "is_superuser")
     search_fields = ("username",)
     ordering = ("username",)
 
     def get_fieldsets(self, request, obj=None):
-        """
-        Superuser uchun role maydonini yashiramiz.
-        """
         fieldsets = super().get_fieldsets(request, obj)
         if obj and obj.is_superuser:
             new_fieldsets = []
@@ -48,9 +45,6 @@ class CustomUserAdmin(UserAdmin):
         return fieldsets
 
     def get_add_fieldsets(self, request):
-        """
-        Superuser qo‘shilganda role ni ko‘rsatmaymiz.
-        """
         fieldsets = super().get_add_fieldsets(request)
         if request.user.is_superuser:
             new_fieldsets = []
@@ -63,6 +57,48 @@ class CustomUserAdmin(UserAdmin):
         return fieldsets
 
 
+# ---------------- Inline Admin ----------------
+class TexnikKorikEhtiyotQismInline(admin.TabularInline):
+    model = TexnikKorikEhtiyotQism
+    extra = 1
+
+
+class TexnikKorikEhtiyotQismStepInline(admin.TabularInline):
+    model = TexnikKorikEhtiyotQismStep
+    extra = 1
+
+
+# ---------------- Texnik Korik ----------------
+@admin.register(TexnikKorik)
+class TexnikKorikAdmin(admin.ModelAdmin):
+    list_display = ("id", "tarkib", "status", "created_by", "created_at")
+    list_filter = ("status", "created_at")
+    search_fields = ("tarkib__tarkib_raqami", "created_by__username")
+    inlines = [TexnikKorikEhtiyotQismInline]  
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        if request.user.is_superuser or request.user.role == "monitoring":
+            return qs
+        if request.user.role == "texnik" and request.user.depo:
+            return qs.filter(tarkib__depo=request.user.depo)
+        return qs.none()
+
+    def save_model(self, request, obj, form, change):
+        if not obj.pk:
+            obj.created_by = request.user
+        super().save_model(request, obj, form, change)
+ 
+
+@admin.register(TexnikKorikStep)
+class TexnikKorikStepAdmin(admin.ModelAdmin):
+    list_display = ("id", "korik", "created_by", "created_at")
+    list_filter = ("created_at",)
+    search_fields = ("korik__tarkib__tarkib_raqami", "created_by__username")
+    inlines = [TexnikKorikEhtiyotQismStepInline]  
+
+
+# ---------------- Qolganlari ----------------
 @admin.register(TamirTuri)
 class TamirTuriAdmin(admin.ModelAdmin):
     list_display = ("id", "tamir_nomi", "tamirlash_davri", "tamirlanish_vaqti", "created_by", "created_at")
@@ -86,40 +122,29 @@ class EhtiyotQismlariAdmin(admin.ModelAdmin):
 @admin.register(HarakatTarkibi)
 class HarakatTarkibiAdmin(admin.ModelAdmin):
     list_display = (
-        "id",
-        "tarkib_raqami",
-        "turi",
-        "guruhi",
-        "depo",
-        "ishga_tushgan_vaqti",
-        "eksplutatsiya_vaqti",
-        "holati",
-        "created_by",
-        "created_at",
+        "id", "tarkib_raqami", "turi", "guruhi", "depo",
+        "ishga_tushgan_vaqti", "eksplutatsiya_vaqti", "holati",
+        "created_by", "created_at",
     )
     search_fields = ("tarkib_raqami", "turi", "guruhi")
     list_filter = ("depo", "holati")
-    readonly_fields = ("image",)  # rasmni ko‘rsatadi lekin tahrir qilmaydi
+    readonly_fields = ("image",)
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        if request.user.is_superuser or request.user.role == "monitoring":
+            return qs
+        if request.user.role == "texnik" and request.user.depo:
+            return qs.filter(depo=request.user.depo)
+        return qs.none()
+
+    def save_model(self, request, obj, form, change):
+        if not request.user.is_superuser and request.user.role == "texnik":
+            obj.depo = request.user.depo
+        obj.created_by = request.user
+        super().save_model(request, obj, form, change)
 
 
-
-
-@admin.register(TexnikKorik)
-class TexnikKorikAdmin(admin.ModelAdmin):
-    list_display = ("id", "tarkib", "status", "created_by", "created_at")
-    list_filter = ("status", "created_at")
-    search_fields = ("tarkib__tarkib_raqami", "created_by__username")
-
-@admin.register(TexnikKorikStep)
-class TexnikKorikStepAdmin(admin.ModelAdmin):
-    list_display = ("id", "korik", "created_by", "created_at")
-    list_filter = ("created_at",)
-    search_fields = ("korik__tarkib__tarkib_raqami", "created_by__username")
-
-
-
-
-# ---------------- Nosozliklar ----------------
 @admin.register(Nosozliklar)
 class NosozliklarAdmin(admin.ModelAdmin):
     list_display = (
@@ -136,7 +161,6 @@ class NosozliklarAdmin(admin.ModelAdmin):
     exclude = ("ehtiyot_qismlar",)
 
 
-# ---------------- Nosozlik step ----------------
 @admin.register(NosozlikStep)
 class NosozlikStepAdmin(admin.ModelAdmin):
     list_display = ("id", "nosozlik", "status", "created_by", "created_at")
