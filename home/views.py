@@ -614,30 +614,6 @@ class NosozliklarViewSet(viewsets.ModelViewSet):
     ordering_fields = ["created_at", "approved_at", "aniqlangan_vaqti"]
     pagination_class = CustomPagination
 
-    def get_queryset(self):
-        user = self.request.user
-        qs = Nosozliklar.objects.all().order_by("-id")
-
-        # texnik bo‘lsa faqat o‘z deposidagilar
-        if user.role == "texnik" and user.depo_id:
-            qs = qs.filter(tarkib__depo=user.depo)
-
-        return qs
-
-    def perform_create(self, serializer):
-        serializer.save(created_by=self.request.user)
-
-    def perform_update(self, serializer):
-        instance = self.get_object()
-        if instance.created_by != self.request.user and not self.request.user.is_superuser:
-            raise PermissionDenied("Siz faqat o‘z yozuvlaringizni tahrirlashingiz mumkin.")
-        serializer.save()
-
-    def perform_destroy(self, instance):
-        if instance.created_by != self.request.user and not self.request.user.is_superuser:
-            raise PermissionDenied("Siz faqat o‘z yozuvlaringizni o‘chira olasiz.")
-        instance.delete()
-
     @extend_schema(
         parameters=[
             OpenApiParameter(name="page", type=int, location=OpenApiParameter.QUERY, description="Step pagination page"),
@@ -646,8 +622,40 @@ class NosozliklarViewSet(viewsets.ModelViewSet):
         ]
     )
     def retrieve(self, request, *args, **kwargs):
-        """Detail + steps paginated"""
-        return super().retrieve(request, *args, **kwargs)
+        """Return detail + paginated steps"""
+        instance = self.get_object()
+        parent_data = NosozlikDetailForStepSerializer(instance, context=self.get_serializer_context()).data
+
+        # Step queryset
+        steps_qs = instance.steps.all().order_by("created_at")
+
+        # search filter
+        search = request.query_params.get("search")
+        if search:
+            steps_qs = steps_qs.filter(
+                Q(nosozliklar_haqida__icontains=search) |
+                Q(bartaraf_etilgan_nosozliklar__icontains=search)
+            )
+
+        # pagination
+        paginator = StepPagination()
+        page = paginator.paginate_queryset(steps_qs, request)
+        if page is not None:
+            steps_data = NosozlikStepSerializer(page, many=True, context=self.get_serializer_context()).data
+            paginated = paginator.get_paginated_response(steps_data)
+            # add parent_data as first element in results
+            paginated.data["results"] = [parent_data] + paginated.data["results"]
+            return paginated
+        else:
+            steps_data = NosozlikStepSerializer(steps_qs, many=True, context=self.get_serializer_context()).data
+            return Response({
+                "count": steps_qs.count() + 1,
+                "num_pages": 1,
+                "current_page": 1,
+                "next": None,
+                "previous": None,
+                "results": [parent_data] + steps_data
+            })
 
     @action(detail=True, methods=["post"], url_path="add-step")
     def add_step(self, request, pk=None):

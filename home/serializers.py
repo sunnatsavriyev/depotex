@@ -551,7 +551,6 @@ class StepPagination(PageNumberPagination):
     page_size_query_param = "limit"
     max_page_size = 50
 
-    # Bu metod Response object emas, faqat dict sifatida serializer uchun ishlatiladi
     def get_paginated_response(self, data):
         return {
             "count": self.page.paginator.count,
@@ -755,7 +754,7 @@ class NosozliklarSerializer(serializers.ModelSerializer):
                 "results": [parent_data] + steps_data,
             }
 
-        # Parent data birinchi element sifatida
+        # add parent_data as first element
         if page is not None:
             paginated["results"] = [parent_data] + paginated["results"]
 
