@@ -504,8 +504,7 @@ class TexnikKorikViewSet(BaseViewSet):
         step = serializer.save(korik=korik)
         return Response(TexnikKorikStepSerializer(step).data, status=status.HTTP_201_CREATED)
 
-
-class TexnikKorikStepViewSet(BaseViewSet):
+class TexnikKorikStepViewSet(viewsets.ModelViewSet):
     serializer_class = TexnikKorikStepSerializer
     permission_classes = [IsAuthenticated, CustomPermission]
     pagination_class = CustomPagination
@@ -516,28 +515,32 @@ class TexnikKorikStepViewSet(BaseViewSet):
         "kamchiliklar_haqida",
         "bartaraf_etilgan_kamchiliklar",
         "created_by__username",
-        "korik__tarkib__tarkib_raqami",  
-        "tamir_turi__tamir_nomi",        
+        "korik__tarkib__tarkib_raqami",
+        "tamir_turi__tamir_nomi",
     ]
 
+    filterset_fields = ["korik"]  
 
     def get_queryset(self):
-            user = self.request.user
-            qs = TexnikKorikStep.objects.all().order_by("-id")
+        user = self.request.user
+        qs = TexnikKorikStep.objects.all().order_by("-id")
 
-            if user.role == "texnik" and user.depo:
-                qs = qs.filter(korik__tarkib__depo=user.depo)
+        # faqat o‘z depo uchun texnik
+        if user.role == "texnik" and user.depo:
+            qs = qs.filter(korik__tarkib__depo=user.depo)
 
-            return qs
+        # query param orqali korik_id
+        korik_id = self.request.query_params.get("korik")
+        if korik_id:
+            qs = qs.filter(korik_id=korik_id)
+
+        return qs
 
     def perform_create(self, serializer):
         korik = serializer.validated_data.get("korik")
-
-        if not korik or korik.status != TexnikKorik.Status.JARAYONDA:
+        if not korik or korik.status != korik.Status.JARAYONDA:
             raise ValidationError("Avval Texnik Korik boshlang yoki u tugallanmagan!")
-
         serializer.save(created_by=self.request.user)
-
 
 
 class NosozliklarFilter(django_filters.FilterSet):
@@ -572,7 +575,7 @@ class NosozliklarGetViewSet(mixins.ListModelMixin,
                             viewsets.GenericViewSet):
     queryset = (
         Nosozliklar.objects
-        .select_related("tarkib","created_by")
+        .select_related("tarkib", "created_by")
         .prefetch_related("ehtiyot_qismlar")
         .order_by("-id")
     )
@@ -583,7 +586,7 @@ class NosozliklarGetViewSet(mixins.ListModelMixin,
     search_fields = [
         "nosozliklar_haqida",
         "bartaraf_etilgan_nosozliklar",
-        "tarkib__turi",
+        "tarkib__tarkib_raqami",
         "created_by__username",
     ]
     pagination_class = CustomPagination
@@ -591,44 +594,10 @@ class NosozliklarGetViewSet(mixins.ListModelMixin,
 
 
 
-class NosozlikStepViewSet(viewsets.ModelViewSet):
-    queryset = NosozlikStep.objects.select_related("nosozlik", "tamir_turi", "created_by").prefetch_related("ehtiyot_qismlar_step").order_by("-id")
-    serializer_class = NosozlikStepSerializer
-    permission_classes = [IsAuthenticated, CustomPermission]
-    filter_backends = [filters.SearchFilter, filters.OrderingFilter, DjangoFilterBackend]
-    filterset_class = NosozlikStepFilter
-    search_fields = ['nosozlik__nosozliklar_haqida', 'bartaraf_etilgan_nosozliklar', 'tamir_turi__tamir_nomi', 'created_by__username']
-    ordering_fields = ["created_at", "bartaraf_qilingan_vaqti"]
-    pagination_class = CustomPagination
-
-
-    def get_queryset(self):
-        user = self.request.user
-        nosozlik_id = self.kwargs.get("nosozlik_pk")
-        qs = NosozlikStep.objects.filter(nosozlik_id=nosozlik_id)
-
-        # faqat texnik foydalanuvchilar uchun depoga qarab filterlash
-        if user.role == "texnik" and user.depo_id:
-            qs = qs.filter(nosozlik__tarkib__depo=user.depo)
-
-        return qs
-    
-    def perform_update(self, serializer):
-        instance = self.get_object()
-        if instance.created_by != self.request.user and not self.request.user.is_superuser:
-            raise PermissionDenied("Siz faqat o‘z yozuvlaringizni tahrirlashingiz mumkin.")
-        serializer.save()
-
-    def perform_destroy(self, instance):
-        if instance.created_by != self.request.user and not self.request.user.is_superuser:
-            raise PermissionDenied("Siz faqat o‘z yozuvlaringizni o‘chira olasiz.")
-        instance.delete()
-
-
-class NosozliklarViewSet(BaseViewSet):
+class NosozliklarViewSet(viewsets.ModelViewSet):
     queryset = (
         Nosozliklar.objects
-        .select_related("tarkib", "created_by") 
+        .select_related("tarkib", "created_by")
         .prefetch_related("ehtiyot_qismlar")
         .order_by("-id")
     )
@@ -639,15 +608,15 @@ class NosozliklarViewSet(BaseViewSet):
     search_fields = [
         "nosozliklar_haqida",
         "bartaraf_etilgan_nosozliklar",
-        "tarkib__turi",
+        "tarkib__tarkib_raqami",
         "created_by__username",
     ]
     ordering_fields = ["created_at", "approved_at", "aniqlangan_vaqti"]
     pagination_class = CustomPagination
-    
+
     def get_queryset(self):
         user = self.request.user
-        qs = Nosozliklar.objects.all()
+        qs = Nosozliklar.objects.all().order_by("-id")
 
         # texnik bo‘lsa faqat o‘z deposidagilar
         if user.role == "texnik" and user.depo_id:
@@ -655,6 +624,9 @@ class NosozliklarViewSet(BaseViewSet):
 
         return qs
 
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
+
     def perform_update(self, serializer):
         instance = self.get_object()
         if instance.created_by != self.request.user and not self.request.user.is_superuser:
@@ -666,43 +638,66 @@ class NosozliklarViewSet(BaseViewSet):
             raise PermissionDenied("Siz faqat o‘z yozuvlaringizni o‘chira olasiz.")
         instance.delete()
 
-    # Qo‘shimcha action: Add note yoki ehtiyot qismlar
-    @action(detail=True, methods=["get", "post"], url_path="add-note")
-    def add_note(self, request, pk=None):
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(name="page", type=int, location=OpenApiParameter.QUERY, description="Step pagination page"),
+            OpenApiParameter(name="limit", type=int, location=OpenApiParameter.QUERY, description="Step page size"),
+            OpenApiParameter(name="search", type=str, location=OpenApiParameter.QUERY, description="Step search"),
+        ]
+    )
+    def retrieve(self, request, *args, **kwargs):
+        """Detail + steps paginated"""
+        return super().retrieve(request, *args, **kwargs)
+
+    @action(detail=True, methods=["post"], url_path="add-step")
+    def add_step(self, request, pk=None):
         nosozlik = self.get_object()
+        if nosozlik.status == Nosozliklar.Status.BARTARAF_ETILDI:
+            return Response({"detail": "Bu nosozlik allaqachon yakunlangan, yangi step qo'shib bo'lmaydi!"},
+                            status=status.HTTP_400_BAD_REQUEST)
 
-        if request.method == "GET":
-            return Response(NosozliklarSerializer(nosozlik).data)
+        serializer = NosozlikStepSerializer(data=request.data, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+        step = serializer.save(nosozlik=nosozlik)
+        return Response(NosozlikStepSerializer(step, context={"request": request}).data,
+                        status=status.HTTP_201_CREATED)
 
-        ehtiyot_qismlar = request.data.get("ehtiyot_qismlar", [])
-        nosozlik_haqida = request.data.get("nosozliklar_haqida", None)
-        bartaraf = request.data.get("bartaraf_etilgan_nosozliklar", None)
+class NosozlikStepViewSet(viewsets.ModelViewSet):
+    serializer_class = NosozlikStepSerializer
+    permission_classes = [IsAuthenticated, CustomPermission]
+    pagination_class = CustomPagination
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter, DjangoFilterBackend]
+    filterset_class = NosozlikStepFilter
 
-        for item in ehtiyot_qismlar:
-            miqdor = item.get("miqdor", 1)
-            eq_id = item.get("ehtiyotqism_id", None)
-            if eq_id:
-                ehtiyot_qism = EhtiyotQismlari.objects.filter(id=eq_id).first()
-            else:
-                continue
-            if not ehtiyot_qism:
-                return Response({"detail": f"Ehtiyot qism id {eq_id} topilmadi."}, status=status.HTTP_400_BAD_REQUEST)
+    search_fields = [
+        "id",
+        "nosozliklar_haqida",
+        "bartaraf_etilgan_nosozliklar",
+        "created_by__username",
+        "nosozlik__tarkib__tarkib_raqami",
+    ]
 
-            obj, created = NosozlikEhtiyotQism.objects.get_or_create(
-                nosozlik=nosozlik,
-                ehtiyot_qism=ehtiyot_qism,
-                defaults={"miqdor": miqdor}
-            )
-            if not created:
-                obj.miqdor += miqdor
-                obj.save()
+    def get_queryset(self):
+        user = self.request.user
+        qs = NosozlikStep.objects.all().order_by("-id")
 
-        if nosozlik_haqida:
-            nosozlik.nosozliklar_haqida = (nosozlik.nosozliklar_haqida or "") + f"\n{nosozlik_haqida}"
-        if bartaraf:
-            nosozlik.bartaraf_etilgan_nosozliklar = (nosozlik.bartaraf_etilgan_nosozliklar or "") + f"\n{bartaraf}"
-        nosozlik.save()
-        return Response(NosozliklarSerializer(nosozlik).data, status=status.HTTP_200_OK)
+        # faqat o‘z depo uchun texnik
+        if user.role == "texnik" and user.depo:
+            qs = qs.filter(nosozlik__tarkib__depo=user.depo)
+
+        # query param orqali filterlash
+        nosozlik_id = self.request.query_params.get("nosozlik")
+        if nosozlik_id:
+            qs = qs.filter(nosozlik_id=nosozlik_id)
+
+        return qs
+
+    def perform_create(self, serializer):
+        nosozlik = serializer.validated_data.get("nosozlik")
+        if not nosozlik or nosozlik.status != nosozlik.Status.JARAYONDA:
+            raise ValidationError("Avval Nosozlik jarayonini boshlang yoki u tugallanmagan bo‘lishi kerak!")
+        serializer.save(created_by=self.request.user)
+
    
    
     

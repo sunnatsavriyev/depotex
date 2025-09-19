@@ -104,8 +104,8 @@ class EhtiyotQismlari(models.Model):
 
 # ✅ ManyToMany uchun oraliq jadval
 class TexnikKorikEhtiyotQism(models.Model):
-    korik = models.ForeignKey('TexnikKorik', on_delete=models.CASCADE)
-    ehtiyot_qism = models.ForeignKey('EhtiyotQismlari', on_delete=models.CASCADE)
+    korik = models.ForeignKey('TexnikKorik',on_delete=models.SET_NULL, null=True, blank=True)
+    ehtiyot_qism = models.ForeignKey('EhtiyotQismlari',on_delete=models.SET_NULL, null=True, blank=True)
     miqdor = models.PositiveIntegerField(default=1)
 
     def __str__(self):
@@ -114,8 +114,8 @@ class TexnikKorikEhtiyotQism(models.Model):
 
 
 class TexnikKorikEhtiyotQismStep(models.Model):
-    korik_step = models.ForeignKey('TexnikKorikStep', on_delete=models.CASCADE)
-    ehtiyot_qism = models.ForeignKey('EhtiyotQismlari', on_delete=models.CASCADE)
+    korik_step = models.ForeignKey('TexnikKorikStep',on_delete=models.SET_NULL, null=True, blank=True)
+    ehtiyot_qism = models.ForeignKey('EhtiyotQismlari',on_delete=models.SET_NULL, null=True, blank=True)
     miqdor = models.PositiveIntegerField(default=1)
 
     def __str__(self):
@@ -129,7 +129,7 @@ class TexnikKorikEhtiyotQismStep(models.Model):
 
 
 class HarakatTarkibi(models.Model):
-    depo = models.ForeignKey(ElektroDepo, on_delete=models.CASCADE, related_name="tarkiblar")
+    depo = models.ForeignKey(ElektroDepo, related_name="tarkiblar", on_delete=models.SET_NULL, null=True, blank=True)
     guruhi = models.CharField(max_length=100)
     turi = models.CharField(max_length=100)
     tarkib_raqami = models.CharField(max_length=100, unique=True)
@@ -160,7 +160,8 @@ class HarakatTarkibi(models.Model):
 class KunlikYurish(models.Model):
     tarkib = models.ForeignKey(
         HarakatTarkibi,
-        on_delete=models.CASCADE,
+        on_delete=models.SET_NULL,
+        null=True,
         related_name="kunlik_yurishlar"
     )
     sana = models.DateField(default=timezone.now)
@@ -185,8 +186,8 @@ class TexnikKorik(models.Model):
         JARAYONDA = "Texnik_korikda", "Texnik_korikda"
         BARTARAF_ETILDI = "Soz_holatda", "Soz_holatda"
 
-    tarkib = models.ForeignKey('HarakatTarkibi', on_delete=models.CASCADE, related_name="koriklar")
-    tamir_turi = models.ForeignKey('TamirTuri', on_delete=models.SET_NULL, null=True, blank=True)
+    tarkib = models.ForeignKey('HarakatTarkibi',on_delete=models.SET_NULL, null=True, blank=True,related_name="koriklar")
+    tamir_turi = models.ForeignKey('TamirTuri',on_delete=models.SET_NULL, null=True, blank=True)
     status = models.CharField(max_length=32, choices=Status.choices, default=Status.JARAYONDA, editable=False)
     ehtiyot_qismlar = models.ManyToManyField("EhtiyotQismlari", through="TexnikKorikEhtiyotQism", blank=True)
     kamchiliklar_haqida = models.TextField(blank=True)
@@ -239,7 +240,7 @@ class TexnikKorikStep(models.Model):
     class Status(models.TextChoices):
         JARAYONDA = "Jarayonda", "Jarayonda"
         BARTARAF_ETILDI = "Yakunlandi", "Yakunlandi"
-    korik = models.ForeignKey(TexnikKorik, on_delete=models.CASCADE, related_name="steps")
+    korik = models.ForeignKey(TexnikKorik, on_delete=models.SET_NULL,null=True, blank=True, related_name="steps")
     tamir_turi = models.ForeignKey('TamirTuri', on_delete=models.SET_NULL, null=True, blank=True)
     ehtiyot_qismlar = models.ManyToManyField(
     "EhtiyotQismlari",
@@ -270,8 +271,8 @@ class TexnikKorikStep(models.Model):
 
 
 class NosozlikEhtiyotQismStep(models.Model):
-    step = models.ForeignKey('NosozlikStep', on_delete=models.CASCADE, related_name="ehtiyot_qismlar_step")
-    ehtiyot_qism = models.ForeignKey('EhtiyotQismlari', on_delete=models.CASCADE)
+    step = models.ForeignKey('NosozlikStep', on_delete=models.SET_NULL,null=True, blank=True, related_name="ehtiyot_qismlar_step")
+    ehtiyot_qism = models.ForeignKey('EhtiyotQismlari', on_delete=models.SET_NULL,null=True, blank=True,)
     miqdor = models.PositiveIntegerField(default=1)
 
     def __str__(self):
@@ -280,8 +281,8 @@ class NosozlikEhtiyotQismStep(models.Model):
 
 
 class NosozlikEhtiyotQism(models.Model):
-    nosozlik = models.ForeignKey("Nosozliklar", on_delete=models.CASCADE, related_name="ehtiyot_qism_aloqalari")
-    ehtiyot_qism = models.ForeignKey("EhtiyotQismlari", on_delete=models.CASCADE)
+    nosozlik = models.ForeignKey("Nosozliklar", on_delete=models.SET_NULL,null=True, blank=True, related_name="ehtiyot_qism_aloqalari")
+    ehtiyot_qism = models.ForeignKey("EhtiyotQismlari", on_delete=models.SET_NULL,null=True, blank=True,)
     miqdor = models.PositiveIntegerField(default=1)
 
     def __str__(self):
@@ -306,7 +307,7 @@ class Nosozliklar(models.Model):
         related_name="nosozliklar",
         blank=True
     )
-    tarkib = models.ForeignKey('HarakatTarkibi', on_delete=models.CASCADE, related_name="nosozliklar")
+    tarkib = models.ForeignKey('HarakatTarkibi', on_delete=models.SET_NULL,null=True, blank=True, related_name="nosozliklar")
     nosozliklar_haqida = models.TextField(null=True, blank=True)
     status = models.CharField(max_length=32, choices=Status.choices, default=Status.JARAYONDA, editable=False)
 
@@ -363,7 +364,7 @@ class NosozlikStep(models.Model):
         JARAYONDA = "Jarayonda", "Jarayonda"
         BARTARAF_ETILDI = "Yakunlandi", "Yakunlandi"
 
-    nosozlik = models.ForeignKey(Nosozliklar, on_delete=models.CASCADE, related_name="steps")
+    nosozlik = models.ForeignKey(Nosozliklar, on_delete=models.SET_NULL,null=True, blank=True, related_name="steps")
     tamir_turi = models.ForeignKey('TamirTuri', on_delete=models.SET_NULL, null=True, blank=True)
     ehtiyot_qismlar = models.ManyToManyField(
         'EhtiyotQismlari',
