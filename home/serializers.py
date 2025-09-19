@@ -724,6 +724,42 @@ class NosozliklarSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["status", "created_by", "created_at", "steps"]
 
+    
+    def create(self, validated_data):
+        request = self.context.get("request")
+        password = validated_data.pop("password", None)
+        yakunlash = validated_data.pop("yakunlash", False)
+        akt_file = validated_data.pop("akt_file", None)
+        ehtiyot_qismlar = validated_data.pop("ehtiyot_qismlar", [])
+
+        if not password or not request.user.check_password(password):
+            raise serializers.ValidationError({"password": "Parol noto‘g‘ri."})
+
+        instance = Nosozliklar.objects.create(
+            created_by=request.user,
+            akt_file=akt_file,
+            status=Nosozliklar.Status.BARTARAF_ETILDI if yakunlash else Nosozliklar.Status.JARAYONDA,
+            **validated_data
+        )
+
+        # Ehtiyot qismlar
+        for item in ehtiyot_qismlar:
+            eq_obj = item.get("ehtiyot_qism")
+            miqdor = item.get("miqdor", 1)
+            if eq_obj:
+                NosozlikEhtiyotQism.objects.create(nosozlik=instance, ehtiyot_qism=eq_obj, miqdor=miqdor)
+
+        # Yakunlash bo‘lsa
+        if yakunlash:
+            instance.status = Nosozliklar.Status.BARTARAF_ETILDI
+            instance.tarkib.holati = "Soz_holatda"
+            instance.bartarafqilingan_vaqti = timezone.now()
+            instance.save()
+            instance.tarkib.save()
+
+        return instance 
+    
+    
     def get_steps(self, obj):
         request = self.context.get("request")
         parent_data = NosozlikDetailForStepSerializer(obj, context=self.context).data

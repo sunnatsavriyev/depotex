@@ -593,7 +593,7 @@ class NosozliklarGetViewSet(mixins.ListModelMixin,
     ordering_fields = ["created_at", "approved_at", "aniqlangan_vaqti"]
 
 
-
+# --- Nosozliklar ViewSet (Texnik Korikga o'xshash) ---
 class NosozliklarViewSet(viewsets.ModelViewSet):
     queryset = (
         Nosozliklar.objects
@@ -614,48 +614,45 @@ class NosozliklarViewSet(viewsets.ModelViewSet):
     ordering_fields = ["created_at", "approved_at", "aniqlangan_vaqti"]
     pagination_class = CustomPagination
 
-    @extend_schema(
-        parameters=[
-            OpenApiParameter(name="page", type=int, location=OpenApiParameter.QUERY, description="Step pagination page"),
-            OpenApiParameter(name="limit", type=int, location=OpenApiParameter.QUERY, description="Step page size"),
-            OpenApiParameter(name="search", type=str, location=OpenApiParameter.QUERY, description="Step search"),
-        ]
-    )
-    def retrieve(self, request, *args, **kwargs):
-        """Return detail + paginated steps"""
-        instance = self.get_object()
-        parent_data = NosozlikDetailForStepSerializer(instance, context=self.get_serializer_context()).data
+    def get_queryset(self):
+        user = self.request.user
+        qs = super().get_queryset()
+        if user.role == "texnik" and user.depo:
+            qs = qs.filter(tarkib__depo=user.depo)
+        return qs
 
-        # Step queryset
-        steps_qs = instance.steps.all().order_by("created_at")
+    def perform_create(self, serializer):
+        request = self.request
+        password = request.data.get("password")
+        if not password or not request.user.check_password(password):
+            raise ValidationError({"password": "Parol noto‘g‘ri."})
 
-        # search filter
-        search = request.query_params.get("search")
-        if search:
-            steps_qs = steps_qs.filter(
-                Q(nosozliklar_haqida__icontains=search) |
-                Q(bartaraf_etilgan_nosozliklar__icontains=search)
-            )
+        yakunlash = request.data.get("yakunlash", False)
+        akt_file = request.data.get("akt_file", None)
+        ehtiyot_qismlar = request.data.get("ehtiyot_qismlar", [])
 
-        # pagination
-        paginator = StepPagination()
-        page = paginator.paginate_queryset(steps_qs, request)
-        if page is not None:
-            steps_data = NosozlikStepSerializer(page, many=True, context=self.get_serializer_context()).data
-            paginated = paginator.get_paginated_response(steps_data)
-            # add parent_data as first element in results
-            paginated.data["results"] = [parent_data] + paginated.data["results"]
-            return paginated
-        else:
-            steps_data = NosozlikStepSerializer(steps_qs, many=True, context=self.get_serializer_context()).data
-            return Response({
-                "count": steps_qs.count() + 1,
-                "num_pages": 1,
-                "current_page": 1,
-                "next": None,
-                "previous": None,
-                "results": [parent_data] + steps_data
-            })
+        # serializer.validated_data dan passwordni olib tashlash
+        validated_data = serializer.validated_data.copy()
+        validated_data.pop("password", None)
+        validated_data.pop("yakunlash", None)
+        validated_data.pop("akt_file", None)
+        validated_data.pop("ehtiyot_qismlar", None)
+
+        nosozlik = Nosozliklar.objects.create(
+            created_by=request.user,
+            status=Nosozliklar.Status.BARTARAF_ETILDI if yakunlash else Nosozliklar.Status.JARAYONDA,
+            akt_file=akt_file,
+            **validated_data
+        )
+
+        # Ehtiyot qismlarni yaratish
+        for item in ehtiyot_qismlar:
+            eq_obj = item.get("ehtiyot_qism")
+            miqdor = item.get("miqdor", 1)
+            if eq_obj:
+                NosozlikEhtiyotQism.objects.create(nosozlik=nosozlik, ehtiyot_qism=eq_obj, miqdor=miqdor)
+
+        return nosozlik
 
     @action(detail=True, methods=["post"], url_path="add-step")
     def add_step(self, request, pk=None):
@@ -672,68 +669,50 @@ class NosozliklarViewSet(viewsets.ModelViewSet):
 
 
 
-class NosozliklarViewSet(viewsets.ModelViewSet):
-    queryset = (
-        Nosozliklar.objects
-        .select_related("tarkib", "created_by")
-        .prefetch_related("ehtiyot_qismlar")
-        .order_by("-id")
-    )
-    serializer_class = NosozliklarSerializer
+
+
+# --- Nosozlik Step ViewSet (Texnik Korik Stepga o'xshash) ---
+class NosozlikStepViewSet(viewsets.ModelViewSet):
+    serializer_class = NosozlikStepSerializer
     permission_classes = [IsAuthenticated, CustomPermission]
+    pagination_class = CustomPagination
     filter_backends = [filters.SearchFilter, filters.OrderingFilter, DjangoFilterBackend]
-    filterset_class = NosozliklarFilter
+    filterset_class = NosozlikStepFilter
+
     search_fields = [
+        "id",
         "nosozliklar_haqida",
         "bartaraf_etilgan_nosozliklar",
-        "tarkib__tarkib_raqami",
         "created_by__username",
+        "nosozlik__tarkib__tarkib_raqami",
     ]
-    ordering_fields = ["created_at", "approved_at", "aniqlangan_vaqti"]
-    pagination_class = CustomPagination
 
-    @extend_schema(
-        parameters=[
-            OpenApiParameter(name="page", type=int, location=OpenApiParameter.QUERY, description="Step pagination page"),
-            OpenApiParameter(name="limit", type=int, location=OpenApiParameter.QUERY, description="Step page size"),
-            OpenApiParameter(name="search", type=str, location=OpenApiParameter.QUERY, description="Step search"),
-        ]
-    )
-    def retrieve(self, request, *args, **kwargs):
-        """Return detail + paginated steps like TexnikKorik"""
-        instance = self.get_object()
-        parent_data = NosozlikDetailForStepSerializer(instance, context=self.get_serializer_context()).data
+    def get_queryset(self):
+        user = self.request.user
+        qs = super().get_queryset().order_by("-id")
+        if user.role == "texnik" and user.depo:
+            qs = qs.filter(nosozlik__tarkib__depo=user.depo)
 
-        steps_qs = instance.steps.all().order_by("created_at")
+        nosozlik_id = self.request.query_params.get("nosozlik")
+        if nosozlik_id:
+            qs = qs.filter(nosozlik_id=nosozlik_id)
+        return qs
 
-        # search filter
-        search = request.query_params.get("search")
-        if search:
-            steps_qs = steps_qs.filter(
-                Q(nosozliklar_haqida__icontains=search) |
-                Q(bartaraf_etilgan_nosozliklar__icontains=search)
-            )
+    def perform_create(self, serializer):
+        request = self.request
+        password = request.data.get("password")
+        if not password or not request.user.check_password(password):
+            raise ValidationError({"password": "Parol noto‘g‘ri."})
 
-        paginator = StepPagination()
-        page = paginator.paginate_queryset(steps_qs, request)
-        steps_data = NosozlikStepSerializer(page or steps_qs, many=True, context=self.get_serializer_context()).data
+        nosozlik = serializer.validated_data.get("nosozlik")
+        if not nosozlik or nosozlik.status != Nosozliklar.Status.JARAYONDA:
+            raise ValidationError("Avval Nosozlik jarayonini boshlang yoki u tugallanmagan bo‘lishi kerak!")
 
-        results = [parent_data] + steps_data
+        # serializer.validated_data dan passwordni olib tashlaymiz
+        validated_data = serializer.validated_data.copy()
+        validated_data.pop("password", None)
 
-        return paginator.get_paginated_response(results)
-
-    @action(detail=True, methods=["post"], url_path="add-step")
-    def add_step(self, request, pk=None):
-        nosozlik = self.get_object()
-        if nosozlik.status == Nosozliklar.Status.BARTARAF_ETILDI:
-            return Response({"detail": "Bu nosozlik allaqachon yakunlangan, yangi step qo'shib bo'lmaydi!"},
-                            status=status.HTTP_400_BAD_REQUEST)
-
-        serializer = NosozlikStepSerializer(data=request.data, context={"request": request})
-        serializer.is_valid(raise_exception=True)
-        step = serializer.save(nosozlik=nosozlik)
-        return Response(NosozlikStepSerializer(step, context={"request": request}).data,
-                        status=status.HTTP_201_CREATED)
+        serializer.save(created_by=request.user, **validated_data)
 
 
    
