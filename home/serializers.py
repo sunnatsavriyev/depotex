@@ -547,9 +547,23 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
         return instance
 
 
+class StepPagination(PageNumberPagination):
+    page_size_query_param = "limit"
+    max_page_size = 50
+
+    # Bu metod Response object emas, faqat dict sifatida serializer uchun ishlatiladi
+    def get_paginated_response(self, data):
+        return {
+            "count": self.page.paginator.count,
+            "num_pages": self.page.paginator.num_pages,
+            "current_page": self.page.number,
+            "next": self.get_next_link(),
+            "previous": self.get_previous_link(),
+            "results": data,
+        }
 
 
-
+# --- Ehtiyot Qism Serializers ---
 class NosozlikEhtiyotQismSerializer(serializers.ModelSerializer):
     ehtiyot_qism_nomi = serializers.CharField(source="ehtiyot_qism.ehtiyotqism_nomi", read_only=True)
     birligi = serializers.CharField(source="ehtiyot_qism.birligi", read_only=True)
@@ -568,7 +582,7 @@ class NosozlikEhtiyotQismStepSerializer(serializers.ModelSerializer):
         fields = ["id", "ehtiyot_qism", "ehtiyot_qism_nomi", "birligi", "miqdor"]
 
 
-# --- Detail serializer (parent uchun) ---
+# --- Detail serializer for parent ---
 class NosozlikDetailForStepSerializer(serializers.ModelSerializer):
     created_by = serializers.CharField(source="created_by.username", read_only=True)
     tarkib_nomi = serializers.CharField(source="tarkib.tarkib_raqami", read_only=True)
@@ -590,10 +604,11 @@ class NosozlikDetailForStepSerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
+        # Faqat qiymati bo‘lgan maydonlarni qaytaradi
         return {k: v for k, v in data.items() if v not in [None, False, [], {}]}
 
 
-# --- Step serializer ---
+# --- Step Serializer ---
 class NosozlikStepSerializer(serializers.ModelSerializer):
     created_by = serializers.CharField(source="created_by.username", read_only=True)
     nosozlik = serializers.PrimaryKeyRelatedField(
@@ -626,7 +641,7 @@ class NosozlikStepSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         request = self.context.get("request")
         password = attrs.pop("password", None)
-        if not password or not request.user.check_password(password):
+        if not request.user.is_authenticated or not password or not request.user.check_password(password):
             raise serializers.ValidationError({"password": "Parol noto‘g‘ri."})
 
         yakunlash = attrs.get("yakunlash", False)
@@ -662,11 +677,8 @@ class NosozlikStepSerializer(serializers.ModelSerializer):
         for item in ehtiyot_qismlar:
             eq_obj = item.get("ehtiyot_qism")
             miqdor = item.get("miqdor", 1)
-            NosozlikEhtiyotQismStep.objects.create(
-                step=step,
-                ehtiyot_qism=eq_obj,
-                miqdor=miqdor
-            )
+            if eq_obj:
+                NosozlikEhtiyotQismStep.objects.create(step=step, ehtiyot_qism=eq_obj, miqdor=miqdor)
 
         if yakunlash:
             nosozlik.status = Nosozliklar.Status.BARTARAF_ETILDI
@@ -680,13 +692,7 @@ class NosozlikStepSerializer(serializers.ModelSerializer):
         return step
 
 
-# --- Pagination ---
-class NosozlikStepPagination(PageNumberPagination):
-    page_size_query_param = "limit"
-    max_page_size = 50
-
-
-# --- Asosiy Nosozliklar serializer ---
+# --- Nosozliklar Serializer (frontend mos) ---
 class NosozliklarSerializer(serializers.ModelSerializer):
     created_by = serializers.CharField(source="created_by.username", read_only=True)
     tarkib = serializers.PrimaryKeyRelatedField(
@@ -721,10 +727,10 @@ class NosozliklarSerializer(serializers.ModelSerializer):
 
     def get_steps(self, obj):
         request = self.context.get("request")
-
         parent_data = NosozlikDetailForStepSerializer(obj, context=self.context).data
         steps_qs = obj.steps.all().order_by("created_at")
 
+        # search filter
         search = request.query_params.get("search")
         if search:
             steps_qs = steps_qs.filter(
@@ -732,96 +738,25 @@ class NosozliklarSerializer(serializers.ModelSerializer):
                 Q(bartaraf_etilgan_nosozliklar__icontains=search)
             )
 
-        paginator = NosozlikStepPagination()
+        paginator = StepPagination()
         page = paginator.paginate_queryset(steps_qs, request)
-        steps_data = NosozlikStepSerializer(page, many=True, context=self.context).data
 
-        results = [parent_data] + steps_data
-
-        return {
-            "count": paginator.page.paginator.count + 1,
-            "num_pages": paginator.page.paginator.num_pages,
-            "current_page": paginator.page.number,
-            "next": paginator.get_next_link(),
-            "previous": paginator.get_previous_link(),
-            "results": results,
-        }
-
-    def validate(self, attrs):
-        request = self.context.get("request")
-        password = attrs.pop("password", None)
-        if not password or not request.user.check_password(password):
-            raise serializers.ValidationError({"password": "Parol noto‘g‘ri."})
-
-        yakunlash = attrs.get("yakunlash", False)
-        akt_file = attrs.get("akt_file")
-        vaqt = attrs.get("bartarafqilingan_vaqti")
-
-        if vaqt:
-            if not yakunlash:
-                raise serializers.ValidationError({"yakunlash": "Vaqt belgilash uchun yakunlash majburiy."})
-            if not akt_file:
-                raise serializers.ValidationError({"akt_file": "Vaqt belgilash uchun akt fayl majburiy."})
-
-        if yakunlash and akt_file and not vaqt:
-            attrs["bartarafqilingan_vaqti"] = timezone.now()
-
-        return attrs
-
-    def create(self, validated_data):
-        ehtiyot_qismlar = validated_data.pop("ehtiyot_qismlar", [])
-        validated_data["created_by"] = self.context["request"].user
-        nosozlik = Nosozliklar.objects.create(**validated_data)
-
-        for item in ehtiyot_qismlar:
-            eq_obj = item.get("ehtiyot_qism")
-            miqdor = item.get("miqdor", 1)
-            NosozlikEhtiyotQism.objects.create(
-                nosozlik=nosozlik,
-                ehtiyot_qism=eq_obj,
-                miqdor=miqdor
-            )
-
-        if validated_data.get("yakunlash", False):
-            nosozlik.status = Nosozliklar.Status.BARTARAF_ETILDI
-            nosozlik.bartarafqilingan_vaqti = validated_data.get("bartarafqilingan_vaqti", timezone.now())
-            nosozlik.tarkib.holati = "Soz_holatda"
-
-        nosozlik.tarkib.save()
-        nosozlik.save()
-        return nosozlik
-
-    def update(self, instance, validated_data):
-        ehtiyot_qismlar = validated_data.pop("ehtiyot_qismlar", None)
-        akt_file = validated_data.pop("akt_file", None)
-
-        if akt_file:
-            instance.akt_file = akt_file
-
-        yakunlash = validated_data.get("yakunlash", False)
-        if yakunlash:
-            instance.status = Nosozliklar.Status.BARTARAF_ETILDI
-            instance.tarkib.holati = "Soz_holatda"
-            if not instance.bartarafqilingan_vaqti:
-                instance.bartarafqilingan_vaqti = timezone.now()
+        if page is not None:
+            steps_data = NosozlikStepSerializer(page, many=True, context=self.context).data
+            paginated = paginator.get_paginated_response(steps_data)
         else:
-            instance.tarkib.holati = "Nosozlikda"
+            steps_data = NosozlikStepSerializer(steps_qs, many=True, context=self.context).data
+            paginated = {
+                "count": steps_qs.count() + 1,
+                "num_pages": 1,
+                "current_page": 1,
+                "next": None,
+                "previous": None,
+                "results": [parent_data] + steps_data,
+            }
 
-        instance.tarkib.save()
-        instance = super().update(instance, validated_data)
+        # Parent data birinchi element sifatida
+        if page is not None:
+            paginated["results"] = [parent_data] + paginated["results"]
 
-        if ehtiyot_qismlar is not None:
-            instance.nosozlikehtiyotqism_set.all().delete()
-            for item in ehtiyot_qismlar:
-                eq_obj = item.get("ehtiyot_qism")
-                miqdor = item.get("miqdor", 1)
-                NosozlikEhtiyotQism.objects.create(
-                    nosozlik=instance,
-                    ehtiyot_qism=eq_obj,
-                    miqdor=miqdor
-                )
-        return instance
-
-    def to_representation(self, instance):
-        data = super().to_representation(instance)
-        return {k: v for k, v in data.items() if v not in [None, False, [], {}]}
+        return paginated
