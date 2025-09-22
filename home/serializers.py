@@ -131,7 +131,7 @@ class HarakatTarkibiSerializer(serializers.ModelSerializer):
         input_formats=["%d-%m-%Y", "%Y-%m-%d"]  
     )
     total_kilometr = serializers.SerializerMethodField() 
-    vagonlar = VagonSerializer(many=True, read_only=True)
+    vagonlar = VagonSerializer(many=True,read_only=True)
 
     class Meta:
         model = HarakatTarkibi
@@ -152,9 +152,19 @@ class HarakatTarkibiSerializer(serializers.ModelSerializer):
             created_by=self.context["request"].user,
             previous_version=instance
         )
+        new_instance.tarkib_raqami = self._yig_vagonlar(new_instance)
+        new_instance.save(update_fields=["tarkib_raqami"])
 
         
         return new_instance
+    
+    
+    def _yig_vagonlar(self, tarkib):
+        """Vagon raqamlarini yig‘ib tarkib_raqamiga yozadi"""
+        vagonlar = tarkib.vagonlar.order_by("id").values_list("vagon_raqami", flat=True)
+        return "-".join(vagonlar)
+    
+    
     
     def get_total_kilometr(self, obj):
         if hasattr(obj, "total_kilometr") and obj.total_kilometr is not None:
@@ -166,6 +176,9 @@ class HarakatTarkibiSerializer(serializers.ModelSerializer):
         tarkib = HarakatTarkibi.objects.create(**validated_data)
         for vagon_data in vagonlar_data:
             Vagon.objects.create(tarkib=tarkib, **vagon_data)
+        
+        tarkib.tarkib_raqami = self._yig_vagonlar(tarkib)
+        tarkib.save(update_fields=["tarkib_raqami"])
         return tarkib
 
 
