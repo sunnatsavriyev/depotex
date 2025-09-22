@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import TamirTuri, ElektroDepo, EhtiyotQismlari, HarakatTarkibi, TexnikKorik, CustomUser, Nosozliklar, TexnikKorikEhtiyotQism, NosozlikEhtiyotQism, TexnikKorikStep, TexnikKorikEhtiyotQismStep, NosozlikEhtiyotQismStep, NosozlikStep, KunlikYurish
+from .models import TamirTuri, ElektroDepo, EhtiyotQismlari, HarakatTarkibi, TexnikKorik, CustomUser, Nosozliklar, TexnikKorikEhtiyotQism, NosozlikEhtiyotQism, TexnikKorikStep, TexnikKorikEhtiyotQismStep, NosozlikEhtiyotQismStep, NosozlikStep, KunlikYurish,Vagon
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 from django.contrib.auth import authenticate
@@ -112,47 +112,68 @@ class KunlikYurishSerializer(serializers.ModelSerializer):
         return super().create(validated_data)
 
 
+class VagonSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Vagon
+        fields = ["id", "vagon_raqami"]
+
+
 class HarakatTarkibiSerializer(serializers.ModelSerializer):
     depo = serializers.SlugRelatedField(read_only=True, slug_field="qisqacha_nomi")
     depo_id = serializers.PrimaryKeyRelatedField(
         queryset=ElektroDepo.objects.all(), 
         source="depo"
     )
-
     created_by = serializers.CharField(source="created_by.username", read_only=True)
 
-    
     ishga_tushgan_vaqti = serializers.DateField(
         format="%d-%m-%Y",
         input_formats=["%d-%m-%Y", "%Y-%m-%d"]  
     )
-    
     total_kilometr = serializers.SerializerMethodField() 
-
+    vagonlar = VagonSerializer(many=True, read_only=True)
 
     class Meta:
         model = HarakatTarkibi
         fields = "__all__"
-        read_only_fields = ["created_by", "created_at","holati"]
+        read_only_fields = [
+            "created_by", "created_at", "holati",
+            "is_active", "previous_version", "vagonlar" 
+        ]
 
+    def update(self, instance, validated_data):
+        # Eski versiyani arxivlash
+        instance.is_active = False
+        instance.save(update_fields=["is_active"])
 
+        # ⚡ ForeignKeylar o‘zgarib ketmasligi uchun faqat yangi HarakatTarkibi nusxa qilamiz
+        new_instance = HarakatTarkibi.objects.create(
+            **validated_data,
+            created_by=self.context["request"].user,
+            previous_version=instance
+        )
+
+        
+        return new_instance
+    
     def get_total_kilometr(self, obj):
-        # Annotate orqali kelgan bo‘lsa shu qiymatni qaytaradi
         if hasattr(obj, "total_kilometr") and obj.total_kilometr is not None:
             return obj.total_kilometr
-        # Aks holda, DB dan hisoblaydi
         return obj.kunlik_yurishlar.aggregate(total=Sum("kilometr"))["total"] or 0
 
     def create(self, validated_data):
-        validated_data["created_by"] = self.context["request"].user
-        return super().create(validated_data)
+        vagonlar_data = validated_data.pop("vagonlar", [])
+        tarkib = HarakatTarkibi.objects.create(**validated_data)
+        for vagon_data in vagonlar_data:
+            Vagon.objects.create(tarkib=tarkib, **vagon_data)
+        return tarkib
+
+
+
     
-    def update(self, instance, validated_data):
-        validated_data.pop("holati", None)
-        return super().update(instance, validated_data)
     
-    
-    
+
+
 
 
 
@@ -378,7 +399,7 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
     created_by = serializers.CharField(source="created_by.username", read_only=True)
 
     tarkib = serializers.PrimaryKeyRelatedField(
-    queryset=HarakatTarkibi.objects.filter(holati="Soz_holatda"),
+    queryset=HarakatTarkibi.objects.filter(is_active=True,holati="Soz_holatda"),
     )
     tarkib_nomi = serializers.CharField(source="tarkib.tarkib_raqami", read_only=True)
     kirgan_vaqti = serializers.DateTimeField(read_only=True)
@@ -695,7 +716,7 @@ class NosozlikStepSerializer(serializers.ModelSerializer):
 class NosozliklarSerializer(serializers.ModelSerializer):
     created_by = serializers.CharField(source="created_by.username", read_only=True)
     tarkib = serializers.PrimaryKeyRelatedField(
-        queryset=HarakatTarkibi.objects.filter(holati="Soz_holatda"),
+        queryset=HarakatTarkibi.objects.filter(is_active=True,holati="Soz_holatda"),
     )
     tarkib_nomi = serializers.CharField(source="tarkib.tarkib_raqami", read_only=True)
 
@@ -795,3 +816,22 @@ class NosozliklarSerializer(serializers.ModelSerializer):
             paginated["results"] = [parent_data] + paginated["results"]
 
         return paginated
+    
+    
+
+
+    
+    
+class HarakatTarkibiDetailSerializer(serializers.ModelSerializer):
+    vagonlar = VagonSerializer(many=True, read_only=True, source="vagonlar")  
+    koriklar = TexnikKorikSerializer(many=True, read_only=True, source="texnikkorik_set")
+    nosozliklar = NosozliklarSerializer(many=True, read_only=True, source="nosozliklar_set")
+    versions = serializers.SerializerMethodField()
+
+    class Meta:
+        model = HarakatTarkibi
+        fields = "__all__"
+
+    def get_versions(self, obj):
+        qs = HarakatTarkibi.objects.filter(tarkib_raqami=obj.tarkib_raqami).order_by("-id")
+        return HarakatTarkibiSerializer(qs, many=True).data

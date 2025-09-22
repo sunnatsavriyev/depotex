@@ -128,33 +128,102 @@ class TexnikKorikEhtiyotQismStep(models.Model):
 
 
 
+# class HarakatTarkibi(models.Model):
+#     depo = models.ForeignKey(ElektroDepo, related_name="tarkiblar", on_delete=models.SET_NULL, null=True, blank=True)
+#     guruhi = models.CharField(max_length=100)
+#     turi = models.CharField(max_length=100)
+#     tarkib_raqami = models.CharField(max_length=100, unique=True)
+#     ishga_tushgan_vaqti = models.DateField()
+#     eksplutatsiya_vaqti = models.BigIntegerField(help_text="km da")
+#     image = models.ImageField(upload_to="tarkiblar/", blank=True, null=True)
+
+#     CHOICES = [
+#         ("Soz_holatda", "Soz_holatda"),
+#         ("Texnik_korikda", "Texnik_korikda"),
+#         ("Nosozlikda", "Nosozlikda"),
+#     ]
+#     holati = models.CharField(choices=CHOICES, max_length=100, default="Soz_holatda")
+
+#     created_by = models.ForeignKey(
+#         settings.AUTH_USER_MODEL,
+#         on_delete=models.SET_NULL,
+#         null=True,
+#         blank=True
+#     )
+#     created_at = models.DateTimeField(auto_now_add=True)
+
+#     def __str__(self):
+#         return f"{self.tarkib_raqami} - {self.turi} ({self.holati})"
+    
+    
+    
 class HarakatTarkibi(models.Model):
-    depo = models.ForeignKey(ElektroDepo, related_name="tarkiblar", on_delete=models.SET_NULL, null=True, blank=True)
+    depo = models.ForeignKey("ElektroDepo", related_name="tarkiblar",
+                             on_delete=models.SET_NULL, null=True, blank=True)
     guruhi = models.CharField(max_length=100)
     turi = models.CharField(max_length=100)
-    tarkib_raqami = models.CharField(max_length=100, unique=True)
+    tarkib_raqami = models.CharField(max_length=255, blank=True, null=True)  
     ishga_tushgan_vaqti = models.DateField()
     eksplutatsiya_vaqti = models.BigIntegerField(help_text="km da")
     image = models.ImageField(upload_to="tarkiblar/", blank=True, null=True)
 
-    CHOICES = [
-        ("Soz_holatda", "Soz_holatda"),
-        ("Texnik_korikda", "Texnik_korikda"),
-        ("Nosozlikda", "Nosozlikda"),
-    ]
-    holati = models.CharField(choices=CHOICES, max_length=100, default="Soz_holatda")
+    holati = models.CharField(
+        choices=[
+            ("Soz_holatda", "Soz_holatda"),
+            ("Texnik_korikda", "Texnik_korikda"),
+            ("Nosozlikda", "Nosozlikda"),
+        ],
+        max_length=100,
+        default="Soz_holatda"
+    )
+
+    # 🔹 versionlash maydonlari
+    is_active = models.BooleanField(default=True)  
+    previous_version = models.ForeignKey(
+        "self", null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="next_versions"
+    )
 
     created_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True
     )
     created_at = models.DateTimeField(auto_now_add=True)
 
+    def update_tarkib_raqami(self):
+        """Tarkib raqamini avtomatik yig‘ish."""
+        vagonlar = self.vagonlar.order_by("id").values_list("vagon_raqami", flat=True)
+        self.tarkib_raqami = "-".join(vagonlar)
+        self.save(update_fields=["tarkib_raqami"])
+
     def __str__(self):
-        return f"{self.tarkib_raqami} - {self.turi} ({self.holati})"
-    
+        return f"{self.tarkib_raqami or 'tarkib'} ({'active' if self.is_active else 'archived'})"
+
+
+
+class Vagon(models.Model):
+    tarkib = models.ForeignKey(
+        "HarakatTarkibi", related_name="vagonlar",
+        on_delete=models.CASCADE,
+    )
+    vagon_raqami = models.CharField(max_length=50)
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        # 🔹 Har safar vagon qo‘shilganda/yangilanganda tarkib raqami yangilanadi
+        if self.tarkib:
+            self.tarkib.update_tarkib_raqami()
+
+    def delete(self, *args, **kwargs):
+        tarkib = self.tarkib
+        super().delete(*args, **kwargs)
+        # 🔹 Vagon o‘chirilib ketganda ham tarkib raqami yangilansin
+        if tarkib:
+            tarkib.update_tarkib_raqami()
+
+    def __str__(self):
+        return f"{self.vagon_raqami} ({self.tarkib.tarkib_raqami})"
+
     
     
 class KunlikYurish(models.Model):
@@ -186,7 +255,7 @@ class TexnikKorik(models.Model):
         JARAYONDA = "Texnik_korikda", "Texnik_korikda"
         BARTARAF_ETILDI = "Soz_holatda", "Soz_holatda"
 
-    tarkib = models.ForeignKey('HarakatTarkibi',on_delete=models.SET_NULL, null=True, blank=True,related_name="koriklar")
+    tarkib = models.ForeignKey('HarakatTarkibi',on_delete=models.SET_NULL,limit_choices_to={"is_active": True}, null=True, blank=True,related_name="koriklar")
     tamir_turi = models.ForeignKey('TamirTuri',on_delete=models.SET_NULL, null=True, blank=True)
     status = models.CharField(max_length=32, choices=Status.choices, default=Status.JARAYONDA, editable=False)
     ehtiyot_qismlar = models.ManyToManyField("EhtiyotQismlari", through="TexnikKorikEhtiyotQism", blank=True)
@@ -307,7 +376,7 @@ class Nosozliklar(models.Model):
         related_name="nosozliklar",
         blank=True
     )
-    tarkib = models.ForeignKey('HarakatTarkibi', on_delete=models.SET_NULL,null=True, blank=True, related_name="nosozliklar")
+    tarkib = models.ForeignKey('HarakatTarkibi', on_delete=models.SET_NULL,limit_choices_to={"is_active": True},null=True, blank=True, related_name="nosozliklar")
     nosozliklar_haqida = models.TextField(null=True, blank=True)
     status = models.CharField(max_length=32, choices=Status.choices, default=Status.JARAYONDA, editable=False)
 

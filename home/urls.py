@@ -6,7 +6,8 @@ from .views import (
     EhtiyotQismlariViewSet, HarakatTarkibiViewSet,
     TexnikKorikViewSet, UserViewSet, NosozliklarViewSet,
     HarakatTarkibiGetViewSet, NosozliklarGetViewSet,
-    TexnikKorikGetViewSet, TexnikKorikStepViewSet,NosozlikStepViewSet,KorikNosozlikStatisticsView,KunlikYurishViewSet,
+    TexnikKorikGetViewSet, TexnikKorikStepViewSet,NosozlikStepViewSet,KorikNosozlikStatisticsView,
+    KunlikYurishViewSet,
     get_me
 )
 routers

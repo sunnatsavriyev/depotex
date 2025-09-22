@@ -6,12 +6,14 @@ from django.http import HttpResponse
 from openpyxl import Workbook
 from .models import (
     TamirTuri, ElektroDepo, EhtiyotQismlari,
-    HarakatTarkibi, TexnikKorik, CustomUser, Nosozliklar, NosozlikEhtiyotQism, TexnikKorikStep,KunlikYurish
+    HarakatTarkibi, TexnikKorik, CustomUser, Nosozliklar, NosozlikEhtiyotQism, TexnikKorikStep,KunlikYurish,
+    Vagon,
 )
 from .serializers import (
     TamirTuriSerializer, ElektroDepoSerializer,
     EhtiyotQismlariSerializer, HarakatTarkibiSerializer,
-    TexnikKorikSerializer, UserSerializer, NosozliklarSerializer, TexnikKorikStepSerializer, NosozlikStepSerializer, NosozlikStep,KunlikYurishSerializer
+    TexnikKorikSerializer, UserSerializer, NosozliklarSerializer, TexnikKorikStepSerializer, NosozlikStepSerializer,
+    NosozlikStep,KunlikYurishSerializer,VagonSerializer
 )
 from django.db.models import Sum
 from .permissions import CustomPermission
@@ -300,6 +302,8 @@ class EhtiyotQismlariViewSet(BaseViewSet):
     search_fields = ['ehtiyotqism_nomi', 'nomenklatura_raqami']   
     ordering_fields = ['nomenklatura_raqami', 'id']
 
+
+
 class HarakatTarkibiViewSet(BaseViewSet):
     queryset = HarakatTarkibi.objects.all().order_by("-id")
     serializer_class = HarakatTarkibiSerializer
@@ -329,7 +333,11 @@ class HarakatTarkibiViewSet(BaseViewSet):
 
 
 class HarakatTarkibiGetViewSet(BaseViewSet):
-    queryset = HarakatTarkibi.objects.annotate(total_kilometr=Sum("kunlik_yurishlar__kilometr")).order_by("-id")
+    queryset = (
+    HarakatTarkibi.objects.filter(is_active=True)
+    .annotate(total_kilometr=Sum("kunlik_yurishlar__kilometr"))
+    .order_by("-id")
+    )
     serializer_class = HarakatTarkibiSerializer
     basename = "Harakat Tarkibi"
     permission_classes = [IsAuthenticated, CustomPermission]
@@ -347,13 +355,59 @@ class HarakatTarkibiGetViewSet(BaseViewSet):
         if not depo_id:
             return Response({"error": "depo_id query param kerak"}, status=400)
 
-        queryset = self.get_queryset().filter(depo_id=depo_id)
+        queryset = (
+            self.get_queryset()
+            .filter(depo_id=depo_id, is_active=True)
+        )
+
         page = self.paginate_queryset(queryset)
         if page is not None:
             serializer = self.get_serializer(page, many=True)
             return self.get_paginated_response(serializer.data)
 
         serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+    
+    
+    @action(detail=True, methods=["get"], url_path="versions")
+    def versions(self, request, pk=None):
+        obj = self.get_object()
+        versions = HarakatTarkibi.objects.filter(
+            tarkib_raqami=obj.tarkib_raqami
+        ).order_by("-id")
+
+        serializer = self.get_serializer(versions, many=True)
+        return Response(serializer.data)
+
+
+    def perform_create(self, serializer):
+        # Agar tarkib_raqami bo‘yicha eski versiya bo‘lsa → uni deactivate qilamiz
+        tarkib_raqami = serializer.validated_data.get("tarkib_raqami")
+        eski_versiya = (
+            HarakatTarkibi.objects.filter(tarkib_raqami=tarkib_raqami, is_active=True)
+            .order_by("-id")
+            .first()
+        )
+
+        if eski_versiya:
+            eski_versiya.is_active = False
+            eski_versiya.save()
+
+            # yangi obyekt eski versiyaga bog‘lanadi
+            serializer.save(
+                created_by=self.request.user,
+                previous_version=eski_versiya,
+                is_active=True,
+            )
+        else:
+            # birinchi versiya bo‘lsa
+            serializer.save(created_by=self.request.user, is_active=True)
+            
+    @action(detail=True, methods=["get"], url_path="vagonlar")
+    def vagonlar(self, request, pk=None):
+        obj = self.get_object()
+        vagonlar = obj.vagon_set.all()  # yoki obj.vagonlar.all() agar related_name="vagonlar"
+        serializer = VagonSerializer(vagonlar, many=True)
         return Response(serializer.data)
 
 
