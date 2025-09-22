@@ -115,7 +115,7 @@ class KunlikYurishSerializer(serializers.ModelSerializer):
 class VagonSerializer(serializers.ModelSerializer):
     class Meta:
         model = Vagon
-        fields = ["id", "vagon_raqami"]
+        fields = [ "vagon_raqami"]
 
 
 class HarakatTarkibiSerializer(serializers.ModelSerializer):
@@ -131,14 +131,14 @@ class HarakatTarkibiSerializer(serializers.ModelSerializer):
         input_formats=["%d-%m-%Y", "%Y-%m-%d"]  
     )
     total_kilometr = serializers.SerializerMethodField() 
-    vagonlar = VagonSerializer(many=True,read_only=True)
+    vagonlar = serializers.SerializerMethodField()
 
     class Meta:
         model = HarakatTarkibi
         fields = "__all__"
         read_only_fields = [
             "created_by", "created_at", "holati",
-            "is_active", "previous_version", "vagonlar" 
+            "is_active", "previous_version","vagonlar" 
         ]
 
     def update(self, instance, validated_data):
@@ -159,12 +159,12 @@ class HarakatTarkibiSerializer(serializers.ModelSerializer):
         return new_instance
     
     
-    def _yig_vagonlar(self, tarkib):
-        """Vagon raqamlarini yig‘ib tarkib_raqamiga yozadi"""
-        vagonlar = tarkib.vagonlar.order_by("id").values_list("vagon_raqami", flat=True)
-        return "-".join(vagonlar)
     
-    
+    def get_vagonlar(self, obj):
+        """tarkib_raqamidan bo‘lib vagonlar ro‘yxatini qaytaradi"""
+        if not obj.tarkib_raqami:
+            return []
+        return [{"vagon_raqami": v} for v in obj.tarkib_raqami.split("-")]
     
     def get_total_kilometr(self, obj):
         if hasattr(obj, "total_kilometr") and obj.total_kilometr is not None:
@@ -172,14 +172,8 @@ class HarakatTarkibiSerializer(serializers.ModelSerializer):
         return obj.kunlik_yurishlar.aggregate(total=Sum("kilometr"))["total"] or 0
 
     def create(self, validated_data):
-        vagonlar_data = validated_data.pop("vagonlar", [])
-        tarkib = HarakatTarkibi.objects.create(**validated_data)
-        for vagon_data in vagonlar_data:
-            Vagon.objects.create(tarkib=tarkib, **vagon_data)
-        
-        tarkib.tarkib_raqami = self._yig_vagonlar(tarkib)
-        tarkib.save(update_fields=["tarkib_raqami"])
-        return tarkib
+        validated_data["created_by"] = self.context["request"].user 
+        return super().create(validated_data)
 
 
 
