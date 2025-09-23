@@ -311,7 +311,7 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
     write_only=True
     )
     korik_nomi = serializers.CharField(source="korik.tarkib.tarkib_raqami", read_only=True)
-
+    pervious_version = serializers.CharField(source="tarkib.previous_version", read_only=True)
     
     ehtiyot_qismlar = TexnikKorikEhtiyotQismStepSerializer(many=True, write_only=True, required=False)
    
@@ -329,7 +329,7 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
     class Meta:
         model = TexnikKorikStep
         fields = [
-            "id", "korik", "korik_nomi", "tamir_turi_nomi",
+            "id", "korik", "korik_nomi", "tamir_turi_nomi","pervious_version",
             "kamchiliklar_haqida", "ehtiyot_qismlar", "ehtiyot_qismlar_detail",
             "bartaraf_etilgan_kamchiliklar", "chiqqan_vaqti", "akt_file",
             "yakunlash", "created_by", "created_at", "password", "status"
@@ -420,6 +420,7 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
     queryset=HarakatTarkibi.objects.filter(is_active=True, holati="Soz_holatda"),
     )
     is_active = serializers.BooleanField(source="tarkib.is_active", read_only=True)
+    pervious_version = serializers.CharField(source="tarkib.previous_version", read_only=True)
     tarkib_detail = serializers.SerializerMethodField(read_only=True)
     tarkib_nomi = serializers.CharField(source="tarkib.tarkib_raqami", read_only=True)
     kirgan_vaqti = serializers.DateTimeField(read_only=True)
@@ -444,7 +445,7 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
     class Meta:
         model = TexnikKorik
         fields = [
-            "id", "tarkib","tarkib_detail", "tarkib_nomi","is_active", "tamir_turi", "tamir_turi_nomi", "status",
+            "id", "tarkib","tarkib_detail", "tarkib_nomi","is_active","pervious_version", "tamir_turi", "tamir_turi_nomi", "status",
             "kamchiliklar_haqida", "ehtiyot_qismlar", "ehtiyot_qismlar_detail",
             "bartaraf_etilgan_kamchiliklar", "kirgan_vaqti", "chiqqan_vaqti",
             "akt_file", "yakunlash", "created_by", "created_at", "steps", "password"
