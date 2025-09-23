@@ -420,6 +420,7 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
     queryset=HarakatTarkibi.objects.filter(is_active=True, holati="Soz_holatda"),
     )
     is_active = serializers.BooleanField(source="tarkib.is_active", read_only=True)
+    tarkib_detail = serializers.SerializerMethodField(read_only=True)
     tarkib_nomi = serializers.CharField(source="tarkib.tarkib_raqami", read_only=True)
     kirgan_vaqti = serializers.DateTimeField(read_only=True)
     tamir_turi = serializers.PrimaryKeyRelatedField(
@@ -443,7 +444,7 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
     class Meta:
         model = TexnikKorik
         fields = [
-            "id", "tarkib", "tarkib_nomi","is_active", "tamir_turi", "tamir_turi_nomi", "status",
+            "id", "tarkib","tarkib_detail", "tarkib_nomi","is_active", "tamir_turi", "tamir_turi_nomi", "status",
             "kamchiliklar_haqida", "ehtiyot_qismlar", "ehtiyot_qismlar_detail",
             "bartaraf_etilgan_kamchiliklar", "kirgan_vaqti", "chiqqan_vaqti",
             "akt_file", "yakunlash", "created_by", "created_at", "steps", "password"
@@ -486,6 +487,14 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
         }
 
     
+    
+    def get_tarkib_detail(self, obj):
+        return {
+            "id": obj.tarkib.id,
+            "tarkib_raqami": obj.tarkib.tarkib_raqami,
+            "holati": obj.tarkib.holati,
+            "is_active": obj.tarkib.is_active,
+        }
     
     
     def validate(self, attrs):
