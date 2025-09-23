@@ -13,7 +13,8 @@ from .serializers import (
     TamirTuriSerializer, ElektroDepoSerializer,
     EhtiyotQismlariSerializer, HarakatTarkibiSerializer,
     TexnikKorikSerializer, UserSerializer, NosozliklarSerializer, TexnikKorikStepSerializer, NosozlikStepSerializer,
-    NosozlikStep,KunlikYurishSerializer,VagonSerializer
+    NosozlikStep,KunlikYurishSerializer,VagonSerializer,
+    HarakatTarkibiActiveSerializer
 )
 from django.db.models import Sum
 from .permissions import CustomPermission
@@ -305,7 +306,11 @@ class EhtiyotQismlariViewSet(BaseViewSet):
 
 
 class HarakatTarkibiViewSet(BaseViewSet):
-    queryset = HarakatTarkibi.objects.all().order_by("-id")
+    queryset = (
+    HarakatTarkibi.objects.filter(is_active=True)
+    .annotate(total_kilometr=Sum("kunlik_yurishlar__kilometr"))
+    .order_by("-id")
+    )
     serializer_class = HarakatTarkibiSerializer
     basename = "Harakat Tarkibi"
     permission_classes = [IsAuthenticated, CustomPermission]
@@ -417,15 +422,16 @@ class HarakatTarkibiActiveViewSet(BaseViewSet):
         .annotate(total_kilometr=Sum("kunlik_yurishlar__kilometr"))
         .order_by("-id")
     )
-    serializer_class = HarakatTarkibiSerializer   
+    serializer_class = HarakatTarkibiActiveSerializer
     basename = "Harakat Tarkibi Active"
     permission_classes = [IsAuthenticated, CustomPermission]
     require_login_fields = False
     pagination_class = CustomPagination
     filter_backends = [filters.SearchFilter, filters.OrderingFilter, DjangoFilterBackend]
-    search_fields = ['guruhi','tarkib_raqami','turi','ishga_tushgan_vaqti','eksplutatsiya_vaqti']   
+    search_fields = ['guruhi', 'tarkib_raqami', 'turi', 'ishga_tushgan_vaqti', 'eksplutatsiya_vaqti']
     ordering_fields = ['ishga_tushgan_vaqti', 'id']
     filterset_fields = ['depo']
+
 
 
 
