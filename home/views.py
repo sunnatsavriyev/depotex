@@ -411,6 +411,23 @@ class HarakatTarkibiGetViewSet(BaseViewSet):
         return Response(serializer.data)
 
 
+class HarakatTarkibiActiveViewSet(BaseViewSet):
+    queryset = (
+        HarakatTarkibi.objects.filter(is_active=True)
+        .annotate(total_kilometr=Sum("kunlik_yurishlar__kilometr"))
+        .order_by("-id")
+    )
+    serializer_class = HarakatTarkibiSerializer   
+    basename = "Harakat Tarkibi Active"
+    permission_classes = [IsAuthenticated, CustomPermission]
+    require_login_fields = False
+    pagination_class = CustomPagination
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter, DjangoFilterBackend]
+    search_fields = ['guruhi','tarkib_raqami','turi','ishga_tushgan_vaqti','eksplutatsiya_vaqti']   
+    ordering_fields = ['ishga_tushgan_vaqti', 'id']
+    filterset_fields = ['depo']
+
+
 
 class KunlikYurishViewSet(BaseViewSet):
     serializer_class = KunlikYurishSerializer

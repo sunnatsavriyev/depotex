@@ -183,6 +183,11 @@ class HarakatTarkibiSerializer(serializers.ModelSerializer):
 
 
 
+class HarakatTarkibiActiveSerializer(HarakatTarkibiSerializer):
+    class Meta(HarakatTarkibiSerializer.Meta):
+        model = HarakatTarkibi
+        fields = HarakatTarkibiSerializer.Meta.fields
+
     
     
 

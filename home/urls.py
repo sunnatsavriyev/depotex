@@ -7,7 +7,7 @@ from .views import (
     TexnikKorikViewSet, UserViewSet, NosozliklarViewSet,
     HarakatTarkibiGetViewSet, NosozliklarGetViewSet,
     TexnikKorikGetViewSet, TexnikKorikStepViewSet,NosozlikStepViewSet,KorikNosozlikStatisticsView,
-    KunlikYurishViewSet,
+    KunlikYurishViewSet,HarakatTarkibiActiveViewSet,
     get_me
 )
 routers
@@ -32,6 +32,11 @@ urlpatterns = [
     path("", include(router.urls)), 
     path("me/", get_me, name="get_me"),
     path("harakat-tarkibi-get/", HarakatTarkibiGetViewSet.as_view({"get": "list"}), name="harakat-tarkibi-get"),
+    path(
+        "harakat-tarkibi-active/",
+        HarakatTarkibiActiveViewSet.as_view({"get": "list"}),
+        name="harakat-tarkibi-active-list",
+    ),
     path("nosozliklar-get/", NosozliklarGetViewSet.as_view({"get": "list"}), name="nosozliklar-get"),
     path("texnik-korik-get/", TexnikKorikGetViewSet.as_view({"get": "list"}), name="texnik-korik-get"),
 ]
