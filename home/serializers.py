@@ -311,7 +311,7 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
     write_only=True
     )
     korik_nomi = serializers.CharField(source="korik.tarkib.tarkib_raqami", read_only=True)
-    pervious_version = serializers.CharField(source="tarkib.previous_version", read_only=True)
+    pervious_version = serializers.CharField(source="tarkib.previous_version.id", read_only=True)
     
     ehtiyot_qismlar = TexnikKorikEhtiyotQismStepSerializer(many=True, write_only=True, required=False)
    
@@ -420,7 +420,7 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
     queryset=HarakatTarkibi.objects.filter(is_active=True, holati="Soz_holatda"),
     )
     is_active = serializers.BooleanField(source="tarkib.is_active", read_only=True)
-    pervious_version = serializers.CharField(source="tarkib.previous_version", read_only=True)
+    pervious_version = serializers.CharField(source="tarkib.previous_version.id", read_only=True)
     tarkib_detail = serializers.SerializerMethodField(read_only=True)
     tarkib_nomi = serializers.CharField(source="tarkib.tarkib_raqami", read_only=True)
     kirgan_vaqti = serializers.DateTimeField(read_only=True)
