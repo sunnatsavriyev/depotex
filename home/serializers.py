@@ -142,24 +142,37 @@ class HarakatTarkibiSerializer(serializers.ModelSerializer):
         ]
 
     def update(self, instance, validated_data):
-    # eski versiyani deactivate
+        """ faqat tarkib_raqami o‘zgarganda yangi versiya yaratadi,
+        qolgan hollarda oddiy update qiladi """
+        request = self.context["request"]
+
+        eski_tarkib_raqami = instance.tarkib_raqami
+        yangi_tarkib_raqami = validated_data.get("tarkib_raqami", eski_tarkib_raqami)
+
+        # ✅ agar tarkib_raqami o‘zgarmagan bo‘lsa → oddiy update
+        if eski_tarkib_raqami == yangi_tarkib_raqami:
+            return super().update(instance, validated_data)
+
+        # ❗ tarkib_raqami o‘zgarsa → eski versiyani deactivate qilamiz
         instance.is_active = False
         instance.save(update_fields=["is_active"])
 
-        depo = validated_data.pop("depo", None)
+        depo = validated_data.pop("depo", instance.depo)
 
-        # yangi obyekt
+        # yangi obyekt yaratamiz
         new_instance = HarakatTarkibi.objects.create(
             **validated_data,
             depo=depo,
-            created_by=self.context["request"].user,
-            previous_version=instance
+            created_by=request.user,
+            previous_version=instance,
+            is_active=True,
         )
 
-        new_instance.tarkib_raqami = self._yig_vagonlar(new_instance)
-        new_instance.save(update_fields=["tarkib_raqami"])
+        # tarkib_raqamini yig‘ish (agar kerak bo‘lsa)
+        if hasattr(self, "_yig_vagonlar"):
+            new_instance.tarkib_raqami = self._yig_vagonlar(new_instance)
+            new_instance.save(update_fields=["tarkib_raqami"])
 
-        # 🔥 serializer context bilan qaytarish
         return new_instance
 
 

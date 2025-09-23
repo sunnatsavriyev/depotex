@@ -336,16 +336,16 @@ class HarakatTarkibiViewSet(BaseViewSet):
     search_fields = ['guruhi','tarkib_raqami','turi','ishga_tushgan_vaqti','eksplutatsiya_vaqti']   
     ordering_fields = ['ishga_tushgan_vaqti', 'id']
     
-    def update(self, request, *args, **kwargs):
-        partial = kwargs.pop('partial', False)
-        instance = self.get_object()
-        serializer = self.get_serializer(instance, data=request.data, partial=partial)
-        serializer.is_valid(raise_exception=True)
-        new_instance = serializer.save()
+    # def update(self, request, *args, **kwargs):
+    #     partial = kwargs.pop('partial', False)
+    #     instance = self.get_object()
+    #     serializer = self.get_serializer(instance, data=request.data, partial=partial)
+    #     serializer.is_valid(raise_exception=True)
+    #     new_instance = serializer.save()
 
-        # 🔥 front-end JSON ko‘rishi uchun qaytarish
-        output_serializer = self.get_serializer(new_instance)
-        return Response(output_serializer.data, status=status.HTTP_200_OK)
+    #     # 🔥 front-end JSON ko‘rishi uchun qaytarish
+    #     output_serializer = self.get_serializer(new_instance)
+    #     return Response(output_serializer.data, status=status.HTTP_200_OK)
 
 
 
@@ -720,7 +720,6 @@ class NosozliklarViewSet(viewsets.ModelViewSet):
         akt_file = request.data.get("akt_file", None)
         ehtiyot_qismlar = request.data.get("ehtiyot_qismlar", [])
 
-        # serializer.validated_data dan passwordni olib tashlash
         validated_data = serializer.validated_data.copy()
         validated_data.pop("password", None)
         validated_data.pop("yakunlash", None)
@@ -734,14 +733,17 @@ class NosozliklarViewSet(viewsets.ModelViewSet):
             **validated_data
         )
 
-        # Ehtiyot qismlarni yaratish
         for item in ehtiyot_qismlar:
             eq_obj = item.get("ehtiyot_qism")
             miqdor = item.get("miqdor", 1)
             if eq_obj:
-                NosozlikEhtiyotQism.objects.create(nosozlik=nosozlik, ehtiyot_qism=eq_obj, miqdor=miqdor)
+                NosozlikEhtiyotQism.objects.create(
+                    nosozlik=nosozlik, ehtiyot_qism=eq_obj, miqdor=miqdor
+                )
 
-        return nosozlik
+        # ❌ return emas
+        serializer.instance = nosozlik   # ✅ DRFga yaratilgan obyektni biriktiramiz
+
 
     @action(detail=True, methods=["post"], url_path="add-step")
     def add_step(self, request, pk=None):
