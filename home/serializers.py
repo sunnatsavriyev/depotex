@@ -412,8 +412,9 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
     created_by = serializers.CharField(source="created_by.username", read_only=True)
 
     tarkib = serializers.PrimaryKeyRelatedField(
-    queryset=HarakatTarkibi.objects.filter(is_active=True,holati="Soz_holatda"),
+    queryset=HarakatTarkibi.objects.filter(is_active=True, holati="Soz_holatda"),
     )
+    is_active = serializers.BooleanField(source="tarkib.is_active", read_only=True)
     tarkib_nomi = serializers.CharField(source="tarkib.tarkib_raqami", read_only=True)
     kirgan_vaqti = serializers.DateTimeField(read_only=True)
     tamir_turi = serializers.PrimaryKeyRelatedField(
@@ -425,7 +426,7 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
 
     ehtiyot_qismlar = TexnikKorikEhtiyotQismStepSerializer(
     many=True, write_only=True, required=False, allow_null=True, default=list
-)
+    )
     ehtiyot_qismlar_detail = TexnikKorikEhtiyotQismSerializer(
         source="texnikkorikehtiyotqism_set", many=True, read_only=True
     )
@@ -437,7 +438,7 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
     class Meta:
         model = TexnikKorik
         fields = [
-            "id", "tarkib", "tarkib_nomi", "tamir_turi", "tamir_turi_nomi", "status",
+            "id", "tarkib", "tarkib_nomi","is_active", "tamir_turi", "tamir_turi_nomi", "status",
             "kamchiliklar_haqida", "ehtiyot_qismlar", "ehtiyot_qismlar_detail",
             "bartaraf_etilgan_kamchiliklar", "kirgan_vaqti", "chiqqan_vaqti",
             "akt_file", "yakunlash", "created_by", "created_at", "steps", "password"
