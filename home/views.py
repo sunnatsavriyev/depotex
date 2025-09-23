@@ -16,6 +16,7 @@ from .serializers import (
     NosozlikStep,KunlikYurishSerializer,VagonSerializer,
     HarakatTarkibiActiveSerializer
 )
+from django.utils import timezone
 from django.db.models import Sum
 from .permissions import CustomPermission
 from django.contrib.auth import authenticate
@@ -795,15 +796,43 @@ class NosozlikStepViewSet(viewsets.ModelViewSet):
         if not password or not request.user.check_password(password):
             raise ValidationError({"password": "Parol noto‘g‘ri."})
 
-        nosozlik = serializer.validated_data.get("nosozlik")
-        if not nosozlik or nosozlik.status != Nosozliklar.Status.JARAYONDA:
-            raise ValidationError("Avval Nosozlik jarayonini boshlang yoki u tugallanmagan bo‘lishi kerak!")
+        yakunlash = request.data.get("yakunlash", False)
+        akt_file = request.data.get("akt_file", None)
+        ehtiyot_qismlar = request.data.get("ehtiyot_qismlar", [])
 
-        # serializer.validated_data dan passwordni olib tashlaymiz
         validated_data = serializer.validated_data.copy()
         validated_data.pop("password", None)
+        validated_data.pop("yakunlash", None)
+        validated_data.pop("akt_file", None)
+        validated_data.pop("ehtiyot_qismlar", None)
 
-        serializer.save(created_by=request.user, **validated_data)
+        nosozlik = Nosozliklar.objects.create(
+            created_by=request.user,
+            status=Nosozliklar.Status.BARTARAF_ETILDI if yakunlash else Nosozliklar.Status.JARAYONDA,
+            akt_file=akt_file,
+            **validated_data
+        )
+
+        for item in ehtiyot_qismlar:
+            eq_obj = item.get("ehtiyot_qism")
+            miqdor = item.get("miqdor", 1)
+            if eq_obj:
+                NosozlikEhtiyotQism.objects.create(
+                    nosozlik=nosozlik, ehtiyot_qism=eq_obj, miqdor=miqdor
+                )
+
+        
+        if yakunlash:
+            nosozlik.status = Nosozliklar.Status.BARTARAF_ETILDI
+            nosozlik.bartarafqilingan_vaqti = timezone.now()
+            nosozlik.save()
+
+            # ✅ Tarkibni avtomatik soz_holatga o‘tkazamiz
+            nosozlik.tarkib.holati = "Soz_holatda"
+            nosozlik.tarkib.save(update_fields=["holati"])
+
+        serializer.instance = nosozlik
+
 
 
    

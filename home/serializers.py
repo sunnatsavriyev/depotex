@@ -761,7 +761,7 @@ class NosozliklarSerializer(serializers.ModelSerializer):
         queryset=HarakatTarkibi.objects.filter(is_active=True,holati="Soz_holatda"),
     )
     tarkib_nomi = serializers.CharField(source="tarkib.tarkib_raqami", read_only=True)
-
+    is_active = serializers.BooleanField(source="tarkib.is_active", read_only=True)
     ehtiyot_qismlar = NosozlikEhtiyotQismSerializer(many=True, write_only=True, required=False)
     ehtiyot_qismlar_detail = NosozlikEhtiyotQismSerializer(
         source="nosozlikehtiyotqism_set", many=True, read_only=True
@@ -778,7 +778,7 @@ class NosozliklarSerializer(serializers.ModelSerializer):
     class Meta:
         model = Nosozliklar
         fields = [
-            "id", "tarkib", "tarkib_nomi", "nosozliklar_haqida",
+            "id", "tarkib", "tarkib_nomi", "is_active", "nosozliklar_haqida",
             "bartaraf_etilgan_nosozliklar", "status",
             "aniqlangan_vaqti", "bartarafqilingan_vaqti",
             "created_by", "created_at",
@@ -815,10 +815,12 @@ class NosozliklarSerializer(serializers.ModelSerializer):
         # Yakunlash bo‘lsa
         if yakunlash:
             instance.status = Nosozliklar.Status.BARTARAF_ETILDI
-            instance.tarkib.holati = "Soz_holatda"
             instance.bartarafqilingan_vaqti = timezone.now()
             instance.save()
-            instance.tarkib.save()
+
+            # ✅ Tarkib holatini yangilash
+            instance.tarkib.holati = "Soz_holatda"
+            instance.tarkib.save(update_fields=["holati"])
 
         return instance 
     
