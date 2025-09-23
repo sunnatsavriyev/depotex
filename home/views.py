@@ -335,6 +335,18 @@ class HarakatTarkibiViewSet(BaseViewSet):
     filter_backends = [filters.SearchFilter, filters.OrderingFilter, DjangoFilterBackend]
     search_fields = ['guruhi','tarkib_raqami','turi','ishga_tushgan_vaqti','eksplutatsiya_vaqti']   
     ordering_fields = ['ishga_tushgan_vaqti', 'id']
+    
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop('partial', False)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        new_instance = serializer.save()
+
+        # 🔥 front-end JSON ko‘rishi uchun qaytarish
+        output_serializer = self.get_serializer(new_instance)
+        return Response(output_serializer.data, status=status.HTTP_200_OK)
+
 
 
 class HarakatTarkibiGetViewSet(BaseViewSet):

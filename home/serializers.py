@@ -142,26 +142,26 @@ class HarakatTarkibiSerializer(serializers.ModelSerializer):
         ]
 
     def update(self, instance, validated_data):
-    # Eski versiyani arxivlash
+    # eski versiyani deactivate
         instance.is_active = False
         instance.save(update_fields=["is_active"])
 
-        # depo obyektini validated_data dan olib tashlaymiz
         depo = validated_data.pop("depo", None)
 
-        # yangi nusxa yaratamiz
+        # yangi obyekt
         new_instance = HarakatTarkibi.objects.create(
             **validated_data,
-            depo=depo,  # depo_id JSON’dan kelganida shu yerda ishlaydi
+            depo=depo,
             created_by=self.context["request"].user,
             previous_version=instance
         )
 
-        # tarkib_raqami yangilash
         new_instance.tarkib_raqami = self._yig_vagonlar(new_instance)
         new_instance.save(update_fields=["tarkib_raqami"])
 
+        # 🔥 serializer context bilan qaytarish
         return new_instance
+
 
     
     
