@@ -480,7 +480,7 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
     queryset=HarakatTarkibi.objects.filter(is_active=True, holati="Soz_holatda"),
     )
     is_active = serializers.BooleanField(source="tarkib.is_active", read_only=True)
-    pervious_version = serializers.CharField(source="tarkib.previous_version.id", read_only=True)
+    pervious_version = serializers.SerializerMethodField()
     tarkib_detail = serializers.SerializerMethodField(read_only=True)
     tarkib_nomi = serializers.CharField(source="tarkib.tarkib_raqami", read_only=True)
     kirgan_vaqti = serializers.DateTimeField(read_only=True)
@@ -513,11 +513,14 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
         read_only_fields = ["status", "created_by", "created_at", "steps"]
 
     
+    
+    def get_pervious_version(self, obj):
+        return obj.tarkib.previous_version.id if obj.tarkib and obj.tarkib.previous_version else None
 
     def get_steps(self, obj):
         request = self.context.get("request")
 
-        # 🔹 Parent
+        # 🔹 Parent (asosiy korik ma'lumotlari)
         parent_data = TexnikKorikDetailForStepSerializer(obj, context=self.context).data
 
         # 🔹 Queryset
@@ -534,18 +537,24 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
         # 🔹 Pagination
         paginator = StepPagination()
         page = paginator.paginate_queryset(steps_qs, request)
-        steps_data = TexnikKorikStepSerializer(page, many=True, context=self.context).data
 
-        results = [parent_data] + steps_data
+        if page is not None:
+            steps_data = TexnikKorikStepSerializer(page, many=True, context=self.context).data
+            paginated = paginator.get_paginated_response(steps_data)
+            # 🔑 Birinchi qilib parentni qo‘shamiz
+            paginated["results"] = [parent_data] + paginated["results"]
+            return paginated
+        else:
+            steps_data = TexnikKorikStepSerializer(steps_qs, many=True, context=self.context).data
+            return {
+                "count": steps_qs.count() + 1,
+                "num_pages": 1,
+                "current_page": 1,
+                "next": None,
+                "previous": None,
+                "results": [parent_data] + steps_data,
+            }
 
-        return {
-            "count": paginator.page.paginator.count + 1,
-            "num_pages": paginator.page.paginator.num_pages,
-            "current_page": paginator.page.number,
-            "next": paginator.get_next_link(),
-            "previous": paginator.get_previous_link(),
-            "results": results,
-        }
 
     
     
@@ -587,6 +596,10 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         request = self.context["request"]
+
+        kamchiliklar_haqida = validated_data.get("kamchiliklar_haqida", "")
+        bartaraf_etilgan_kamchiliklar = validated_data.get("bartaraf_etilgan_kamchiliklar", "")
+
         ehtiyot_qismlar = validated_data.pop("ehtiyot_qismlar", []) or []
         akt_file = validated_data.pop("akt_file", None)
         yakunlash = validated_data.pop("yakunlash", False)
@@ -595,21 +608,18 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
         if akt_file:
             validated_data["akt_file"] = akt_file
 
-        # Avval asosiy korikni yaratamiz
         korik = TexnikKorik.objects.create(**validated_data)
 
-        # Holatni yangilash
         if yakunlash:
             korik.status = TexnikKorik.Status.BARTARAF_ETILDI
             korik.tarkib.holati = "Soz_holatda"
-            korik.chiqqan_vaqti = korik.created_at
+            korik.chiqqan_vaqti = timezone.now()
         else:
             korik.tarkib.holati = "Texnik_korikda"
 
         korik.tarkib.save()
         korik.save()
 
-        # Endi ehtiyot qismlar asosiy korikka yoziladi
         for item in ehtiyot_qismlar:
             eq_obj = item.get("ehtiyot_qism")
             miqdor = item.get("miqdor", 1)
@@ -619,19 +629,10 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
                 miqdor=miqdor
             )
 
-        # ❗️ Agar to‘g‘ridan-to‘g‘ri yakunlansa → step ham yaratib yuboramiz
-        if yakunlash:
-            TexnikKorikStep.objects.create(
-                korik=korik,
-                tamir_turi=korik.tamir_turi,
-                created_by=request.user,
-                akt_file=akt_file,
-                status=TexnikKorikStep.Status.BARTARAF_ETILDI,
-                kamchiliklar_haqida=validated_data.get("kamchiliklar_haqida", ""),
-                bartaraf_etilgan_kamchiliklar=validated_data.get("bartaraf_etilgan_kamchiliklar", "")
-            )
-
+        # ❌ step yaratmaymiz
         return korik
+
+
 
 
 
@@ -640,34 +641,22 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         ehtiyot_qismlar = validated_data.pop("ehtiyot_qismlar", None)
         akt_file = validated_data.pop("akt_file", None)
+        yakunlash = validated_data.pop("yakunlash", False)
 
-        if akt_file:  # faylni yangilash
+        if akt_file:
             instance.akt_file = akt_file
-
-        yakunlash = validated_data.get("yakunlash", False)
 
         if yakunlash:
             instance.status = TexnikKorik.Status.BARTARAF_ETILDI
             instance.tarkib.holati = "Soz_holatda"
             if not instance.chiqqan_vaqti:
-                instance.chiqqan_vaqti = instance.created_at  
+                instance.chiqqan_vaqti = timezone.now()
         else:
-            instance.tarkib.holati = "Texnik_korikda"  
+            instance.tarkib.holati = "Texnik_korikda"
 
         instance.tarkib.save()
-        instance = super().update(instance, validated_data)
+        return super().update(instance, validated_data)
 
-        if ehtiyot_qismlar is not None:
-            instance.texnikkorikehtiyotqism_set.all().delete()
-            for item in ehtiyot_qismlar:
-                eq_obj = item.get("ehtiyot_qism")
-                miqdor = item.get("miqdor", 1)
-                TexnikKorikEhtiyotQism.objects.create(
-                    korik=instance,
-                    ehtiyot_qism=eq_obj,
-                    miqdor=miqdor
-                )
-        return instance
 
 
 class StepPagination(PageNumberPagination):
@@ -903,6 +892,10 @@ class NosozliklarSerializer(serializers.ModelSerializer):
     
     def create(self, validated_data):
         request = self.context.get("request")
+
+        nosozliklar_haqida = validated_data.get("nosozliklar_haqida", "")
+        bartaraf_etilgan_nosozliklar = validated_data.get("bartaraf_etilgan_nosozliklar", "")
+
         password = validated_data.pop("password", None)
         yakunlash = validated_data.pop("yakunlash", False)
         akt_file = validated_data.pop("akt_file", None)
@@ -919,7 +912,7 @@ class NosozliklarSerializer(serializers.ModelSerializer):
             **validated_data
         )
 
-        # Ehtiyot qismlar asosiy nosozlikka yoziladi
+        # ehtiyot qismlar asosiy nosozlikka yoziladi
         for item in ehtiyot_qismlar:
             eq_obj = item.get("ehtiyot_qism")
             miqdor = item.get("miqdor", 1)
@@ -930,39 +923,18 @@ class NosozliklarSerializer(serializers.ModelSerializer):
                     miqdor=miqdor
                 )
 
-        # Agar yakunlansa → step ham yozib qo‘yamiz
+        # agar yakunlansa → tarkibni ham soz holatga qaytaramiz
         if yakunlash:
             instance.status = Nosozliklar.Status.BARTARAF_ETILDI
             instance.bartarafqilingan_vaqti = timezone.now()
             instance.save()
 
-            # Tarkibni soz holatga qaytarish
             instance.tarkib.holati = "Soz_holatda"
             instance.tarkib.save(update_fields=["holati"])
 
-            # ✅ Avtomatik NosozlikStep yaratish
-            step = NosozlikStep.objects.create(
-                nosozlik=instance,
-                created_by=request.user,
-                akt_file=akt_file,
-                status=NosozlikStep.Status.BARTARAF_ETILDI,
-                nosozliklar_haqida=validated_data.get("nosozliklar_haqida", ""),
-                bartaraf_etilgan_nosozliklar=validated_data.get("bartaraf_etilgan_nosozliklar", ""),
-                bartaraf_qilingan_vaqti=timezone.now()
-            )
-
-            # Step uchun ham ehtiyot qismlarni yozib qo‘yamiz
-            for item in ehtiyot_qismlar:
-                eq_obj = item.get("ehtiyot_qism")
-                miqdor = item.get("miqdor", 1)
-                if eq_obj:
-                    NosozlikEhtiyotQismStep.objects.create(
-                        step=step,
-                        ehtiyot_qism=eq_obj,
-                        miqdor=miqdor
-                    )
-
         return instance
+
+
 
     
     
@@ -971,7 +943,6 @@ class NosozliklarSerializer(serializers.ModelSerializer):
         parent_data = NosozlikDetailForStepSerializer(obj, context=self.context).data
         steps_qs = obj.steps.all().order_by("created_at")
 
-        # search filter
         search = request.query_params.get("search")
         if search:
             steps_qs = steps_qs.filter(
@@ -985,6 +956,7 @@ class NosozliklarSerializer(serializers.ModelSerializer):
         if page is not None:
             steps_data = NosozlikStepSerializer(page, many=True, context=self.context).data
             paginated = paginator.get_paginated_response(steps_data)
+            paginated["results"] = [parent_data] + paginated["results"]
         else:
             steps_data = NosozlikStepSerializer(steps_qs, many=True, context=self.context).data
             paginated = {
@@ -996,11 +968,8 @@ class NosozliklarSerializer(serializers.ModelSerializer):
                 "results": [parent_data] + steps_data,
             }
 
-        # add parent_data as first element
-        if page is not None:
-            paginated["results"] = [parent_data] + paginated["results"]
-
         return paginated
+
     
     
 

@@ -293,7 +293,6 @@ class TexnikKorik(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     def save(self, *args, **kwargs):
-        # 🔹 Yangi korik ochilsa
         if not self.id:
             ongoing = TexnikKorik.objects.filter(
                 tarkib=self.tarkib,
@@ -305,27 +304,15 @@ class TexnikKorik(models.Model):
             self.kirgan_vaqti = timezone.now()
             self.status = TexnikKorik.Status.JARAYONDA
 
-            # ✅ Tarkibni "Texnik_korikda" holatiga o'tkazamiz
             self.tarkib.holati = "Texnik_korikda"
             self.tarkib.save()
 
         else:
-            # eski yozuvni olib kelamiz
             old = TexnikKorik.objects.filter(id=self.id).first()
             if old:
                 self.kirgan_vaqti = old.kirgan_vaqti
 
-        # 🔹 Korikni yakunlash
-        if self.yakunlash:
-            if not self.chiqqan_vaqti or not self.akt_file:
-                raise ValueError("Yakunlash uchun chiqish vaqti va akt fayl majburiy!")
-
-            if self.status != TexnikKorik.Status.BARTARAF_ETILDI:
-                self.status = TexnikKorik.Status.BARTARAF_ETILDI
-                # ✅ Yakunlanganda tarkibni "Soz_holatda" qilamiz
-                self.tarkib.holati = "Soz_holatda"
-                self.tarkib.save()
-
+        # ❌ yakunlash tekshiruvini olib tashladik
         super().save(*args, **kwargs)
 
 
@@ -416,7 +403,6 @@ class Nosozliklar(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     def save(self, *args, **kwargs):
-        # yangi yozuv bo‘lsa
         if not self.id:
             self.aniqlangan_vaqti = timezone.now()
             self.status = Nosozliklar.Status.JARAYONDA
@@ -427,19 +413,12 @@ class Nosozliklar(models.Model):
             if old:
                 self.aniqlangan_vaqti = old.aniqlangan_vaqti
 
-        # ✅ yakunlash sharti
-        if self.yakunlash:
-            if not self.bartarafqilingan_vaqti or not self.akt_file:
-                raise ValueError("Yakunlash uchun bartaraf etilgan vaqt va akt fayl majburiy!")
-            if self.status != Nosozliklar.Status.BARTARAF_ETILDI:
-                self.status = Nosozliklar.Status.BARTARAF_ETILDI
-                self.tarkib.holati = "Soz_holatda"
-                self.tarkib.save()
-
+        # ❌ yakunlash tekshiruvini olib tashlaymiz
         super().save(*args, **kwargs)
 
-    def __str__(self):
-        return f"{self.tarkib} - {self.status} ({self.created_by})"
+
+        def __str__(self):
+            return f"{self.tarkib} - {self.status} ({self.created_by})"
 
     @property
     def ehtiyot_qismlar_miqdor(self):

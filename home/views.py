@@ -674,6 +674,7 @@ class NosozliklarGetViewSet(mixins.ListModelMixin,
 
 
 # --- Nosozliklar ViewSet (Texnik Korikga o'xshash) ---
+
 class NosozliklarViewSet(viewsets.ModelViewSet):
     queryset = (
         Nosozliklar.objects
@@ -708,7 +709,7 @@ class NosozliklarViewSet(viewsets.ModelViewSet):
             raise ValidationError({"password": "Parol noto‘g‘ri."})
 
         yakunlash = request.data.get("yakunlash", False)
-        akt_file = request.data.get("akt_file", None)
+        akt_file = request.data.get("akt_file")
         ehtiyot_qismlar = request.data.get("ehtiyot_qismlar", [])
 
         validated_data = serializer.validated_data.copy()
@@ -732,28 +733,36 @@ class NosozliklarViewSet(viewsets.ModelViewSet):
                     nosozlik=nosozlik, ehtiyot_qism=eq_obj, miqdor=miqdor
                 )
 
-        # ❌ return emas
-        serializer.instance = nosozlik   # ✅ DRFga yaratilgan obyektni biriktiramiz
+        if yakunlash:
+            nosozlik.status = Nosozliklar.Status.BARTARAF_ETILDI
+            nosozlik.bartarafqilingan_vaqti = timezone.now()
+            nosozlik.save()
+
+            nosozlik.tarkib.holati = "Soz_holatda"
+            nosozlik.tarkib.save(update_fields=["holati"])
+
+        serializer.instance = nosozlik
 
 
     @action(detail=True, methods=["post"], url_path="add-step")
     def add_step(self, request, pk=None):
         nosozlik = self.get_object()
         if nosozlik.status == Nosozliklar.Status.BARTARAF_ETILDI:
-            return Response({"detail": "Bu nosozlik allaqachon yakunlangan, yangi step qo'shib bo'lmaydi!"},
-                            status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"detail": "Bu nosozlik allaqachon yakunlangan, yangi step qo'shib bo'lmaydi!"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
         serializer = NosozlikStepSerializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
-        step = serializer.save(nosozlik=nosozlik)
+        step = serializer.save(nosozlik=nosozlik, created_by=request.user)
         return Response(NosozlikStepSerializer(step, context={"request": request}).data,
                         status=status.HTTP_201_CREATED)
 
 
 
 
-
-# --- Nosozlik Step ViewSet (Texnik Korik Stepga o'xshash) ---
+# --- Nosozlik Step ViewSet ---
 class NosozlikStepViewSet(viewsets.ModelViewSet):
     serializer_class = NosozlikStepSerializer
     permission_classes = [IsAuthenticated, IsTexnik]
@@ -771,7 +780,7 @@ class NosozlikStepViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        qs = super().get_queryset().order_by("-id")
+        qs = NosozlikStep.objects.all().order_by("-id")
         if user.role == "texnik" and user.depo:
             qs = qs.filter(nosozlik__tarkib__depo=user.depo)
 
@@ -787,41 +796,22 @@ class NosozlikStepViewSet(viewsets.ModelViewSet):
             raise ValidationError({"password": "Parol noto‘g‘ri."})
 
         yakunlash = request.data.get("yakunlash", False)
-        akt_file = request.data.get("akt_file", None)
-        ehtiyot_qismlar = request.data.get("ehtiyot_qismlar", [])
 
-        validated_data = serializer.validated_data.copy()
-        validated_data.pop("password", None)
-        validated_data.pop("yakunlash", None)
-        validated_data.pop("akt_file", None)
-        validated_data.pop("ehtiyot_qismlar", None)
+        # ❌ created_by ni bu yerda bermaymiz
+        step = serializer.save()
 
-        nosozlik = Nosozliklar.objects.create(
-            created_by=request.user,
-            status=Nosozliklar.Status.BARTARAF_ETILDI if yakunlash else Nosozliklar.Status.JARAYONDA,
-            akt_file=akt_file,
-            **validated_data
-        )
-
-        for item in ehtiyot_qismlar:
-            eq_obj = item.get("ehtiyot_qism")
-            miqdor = item.get("miqdor", 1)
-            if eq_obj:
-                NosozlikEhtiyotQism.objects.create(
-                    nosozlik=nosozlik, ehtiyot_qism=eq_obj, miqdor=miqdor
-                )
-
-        
+        # Agar yakunlash bo‘lsa -> asosiy nosozlikni ham yangilaymiz
         if yakunlash:
+            nosozlik = step.nosozlik
             nosozlik.status = Nosozliklar.Status.BARTARAF_ETILDI
             nosozlik.bartarafqilingan_vaqti = timezone.now()
             nosozlik.save()
 
-            # ✅ Tarkibni avtomatik soz_holatga o‘tkazamiz
             nosozlik.tarkib.holati = "Soz_holatda"
             nosozlik.tarkib.save(update_fields=["holati"])
 
-        serializer.instance = nosozlik
+
+
 
 
 
