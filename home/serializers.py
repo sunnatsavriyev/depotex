@@ -367,34 +367,39 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
     created_by = serializers.CharField(source="created_by.username", read_only=True)
     tamir_turi_nomi = serializers.CharField(source="tamir_turi.tamir_nomi", read_only=True)
     korik = serializers.PrimaryKeyRelatedField(
-    queryset=TexnikKorik.objects.all(),
-    write_only=True
+        queryset=TexnikKorik.objects.all(),
+        write_only=True
     )
     korik_nomi = serializers.CharField(source="korik.tarkib.tarkib_raqami", read_only=True)
-    pervious_version = serializers.CharField(source="tarkib.previous_version.id", read_only=True)
-    
-    ehtiyot_qismlar = TexnikKorikEhtiyotQismStepSerializer(many=True, write_only=True, required=False)
-   
+    pervious_version = serializers.SerializerMethodField()
+
+    ehtiyot_qismlar = TexnikKorikEhtiyotQismStepSerializer(
+        many=True, write_only=True, required=False
+    )
     ehtiyot_qismlar_detail = TexnikKorikEhtiyotQismStepSerializer(
         source="texnikkorikehtiyotqismstep_set", many=True, read_only=True
     )
 
     status = serializers.CharField(read_only=True)
-    akt_file = serializers.FileField(write_only=True, required=False)
+    akt_file = serializers.FileField(write_only=True, required=False)  # faqat bitta
     password = serializers.CharField(write_only=True, required=True)
     yakunlash = serializers.BooleanField(required=False)
-    akt_file = serializers.FileField(write_only=True, required=False)
     chiqqan_vaqti = serializers.DateTimeField(required=False, read_only=True)
 
     class Meta:
         model = TexnikKorikStep
         fields = [
-            "id", "korik", "korik_nomi", "tamir_turi_nomi","pervious_version",
+            "id", "korik", "korik_nomi", "tamir_turi_nomi", "pervious_version",
             "kamchiliklar_haqida", "ehtiyot_qismlar", "ehtiyot_qismlar_detail",
             "bartaraf_etilgan_kamchiliklar", "chiqqan_vaqti", "akt_file",
             "yakunlash", "created_by", "created_at", "password", "status"
         ]
-        read_only_fields = [ "tamir_turi_nomi", "created_by", "created_at"]
+        read_only_fields = ["tamir_turi_nomi", "created_by", "created_at"]
+
+    def get_pervious_version(self, obj):
+        if obj.korik and obj.korik.tarkib and obj.korik.tarkib.previous_version:
+            return obj.korik.tarkib.previous_version.id
+        return None
 
     def validate(self, attrs):
         request = self.context.get("request")
@@ -420,7 +425,7 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         request = self.context.get("request")
         korik = validated_data.pop("korik", None)
-        ehtiyot_qismlar = validated_data.pop("ehtiyot_qismlar", [])
+        ehtiyot_qismlar = validated_data.pop("ehtiyot_qismlar", []) or []
         validated_data.pop("created_by", None)
 
         if not korik or korik.status != TexnikKorik.Status.JARAYONDA:
@@ -438,17 +443,16 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
             **validated_data
         )
 
-        # 🔹 Stepga ehtiyot qismlarini qo‘shamiz
+        # 🔹 Stepga ehtiyot qismlar qo‘shamiz
         for item in ehtiyot_qismlar:
-            eq_obj = item.get("ehtiyot_qism")
-            miqdor = item.get("miqdor", 1)
+            eq_obj = item.get("ehtiyot_qism") if isinstance(item, dict) else None
+            miqdor = item.get("miqdor", 1) if isinstance(item, dict) else 1
             if eq_obj:
                 TexnikKorikEhtiyotQismStep.objects.create(
                     korik_step=step,
                     ehtiyot_qism=eq_obj,
                     miqdor=miqdor
                 )
-                # ✅ Ombordan ayiramiz
                 eq_obj.miqdori -= miqdor
                 eq_obj.save(update_fields=["miqdori"])
 
@@ -465,7 +469,6 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
         korik.tarkib.save()
         korik.save()
         return step
-
 
 
 class StepPagination(PageNumberPagination): 
