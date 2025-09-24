@@ -442,11 +442,15 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
         for item in ehtiyot_qismlar:
             eq_obj = item.get("ehtiyot_qism")
             miqdor = item.get("miqdor", 1)
-            TexnikKorikEhtiyotQismStep.objects.create(
-                korik_step=step,
-                ehtiyot_qism=eq_obj,
-                miqdor=miqdor
-            )
+            if eq_obj:
+                TexnikKorikEhtiyotQismStep.objects.create(
+                    korik_step=step,
+                    ehtiyot_qism=eq_obj,
+                    miqdor=miqdor
+                )
+                # ✅ Ombordan ayiramiz
+                eq_obj.miqdori -= miqdor
+                eq_obj.save(update_fields=["miqdori"])
 
         # 🔹 Korik va tarkib holatini yangilaymiz
         if yakunlash:
@@ -461,6 +465,7 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
         korik.tarkib.save()
         korik.save()
         return step
+
 
 
 class StepPagination(PageNumberPagination): 
@@ -597,9 +602,6 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         request = self.context["request"]
 
-        kamchiliklar_haqida = validated_data.get("kamchiliklar_haqida", "")
-        bartaraf_etilgan_kamchiliklar = validated_data.get("bartaraf_etilgan_kamchiliklar", "")
-
         ehtiyot_qismlar = validated_data.pop("ehtiyot_qismlar", []) or []
         akt_file = validated_data.pop("akt_file", None)
         yakunlash = validated_data.pop("yakunlash", False)
@@ -620,26 +622,24 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
         korik.tarkib.save()
         korik.save()
 
+        # 🔧 Ehtiyot qismlar qo‘shish va ombordan ayirish
         for item in ehtiyot_qismlar:
             eq_obj = item.get("ehtiyot_qism")
             miqdor = item.get("miqdor", 1)
-            TexnikKorikEhtiyotQism.objects.create(
-                korik=korik,
-                ehtiyot_qism=eq_obj,
-                miqdor=miqdor
-            )
+            if eq_obj:
+                TexnikKorikEhtiyotQism.objects.create(
+                    korik=korik,
+                    ehtiyot_qism=eq_obj,
+                    miqdor=miqdor
+                )
+                eq_obj.miqdori -= miqdor
+                eq_obj.save(update_fields=["miqdori"])
 
-        # ❌ step yaratmaymiz
         return korik
 
-
-
-
-
-
-
+    # ---- Update ----
     def update(self, instance, validated_data):
-        ehtiyot_qismlar = validated_data.pop("ehtiyot_qismlar", None)
+        ehtiyot_qismlar = validated_data.pop("ehtiyot_qismlar", None) or []
         akt_file = validated_data.pop("akt_file", None)
         yakunlash = validated_data.pop("yakunlash", False)
 
@@ -655,7 +655,22 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
             instance.tarkib.holati = "Texnik_korikda"
 
         instance.tarkib.save()
-        return super().update(instance, validated_data)
+        instance = super().update(instance, validated_data)
+
+        # 🔧 Yangilash paytida ham ehtiyot qismlar qo‘shish
+        for item in ehtiyot_qismlar:
+            eq_obj = item.get("ehtiyot_qism")
+            miqdor = item.get("miqdor", 1)
+            if eq_obj:
+                TexnikKorikEhtiyotQism.objects.create(
+                    korik=instance,
+                    ehtiyot_qism=eq_obj,
+                    miqdor=miqdor
+                )
+                eq_obj.miqdori -= miqdor
+                eq_obj.save(update_fields=["miqdori"])
+
+        return instance
 
 
 
@@ -940,9 +955,27 @@ class NosozliklarSerializer(serializers.ModelSerializer):
     
     def get_steps(self, obj):
         request = self.context.get("request")
-        parent_data = NosozlikDetailForStepSerializer(obj, context=self.context).data
+
+        # 🔹 Parentni step formatida serialize qilamiz
+        parent_like_step = {
+            "id": f"nosozlik-{obj.id}",  # id farqlash uchun string
+            "nosozlik": obj.id,
+            "nosozlik_nomi": obj.tarkib.tarkib_raqami if obj.tarkib else None,
+            "nosozliklar_haqida": obj.nosozliklar_haqida,
+            "bartaraf_etilgan_nosozliklar": obj.bartaraf_etilgan_nosozliklar,
+            "ehtiyot_qismlar_detail": NosozlikEhtiyotQismSerializer(
+                obj.nosozlikehtiyotqism_set.all(), many=True
+            ).data,
+            "status": obj.status,
+            "created_by": obj.created_by.username if obj.created_by else None,
+            "created_at": obj.created_at,
+            "bartaraf_qilingan_vaqti": obj.bartarafqilingan_vaqti,
+            "akt_file": obj.akt_file.url if obj.akt_file else None,
+        }
+
         steps_qs = obj.steps.all().order_by("created_at")
 
+        # 🔍 search qo‘llaymiz
         search = request.query_params.get("search")
         if search:
             steps_qs = steps_qs.filter(
@@ -956,7 +989,8 @@ class NosozliklarSerializer(serializers.ModelSerializer):
         if page is not None:
             steps_data = NosozlikStepSerializer(page, many=True, context=self.context).data
             paginated = paginator.get_paginated_response(steps_data)
-            paginated["results"] = [parent_data] + paginated["results"]
+            # 🔑 Parentni birinchi qilib qo‘shamiz
+            paginated["results"] = [parent_like_step] + paginated["results"]
         else:
             steps_data = NosozlikStepSerializer(steps_qs, many=True, context=self.context).data
             paginated = {
@@ -965,10 +999,11 @@ class NosozliklarSerializer(serializers.ModelSerializer):
                 "current_page": 1,
                 "next": None,
                 "previous": None,
-                "results": [parent_data] + steps_data,
+                "results": [parent_like_step] + steps_data,
             }
 
         return paginated
+
 
     
     
