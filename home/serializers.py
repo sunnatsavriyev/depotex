@@ -1,12 +1,12 @@
 from rest_framework import serializers
-from .models import TamirTuri, ElektroDepo, EhtiyotQismlari, HarakatTarkibi, TexnikKorik, CustomUser, Nosozliklar, TexnikKorikEhtiyotQism, NosozlikEhtiyotQism, TexnikKorikStep, TexnikKorikEhtiyotQismStep, NosozlikEhtiyotQismStep, NosozlikStep, KunlikYurish,Vagon
+from .models import TamirTuri, ElektroDepo, EhtiyotQismlari, HarakatTarkibi, TexnikKorik, CustomUser, Nosozliklar, TexnikKorikEhtiyotQism, NosozlikEhtiyotQism, TexnikKorikStep, TexnikKorikEhtiyotQismStep, NosozlikEhtiyotQismStep, NosozlikStep, KunlikYurish,Vagon,EhtiyotQismHistory
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 from django.contrib.auth import authenticate
 from rest_framework.pagination import PageNumberPagination
 from django.db.models import Q
 from django.db.models import Sum
-
+from django.db import models
 
 User = get_user_model()
 class UserSerializer(serializers.ModelSerializer):
@@ -55,8 +55,9 @@ class ElektroDepoSerializer(serializers.ModelSerializer):
 
 
 class EhtiyotQismlariSerializer(serializers.ModelSerializer):
-    depo = serializers.CharField(source="depo.qisqacha_nomi", read_only=True)
+    depo = serializers.PrimaryKeyRelatedField(queryset=ElektroDepo.objects.all())
     created_by = serializers.CharField(source="created_by.username", read_only=True)
+    jami_miqdor = serializers.FloatField(read_only=True)
 
     class Meta:
         model = EhtiyotQismlari
@@ -66,9 +67,9 @@ class EhtiyotQismlariSerializer(serializers.ModelSerializer):
             "ehtiyotqism_nomi",
             "nomenklatura_raqami",
             "birligi",
-            "miqdori",
             "created_at",
-            "depo",   # 👈 faqat nomi chiqadi
+            "depo",
+            "jami_miqdor",
         ]
 
     def create(self, validated_data):
@@ -81,8 +82,7 @@ class EhtiyotQismlariSerializer(serializers.ModelSerializer):
 
 
 
-class EhtiyotQismInputSerializer(serializers.Serializer):
-    miqdor = serializers.FloatField()
+
 
 
 
@@ -225,31 +225,24 @@ class HarakatTarkibiActiveSerializer(HarakatTarkibiSerializer):
 
 
 class EhtiyotQismWithMiqdorSerializer(serializers.ModelSerializer):
-    miqdor = serializers.SerializerMethodField()
+    miqdor = serializers.SerializerMethodField()  
     depo = serializers.CharField(source="depo.qisqacha_nomi", read_only=True)
 
     class Meta:
         model = EhtiyotQismlari
-        fields = ["id", "ehtiyotqism_nomi", "birligi","depo", "miqdor"]
+        fields = ["id", "ehtiyotqism_nomi", "birligi", "depo", "miqdor"]
 
     def get_miqdor(self, obj):
-        parent = self.context.get("parent_instance")
-        if not parent:
-            return None
+        total_added = obj.ehtiyotqism_hist.aggregate(
+            total=models.Sum('miqdor')
+        )['total'] or 0
+        return total_added
 
-        if isinstance(parent, TexnikKorik):
-            through_obj = TexnikKorikEhtiyotQism.objects.filter(
-                korik=parent, ehtiyot_qism=obj
-            ).first()
-        elif isinstance(parent, Nosozliklar):
-            through_obj = NosozlikEhtiyotQism.objects.filter(
-                nosozlik=parent, ehtiyot_qism=obj
-            ).first()
-        else:
-            through_obj = None
 
-        return through_obj.miqdor if through_obj else None
-
+class EhtiyotQismMiqdorSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = EhtiyotQismHistory
+        fields = ['miqdor']
 
 
 
@@ -278,24 +271,24 @@ class TexnikKorikEhtiyotQismSerializer(serializers.ModelSerializer):
         fields = ["id", "ehtiyot_qism", "ehtiyot_qism_nomi", "birligi", "miqdor"]
 
     def validate(self, attrs):
-        user = self.context["request"].user
         eq = attrs["ehtiyot_qism"]
-
-        # ✅ faqat o‘z deposidagi ehtiyot qismlardan foydalanish
-        if eq.depo != getattr(user, "depo", None):
-            raise serializers.ValidationError("❌ Siz faqat o‘z deposingizdagi ehtiyot qismlardan foydalana olasiz!")
-
-        if eq.miqdori < attrs["miqdor"]:
-            raise serializers.ValidationError(
-                f"Omborda {eq.ehtiyotqism_nomi} dan {eq.miqdori} ta bor, siz {attrs['miqdor']} ta ishlatmoqchisiz!"
-            )
+        if attrs["miqdor"] > eq.jami_miqdor:
+            raise serializers.ValidationError(f"Omborda yetarli miqdor yo'q ({eq.jami_miqdor})")
         return attrs
 
     def create(self, validated_data):
         instance = super().create(validated_data)
         eq = instance.ehtiyot_qism
-        eq.miqdori -= instance.miqdor
-        eq.save()
+        miqdor = instance.miqdor
+
+        # Ehtiyot qism history-ga minus miqdor yozish
+        from .models import EhtiyotQismHistory
+        EhtiyotQismHistory.objects.create(
+            ehtiyot_qism=eq,
+            miqdor=-miqdor,  # minus qilib ayirish
+            created_by=self.context['request'].user
+        )
+
         return instance
     
 
@@ -309,24 +302,26 @@ class TexnikKorikEhtiyotQismStepSerializer(serializers.ModelSerializer):
         fields = ["id", "ehtiyot_qism", "ehtiyot_qism_nomi", "birligi", "miqdor"]
 
     def validate(self, attrs):
-        user = self.context["request"].user
         eq = attrs["ehtiyot_qism"]
-
-        if eq.depo != getattr(user, "depo", None):
-            raise serializers.ValidationError("❌ Siz faqat o‘z deposingizdagi ehtiyot qismlardan foydalana olasiz!")
-
-        if eq.miqdori < attrs["miqdor"]:
-            raise serializers.ValidationError(
-                f"Omborda {eq.ehtiyotqism_nomi} dan {eq.miqdori} ta bor, siz {attrs['miqdor']} ta ishlatmoqchisiz!"
-            )
+        if attrs["miqdor"] > eq.jami_miqdor:
+            raise serializers.ValidationError(f"Omborda yetarli miqdor yo'q ({eq.jami_miqdor})")
         return attrs
 
     def create(self, validated_data):
         instance = super().create(validated_data)
         eq = instance.ehtiyot_qism
-        eq.miqdori -= instance.miqdor
-        eq.save()
+        miqdor = instance.miqdor
+
+        # Ehtiyot qism history-ga minus miqdor yozish
+        from .models import EhtiyotQismHistory
+        EhtiyotQismHistory.objects.create(
+            ehtiyot_qism=eq,
+            miqdor=-miqdor,  # minus qilib ayirish
+            created_by=self.context['request'].user
+        )
+
         return instance
+    
 
 
 class TexnikKorikDetailForStepSerializer(serializers.ModelSerializer):
@@ -443,23 +438,26 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
             **validated_data
         )
 
-        # 🔹 Stepga ehtiyot qismlar qo‘shamiz
+        # Stepga ehtiyot qismlar qo‘shamiz
         for item in ehtiyot_qismlar:
-            eq_obj = None
-            miqdor = 1
-
-            if isinstance(item, dict):
-                eq_obj = item.get("ehtiyot_qism")  # ❗️ get ishlatyapmiz
-                miqdor = item.get("miqdor", 1)
+            eq_obj = item.get("ehtiyot_qism")
+            miqdor = item.get("miqdor", 1)
 
             if eq_obj:
+                # History orqali miqdorni minus qilish
+                from .models import EhtiyotQismHistory
+                EhtiyotQismHistory.objects.create(
+                    ehtiyot_qism=eq_obj,
+                    miqdor=-miqdor,  # bazadan ayirish
+                    created_by=request.user
+                )
+
+                # Step bilan bog‘lab yaratish
                 TexnikKorikEhtiyotQismStep.objects.create(
-                    korik_step=step,
+                    korik_step=step,  # Step bilan avtomatik bog‘laymiz
                     ehtiyot_qism=eq_obj,
                     miqdor=miqdor
                 )
-                eq_obj.miqdori -= miqdor
-                eq_obj.save(update_fields=["miqdori"])
 
         # 🔹 Korik va tarkib holatini yangilaymiz
         if yakunlash:
@@ -721,24 +719,12 @@ class NosozlikEhtiyotQismSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = NosozlikEhtiyotQism
-        fields = ["id", "ehtiyot_qism", "ehtiyot_qism_nomi", "birligi", "miqdor"]
+        fields = ["id", "nosozlik", "ehtiyot_qism", "ehtiyot_qism_nomi", "birligi", "miqdor"]
 
     def validate(self, attrs):
-        user = self.context["request"].user
         eq = attrs["ehtiyot_qism"]
-
-        # ✅ faqat o‘z deposidagi ehtiyot qismlardan foydalanish
-        if eq.depo != getattr(user, "depo", None):
-            raise serializers.ValidationError(
-                "❌ Siz faqat o‘z deposingizdagi ehtiyot qismlardan foydalana olasiz!"
-            )
-
-        # ✅ ombordagi miqdordan ko‘p ishlatmaslik
-        if eq.miqdori < attrs["miqdor"]:
-            raise serializers.ValidationError(
-                f"Omborda {eq.ehtiyotqism_nomi} dan {eq.miqdori} ta bor, "
-                f"siz {attrs['miqdor']} ta ishlatmoqchisiz!"
-            )
+        if attrs["miqdor"] > eq.jami_miqdor:
+            raise serializers.ValidationError(f"Omborda yetarli miqdor yo'q ({eq.jami_miqdor})")
         return attrs
 
     def create(self, validated_data):
@@ -755,22 +741,12 @@ class NosozlikEhtiyotQismStepSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = NosozlikEhtiyotQismStep
-        fields = ["id", "ehtiyot_qism", "ehtiyot_qism_nomi", "birligi", "miqdor"]
+        fields = ["id", "step", "ehtiyot_qism", "ehtiyot_qism_nomi", "birligi", "miqdor"]
 
     def validate(self, attrs):
-        user = self.context["request"].user
         eq = attrs["ehtiyot_qism"]
-
-        if eq.depo != getattr(user, "depo", None):
-            raise serializers.ValidationError(
-                "❌ Siz faqat o‘z deposingizdagi ehtiyot qismlardan foydalana olasiz!"
-            )
-
-        if eq.miqdori < attrs["miqdor"]:
-            raise serializers.ValidationError(
-                f"Omborda {eq.ehtiyotqism_nomi} dan {eq.miqdori} ta bor, "
-                f"siz {attrs['miqdor']} ta ishlatmoqchisiz!"
-            )
+        if attrs["miqdor"] > eq.jami_miqdor:
+            raise serializers.ValidationError(f"Omborda yetarli miqdor yo'q ({eq.jami_miqdor})")
         return attrs
 
     def create(self, validated_data):

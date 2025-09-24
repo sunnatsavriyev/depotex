@@ -7,14 +7,14 @@ from openpyxl import Workbook
 from .models import (
     TamirTuri, ElektroDepo, EhtiyotQismlari,
     HarakatTarkibi, TexnikKorik, CustomUser, Nosozliklar, NosozlikEhtiyotQism, TexnikKorikStep,KunlikYurish,
-    Vagon,
+    Vagon,EhtiyotQismHistory
 )
 from .serializers import (
     TamirTuriSerializer, ElektroDepoSerializer,
     EhtiyotQismlariSerializer, HarakatTarkibiSerializer,
     TexnikKorikSerializer, UserSerializer, NosozliklarSerializer, TexnikKorikStepSerializer, NosozlikStepSerializer,
     NosozlikStep,KunlikYurishSerializer,VagonSerializer,
-    HarakatTarkibiActiveSerializer
+    HarakatTarkibiActiveSerializer, EhtiyotQismWithMiqdorSerializer,EhtiyotQismMiqdorSerializer
 )
 from django.utils import timezone
 from django.db.models import Sum
@@ -293,16 +293,81 @@ class ElektroDepoViewSet(BaseViewSet):
     ordering_fields = ['qisqacha_nomi', 'id']
     
 
-class EhtiyotQismlariViewSet(BaseViewSet):
-    queryset = EhtiyotQismlari.objects.all()
+class EhtiyotQismlariViewSet(viewsets.ModelViewSet):
+    queryset = EhtiyotQismlari.objects.all().order_by('-id')
     serializer_class = EhtiyotQismlariSerializer
-    basename = "Ehtiyot Qismlari"
     permission_classes = [IsAuthenticated, IsSkladchi]
-    require_login_fields = False
-    pagination_class = CustomPagination
-    filter_backends = [filters.SearchFilter, filters.OrderingFilter, DjangoFilterBackend]
-    search_fields = ['ehtiyotqism_nomi', 'nomenklatura_raqami']   
-    ordering_fields = ['nomenklatura_raqami', 'id']
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ['ehtiyotqism_nomi', 'nomenklatura_raqami']
+    ordering_fields = ['id', 'nomenklatura_raqami']
+    
+    
+class EhtiyotQismMiqdorViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated, IsSkladchi]
+    serializer_class = EhtiyotQismMiqdorSerializer 
+    queryset = EhtiyotQismHistory.objects.all()  
+
+    def get(self, request, ehtiyotqism_pk=None):
+        try:
+            ehtiyot_qism = EhtiyotQismlari.objects.get(pk=ehtiyotqism_pk)
+        except EhtiyotQismlari.DoesNotExist:
+            return Response({"error": "Ehtiyot qism topilmadi"}, status=status.HTTP_404_NOT_FOUND)
+
+        history = EhtiyotQismHistory.objects.filter(ehtiyot_qism=ehtiyot_qism).order_by('-created_at')
+        history_data = [
+            {
+                "miqdor": h.miqdor,
+                "created_by": h.created_by.username,
+                "created_at": h.created_at
+            }
+            for h in history
+        ]
+
+        jami_miqdor = history.aggregate(total=Sum('miqdor'))['total'] or 0
+
+        return Response({
+            "id": ehtiyot_qism.id,
+            "ehtiyotqism_nomi": ehtiyot_qism.ehtiyotqism_nomi,
+            "birligi": ehtiyot_qism.birligi,
+            "depo": ehtiyot_qism.depo.qisqacha_nomi,
+            "jami_miqdor": jami_miqdor,
+            "history": history_data
+        })
+
+    def create(self, request, ehtiyotqism_pk=None):
+        try:
+            ehtiyot_qism = EhtiyotQismlari.objects.get(pk=ehtiyotqism_pk)
+        except EhtiyotQismlari.DoesNotExist:
+            return Response({"error": "Ehtiyot qism topilmadi"}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = EhtiyotQismMiqdorSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        miqdor = serializer.validated_data['miqdor']
+
+        EhtiyotQismHistory.objects.create(
+            ehtiyot_qism=ehtiyot_qism,
+            miqdor=miqdor,
+            created_by=request.user
+        )
+
+        # History va jami miqdorni qayta olish
+        history = EhtiyotQismHistory.objects.filter(ehtiyot_qism=ehtiyot_qism).order_by('-created_at')
+        history_data = [
+            {
+                "miqdor": h.miqdor,
+                "created_by": h.created_by.username,
+                "created_at": h.created_at
+            }
+            for h in history
+        ]
+        jami_miqdor = history.aggregate(total=Sum('miqdor'))['total'] or 0
+
+        return Response({
+            "status": "Miqdor qo'shildi",
+            "id": ehtiyot_qism.id,
+            "jami_miqdor": jami_miqdor,
+            "history": history_data
+        }, status=status.HTTP_201_CREATED)
 
 
 

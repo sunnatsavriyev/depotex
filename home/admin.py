@@ -12,7 +12,11 @@ from .models import (
     NosozlikStep,
     TexnikKorikEhtiyotQism,
     TexnikKorikEhtiyotQismStep,
+    NosozlikEhtiyotQism,
+    NosozlikEhtiyotQismStep,
+    KunlikYurish,
     Vagon,
+    EhtiyotQismHistory
 )
 
 # ---------------- Custom User ----------------
@@ -62,11 +66,29 @@ class CustomUserAdmin(UserAdmin):
 class TexnikKorikEhtiyotQismInline(admin.TabularInline):
     model = TexnikKorikEhtiyotQism
     extra = 1
-
+    readonly_fields = ["ehtiyot_qism", "miqdor"]
 
 class TexnikKorikEhtiyotQismStepInline(admin.TabularInline):
     model = TexnikKorikEhtiyotQismStep
     extra = 1
+    readonly_fields = ["ehtiyot_qism", "miqdor"]
+
+class NosozlikEhtiyotQismInline(admin.TabularInline):
+    model = NosozlikEhtiyotQism
+    extra = 1
+    readonly_fields = ["ehtiyot_qism", "miqdor"]
+
+class NosozlikEhtiyotQismStepInline(admin.TabularInline):
+    model = NosozlikEhtiyotQismStep
+    extra = 1
+    readonly_fields = ["ehtiyot_qism", "miqdor"]
+
+class EhtiyotQismHistoryInline(admin.TabularInline):
+    model = EhtiyotQismHistory
+    extra = 0
+    readonly_fields = ["miqdor", "created_by", "created_at"]
+
+
 
 
 # ---------------- Texnik Korik ----------------
@@ -113,11 +135,12 @@ class ElektroDepoAdmin(admin.ModelAdmin):
     search_fields = ("depo_nomi", "qisqacha_nomi")
     list_filter = ("joylashuvi",)
 
-
 @admin.register(EhtiyotQismlari)
 class EhtiyotQismlariAdmin(admin.ModelAdmin):
-    list_display = ("id", "ehtiyotqism_nomi", "nomenklatura_raqami", "depo","miqdori", "created_by", "created_at", "birligi")
+    list_display = ("id", "ehtiyotqism_nomi", "nomenklatura_raqami", "birligi", "depo", "jami_miqdor", "created_by", "created_at")
     search_fields = ("ehtiyotqism_nomi", "nomenklatura_raqami")
+    inlines = [EhtiyotQismHistoryInline]  # qo'shilgan miqdorlarni tarixini ko'rsatadi
+    readonly_fields = ["jami_miqdor"]
 
 
 
@@ -151,8 +174,12 @@ class HarakatTarkibiAdmin(admin.ModelAdmin):
 
 
 
+
+
+
 @admin.register(Nosozliklar)
 class NosozliklarAdmin(admin.ModelAdmin):
+    inlines = [NosozlikEhtiyotQismInline]
     list_display = (
         "id", "tarkib", "status", "created_by", "aniqlangan_vaqti", "bartarafqilingan_vaqti"
     )
@@ -173,3 +200,4 @@ class NosozlikStepAdmin(admin.ModelAdmin):
     list_filter = ("status", "created_at")
     search_fields = ("nosozlik__tarkib__tarkib_raqami", "created_by__username")
     autocomplete_fields = ("created_by",)
+    inlines = [NosozlikEhtiyotQismStepInline]

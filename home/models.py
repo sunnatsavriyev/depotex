@@ -2,7 +2,7 @@ from django.db import models
 from django.contrib.auth.models import AbstractUser
 from django.utils import timezone
 from django.conf import settings
-
+from django.db.models import Sum
 
 class CustomUser(AbstractUser):
     ROLE_CHOICES = [
@@ -78,6 +78,36 @@ class ElektroDepo(models.Model):
         return self.depo_nomi
     
 
+# class EhtiyotQismlari(models.Model):
+#     ehtiyotqism_nomi = models.CharField(max_length=255, unique=True)
+#     nomenklatura_raqami = models.CharField(max_length=100)
+#     birligi = models.CharField(
+#         max_length=50,
+#         choices=[
+#             ("dona", "Dona"),
+#             ("para", "Para"),
+#             ("metr", "Metr"),
+#             ("litr", "Litr"),
+#         ],
+#         default="dona"
+#     )
+#     depo = models.ForeignKey(
+#         "ElektroDepo",
+#         on_delete=models.SET_NULL,
+#         null=True, blank=True
+#     )
+#     miqdori = models.PositiveIntegerField(default=1)
+#     created_by = models.ForeignKey(
+#         settings.AUTH_USER_MODEL,
+#         on_delete=models.SET_NULL,
+#         null=True,
+#         blank=True
+#     )
+#     created_at = models.DateTimeField(auto_now_add=True)
+
+#     def __str__(self):
+#         return f"{self.ehtiyotqism_nomi} ({self.birligi})"
+
 class EhtiyotQismlari(models.Model):
     ehtiyotqism_nomi = models.CharField(max_length=255, unique=True)
     nomenklatura_raqami = models.CharField(max_length=100)
@@ -96,83 +126,191 @@ class EhtiyotQismlari(models.Model):
         on_delete=models.SET_NULL,
         null=True, blank=True
     )
-    miqdori = models.PositiveIntegerField(default=1)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
-        null=True,
-        blank=True
+        null=True, blank=True
     )
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
         return f"{self.ehtiyotqism_nomi} ({self.birligi})"
 
+    @property
+    def jami_miqdor(self):
+        """Qo‘shilgan va ishlatilgan miqdorlarni hisoblab jami miqdor"""
+        qoshilgan = self.ehtiyotqism_hist.aggregate(
+            total=Sum('miqdor')
+        )['total'] or 0
 
-# ✅ ManyToMany uchun oraliq jadval
-class TexnikKorikEhtiyotQism(models.Model):
-    korik = models.ForeignKey('TexnikKorik',on_delete=models.SET_NULL, null=True, blank=True)
-    ehtiyot_qism = models.ForeignKey('EhtiyotQismlari',on_delete=models.SET_NULL, null=True, blank=True)
-    miqdor = models.PositiveIntegerField(default=1)
+        ishlatilgan = (
+            TexnikKorikEhtiyotQism.objects.filter(ehtiyot_qism=self)
+            .aggregate(total=Sum('miqdor'))['total'] or 0
+        ) + (
+            TexnikKorikEhtiyotQismStep.objects.filter(ehtiyot_qism=self)
+            .aggregate(total=Sum('miqdor'))['total'] or 0
+        ) + (
+            NosozlikEhtiyotQism.objects.filter(ehtiyot_qism=self)
+            .aggregate(total=Sum('miqdor'))['total'] or 0
+        ) + (
+            NosozlikEhtiyotQismStep.objects.filter(ehtiyot_qism=self)
+            .aggregate(total=Sum('miqdor'))['total'] or 0
+        )
+        return qoshilgan - ishlatilgan
 
-    
-    def save(self, *args, **kwargs):
-        if self.ehtiyot_qism:
-            if self.pk:
-                # 🔄 update holati
-                old = TexnikKorikEhtiyotQism.objects.get(pk=self.pk)
-                farq = self.miqdor - old.miqdor  # yangi va eski miqdor farqi
-                if farq > 0:  # ko‘proq ishlatilsa
-                    if self.ehtiyot_qism.miqdori < farq:
-                        raise ValueError("❌ Yetarli ehtiyot qism yo‘q!")
-                    self.ehtiyot_qism.miqdori -= farq
-                elif farq < 0:  # kamroq ishlatilsa
-                    self.ehtiyot_qism.miqdori += abs(farq)
-            else:
-                # 🆕 yangi yozuv
-                if self.ehtiyot_qism.miqdori < self.miqdor:
-                    raise ValueError("❌ Yetarli ehtiyot qism yo‘q!")
-                self.ehtiyot_qism.miqdori -= self.miqdor
 
-            self.ehtiyot_qism.save()
+class EhtiyotQismHistory(models.Model):
+    ehtiyot_qism = models.ForeignKey(
+        EhtiyotQismlari, 
+        on_delete=models.CASCADE, 
+        related_name="ehtiyotqism_hist"
+    )
+    miqdor = models.FloatField(default=0)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True, blank=True
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
 
-        super().save(*args, **kwargs)
-    
     def __str__(self):
-        return f"{self.korik} - {self.ehtiyot_qism} ({self.miqdor})"
+        return f"{self.ehtiyot_qism.ehtiyotqism_nomi} +{self.miqdor} ({self.created_at})"
 
+
+# --- Texnik ko'rik va nosozliklar uchun ishlatilish ---
+class TexnikKorikEhtiyotQism(models.Model):
+    korik = models.ForeignKey('TexnikKorik', on_delete=models.SET_NULL, null=True, blank=True)
+    ehtiyot_qism = models.ForeignKey('EhtiyotQismlari', on_delete=models.SET_NULL, null=True, blank=True)
+    miqdor = models.FloatField(default=1)
+
+    def save(self, *args, **kwargs):
+        if self.ehtiyot_qism and self.miqdor > self.ehtiyot_qism.jami_miqdor:
+            raise ValueError(f"❌ Omborda yetarli miqdor yo'q ({self.ehtiyot_qism.jami_miqdor})")
+        super().save(*args, **kwargs)
 
 
 class TexnikKorikEhtiyotQismStep(models.Model):
-    korik_step = models.ForeignKey('TexnikKorikStep',on_delete=models.SET_NULL, null=True, blank=True)
-    ehtiyot_qism = models.ForeignKey('EhtiyotQismlari',on_delete=models.SET_NULL, null=True, blank=True)
-    miqdor = models.PositiveIntegerField(default=1)
-    
-    
+    korik_step = models.ForeignKey('TexnikKorikStep', on_delete=models.SET_NULL, null=True, blank=True)
+    ehtiyot_qism = models.ForeignKey('EhtiyotQismlari', on_delete=models.SET_NULL, null=True, blank=True)
+    miqdor = models.FloatField(default=1)
+
     def save(self, *args, **kwargs):
-        if self.ehtiyot_qism:
-            if self.pk:
-                old = TexnikKorikEhtiyotQismStep.objects.get(pk=self.pk)
-                farq = self.miqdor - old.miqdor
-                if farq > 0:
-                    if self.ehtiyot_qism.miqdori < farq:
-                        raise ValueError("❌ Yetarli ehtiyot qism yo‘q!")
-                    self.ehtiyot_qism.miqdori -= farq
-                elif farq < 0:
-                    self.ehtiyot_qism.miqdori += abs(farq)
-            else:
-                if self.ehtiyot_qism.miqdori < self.miqdor:
-                    raise ValueError("❌ Yetarli ehtiyot qism yo‘q!")
-                self.ehtiyot_qism.miqdori -= self.miqdor
-
-            self.ehtiyot_qism.save()
-
+        if self.ehtiyot_qism and self.miqdor > self.ehtiyot_qism.jami_miqdor:
+            raise ValueError(f"❌ Omborda yetarli miqdor yo'q ({self.ehtiyot_qism.jami_miqdor})")
         super().save(*args, **kwargs)
 
-    def __str__(self):
-        return f"{self.korik_step} - {self.ehtiyot_qism} ({self.miqdor})"
+
+class NosozlikEhtiyotQism(models.Model):
+    nosozlik = models.ForeignKey("Nosozliklar", on_delete=models.SET_NULL, null=True, blank=True, related_name="ehtiyot_qism_aloqalari")
+    ehtiyot_qism = models.ForeignKey("EhtiyotQismlari", on_delete=models.SET_NULL, null=True, blank=True)
+    miqdor = models.FloatField(default=1)
+
+    def save(self, *args, **kwargs):
+        if self.ehtiyot_qism and self.miqdor > self.ehtiyot_qism.jami_miqdor:
+            raise ValueError(f"❌ Omborda yetarli miqdor yo'q ({self.ehtiyot_qism.jami_miqdor})")
+        super().save(*args, **kwargs)
+
+
+class NosozlikEhtiyotQismStep(models.Model):
+    step = models.ForeignKey('NosozlikStep', on_delete=models.SET_NULL, null=True, blank=True, related_name="ehtiyot_qismlar_step")
+    ehtiyot_qism = models.ForeignKey('EhtiyotQismlari', on_delete=models.SET_NULL, null=True, blank=True)
+    miqdor = models.FloatField(default=1)
+
+    def save(self, *args, **kwargs):
+        if self.ehtiyot_qism and self.miqdor > self.ehtiyot_qism.jami_miqdor:
+            raise ValueError(f"❌ Omborda yetarli miqdor yo'q ({self.ehtiyot_qism.jami_miqdor})")
+        super().save(*args, **kwargs)
+
+
+
+# ✅ ManyToMany uchun oraliq jadval
+# class TexnikKorikEhtiyotQism(models.Model):
+#     korik = models.ForeignKey('TexnikKorik',on_delete=models.SET_NULL, null=True, blank=True)
+#     ehtiyot_qism = models.ForeignKey('EhtiyotQismlari',on_delete=models.SET_NULL, null=True, blank=True)
+#     miqdor = models.PositiveIntegerField(default=1)
+
+    
+#     def save(self, *args, **kwargs):
+#         if self.ehtiyot_qism:
+#             if self.pk:
+#                 # 🔄 update holati
+#                 old = TexnikKorikEhtiyotQism.objects.get(pk=self.pk)
+#                 farq = self.miqdor - old.miqdor  # yangi va eski miqdor farqi
+#                 if farq > 0:  # ko‘proq ishlatilsa
+#                     if self.ehtiyot_qism.miqdori < farq:
+#                         raise ValueError("❌ Yetarli ehtiyot qism yo‘q!")
+#                     self.ehtiyot_qism.miqdori -= farq
+#                 elif farq < 0:  # kamroq ishlatilsa
+#                     self.ehtiyot_qism.miqdori += abs(farq)
+#             else:
+#                 # 🆕 yangi yozuv
+#                 if self.ehtiyot_qism.miqdori < self.miqdor:
+#                     raise ValueError("❌ Yetarli ehtiyot qism yo‘q!")
+#                 self.ehtiyot_qism.miqdori -= self.miqdor
+
+#             self.ehtiyot_qism.save()
+
+#         super().save(*args, **kwargs)
+    
+#     def __str__(self):
+#         return f"{self.korik} - {self.ehtiyot_qism} ({self.miqdor})"
+
+
+
+# class TexnikKorikEhtiyotQismStep(models.Model):
+#     korik_step = models.ForeignKey('TexnikKorikStep',on_delete=models.SET_NULL, null=True, blank=True)
+#     ehtiyot_qism = models.ForeignKey('EhtiyotQismlari',on_delete=models.SET_NULL, null=True, blank=True)
+#     miqdor = models.PositiveIntegerField(default=1)
+    
+    
+#     def save(self, *args, **kwargs):
+#         if self.ehtiyot_qism:
+#             if self.pk:
+#                 old = TexnikKorikEhtiyotQismStep.objects.get(pk=self.pk)
+#                 farq = self.miqdor - old.miqdor
+#                 if farq > 0:
+#                     if self.ehtiyot_qism.miqdori < farq:
+#                         raise ValueError("❌ Yetarli ehtiyot qism yo‘q!")
+#                     self.ehtiyot_qism.miqdori -= farq
+#                 elif farq < 0:
+#                     self.ehtiyot_qism.miqdori += abs(farq)
+#             else:
+#                 if self.ehtiyot_qism.miqdori < self.miqdor:
+#                     raise ValueError("❌ Yetarli ehtiyot qism yo‘q!")
+#                 self.ehtiyot_qism.miqdori -= self.miqdor
+
+#             self.ehtiyot_qism.save()
+
+#         super().save(*args, **kwargs)
+
+#     def __str__(self):
+#         return f"{self.korik_step} - {self.ehtiyot_qism} ({self.miqdor})"
         
 
+
+# class NosozlikEhtiyotQismStep(models.Model):
+#     step = models.ForeignKey('NosozlikStep', on_delete=models.SET_NULL,null=True, blank=True, related_name="ehtiyot_qismlar_step")
+#     ehtiyot_qism = models.ForeignKey('EhtiyotQismlari', on_delete=models.SET_NULL,null=True, blank=True,)
+#     miqdor = models.PositiveIntegerField(default=1)
+
+#     def __str__(self):
+#         return f"{self.step} - {self.ehtiyot_qism.ehtiyotqism_nomi} ({self.miqdor} {self.ehtiyot_qism.birligi})"
+
+
+
+# class NosozlikEhtiyotQism(models.Model):
+#     nosozlik = models.ForeignKey("Nosozliklar", on_delete=models.SET_NULL,null=True, blank=True, related_name="ehtiyot_qism_aloqalari")
+#     ehtiyot_qism = models.ForeignKey("EhtiyotQismlari", on_delete=models.SET_NULL,null=True, blank=True,)
+#     miqdor = models.PositiveIntegerField(default=1)
+
+#     def __str__(self):
+#         return f"{self.ehtiyot_qism.ehtiyotqism_nomi} - {self.miqdor} {self.ehtiyot_qism.birligi}"
+
+#     def save(self, *args, **kwargs):
+#         # Agar kerak bo'lsa, miqdorni float qilish yoki maxsus formatlash
+#         if self.ehtiyot_qism.birligi.lower() == "litr" and not isinstance(self.miqdor, float):
+#             self.miqdor = float(self.miqdor)
+#         super().save(*args, **kwargs)
 
 
 
@@ -349,30 +487,6 @@ class TexnikKorikStep(models.Model):
         return f"Step: {self.korik.tarkib} — {self.created_by}"
 
 
-
-class NosozlikEhtiyotQismStep(models.Model):
-    step = models.ForeignKey('NosozlikStep', on_delete=models.SET_NULL,null=True, blank=True, related_name="ehtiyot_qismlar_step")
-    ehtiyot_qism = models.ForeignKey('EhtiyotQismlari', on_delete=models.SET_NULL,null=True, blank=True,)
-    miqdor = models.PositiveIntegerField(default=1)
-
-    def __str__(self):
-        return f"{self.step} - {self.ehtiyot_qism.ehtiyotqism_nomi} ({self.miqdor} {self.ehtiyot_qism.birligi})"
-
-
-
-class NosozlikEhtiyotQism(models.Model):
-    nosozlik = models.ForeignKey("Nosozliklar", on_delete=models.SET_NULL,null=True, blank=True, related_name="ehtiyot_qism_aloqalari")
-    ehtiyot_qism = models.ForeignKey("EhtiyotQismlari", on_delete=models.SET_NULL,null=True, blank=True,)
-    miqdor = models.PositiveIntegerField(default=1)
-
-    def __str__(self):
-        return f"{self.ehtiyot_qism.ehtiyotqism_nomi} - {self.miqdor} {self.ehtiyot_qism.birligi}"
-
-    def save(self, *args, **kwargs):
-        # Agar kerak bo'lsa, miqdorni float qilish yoki maxsus formatlash
-        if self.ehtiyot_qism.birligi.lower() == "litr" and not isinstance(self.miqdor, float):
-            self.miqdor = float(self.miqdor)
-        super().save(*args, **kwargs)
 
 
 
