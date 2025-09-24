@@ -445,8 +445,13 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
 
         # 🔹 Stepga ehtiyot qismlar qo‘shamiz
         for item in ehtiyot_qismlar:
-            eq_obj = item.get("ehtiyot_qism") if isinstance(item, dict) else None
-            miqdor = item.get("miqdor", 1) if isinstance(item, dict) else 1
+            eq_obj = None
+            miqdor = 1
+
+            if isinstance(item, dict):
+                eq_obj = item.get("ehtiyot_qism")  # ❗️ get ishlatyapmiz
+                miqdor = item.get("miqdor", 1)
+
             if eq_obj:
                 TexnikKorikEhtiyotQismStep.objects.create(
                     korik_step=step,
@@ -499,7 +504,7 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
 
     steps = serializers.SerializerMethodField()
 
-    ehtiyot_qismlar = TexnikKorikEhtiyotQismStepSerializer(
+    ehtiyot_qismlar = TexnikKorikEhtiyotQismSerializer(
     many=True, write_only=True, required=False, allow_null=True, default=list
     )
     ehtiyot_qismlar_detail = TexnikKorikEhtiyotQismSerializer(
@@ -626,9 +631,15 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
         korik.save()
 
         # 🔧 Ehtiyot qismlar qo‘shish va ombordan ayirish
+        # TexnikKorikSerializer.create
         for item in ehtiyot_qismlar:
-            eq_obj = item.get("ehtiyot_qism")
-            miqdor = item.get("miqdor", 1)
+            eq_obj = None
+            miqdor = 1
+
+            if isinstance(item, dict):
+                eq_obj = item.get("ehtiyot_qism")  # ❗️ bu yerda ham get()
+                miqdor = item.get("miqdor", 1)
+
             if eq_obj:
                 TexnikKorikEhtiyotQism.objects.create(
                     korik=korik,
@@ -637,6 +648,7 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
                 )
                 eq_obj.miqdori -= miqdor
                 eq_obj.save(update_fields=["miqdori"])
+
 
         return korik
 
@@ -661,9 +673,15 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
         instance = super().update(instance, validated_data)
 
         # 🔧 Yangilash paytida ham ehtiyot qismlar qo‘shish
+        # TexnikKorikSerializer.update
         for item in ehtiyot_qismlar:
-            eq_obj = item.get("ehtiyot_qism")
-            miqdor = item.get("miqdor", 1)
+            eq_obj = None
+            miqdor = 1
+
+            if isinstance(item, dict):
+                eq_obj = item.get("ehtiyot_qism")  # ❗️
+                miqdor = item.get("miqdor", 1)
+
             if eq_obj:
                 TexnikKorikEhtiyotQism.objects.create(
                     korik=instance,
@@ -672,6 +690,7 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
                 )
                 eq_obj.miqdori -= miqdor
                 eq_obj.save(update_fields=["miqdori"])
+
 
         return instance
 
