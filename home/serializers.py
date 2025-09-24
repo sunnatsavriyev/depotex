@@ -440,12 +440,14 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
 
         # Stepga ehtiyot qismlar qo‘shamiz
         for item in ehtiyot_qismlar:
-            eq_obj = item.get("ehtiyot_qism")
+            eq_id = item.get("ehtiyot_qism")  # bu frontenddan id
             miqdor = item.get("miqdor", 1)
 
-            if eq_obj:
+            if eq_id:
+                # Ehtiyot qism obyektini olish
+                eq_obj = EhtiyotQismlari.objects.get(id=eq_id)
+
                 # History orqali miqdorni minus qilish
-                from .models import EhtiyotQismHistory
                 EhtiyotQismHistory.objects.create(
                     ehtiyot_qism=eq_obj,
                     miqdor=-miqdor,  # bazadan ayirish
@@ -608,47 +610,60 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         request = self.context["request"]
 
+        korik = validated_data.pop("korik")  # PrimaryKey bilan keladi
         ehtiyot_qismlar = validated_data.pop("ehtiyot_qismlar", []) or []
         akt_file = validated_data.pop("akt_file", None)
         yakunlash = validated_data.pop("yakunlash", False)
 
-        validated_data["created_by"] = request.user
-        if akt_file:
-            validated_data["akt_file"] = akt_file
+        step = TexnikKorikStep.objects.create(
+            korik=korik,
+            tamir_turi=korik.tamir_turi,
+            created_by=request.user,
+            akt_file=akt_file,
+            status=TexnikKorikStep.Status.BARTARAF_ETILDI if yakunlash else TexnikKorikStep.Status.JARAYONDA,
+            **validated_data
+        )
 
-        korik = TexnikKorik.objects.create(**validated_data)
+        # 🔧 Ehtiyot qismlar qo‘shish va ombordan ayirish
+        for item in ehtiyot_qismlar:
+            eq_id = item.get("ehtiyot_qism")
+            miqdor = item.get("miqdor", 1)
+            if eq_id:
+                from .models import EhtiyotQismlari, EhtiyotQismHistory
+                eq_obj = EhtiyotQismlari.objects.get(id=eq_id)
 
+                # History yozish
+                EhtiyotQismHistory.objects.create(
+                    ehtiyot_qism=eq_obj,
+                    miqdor=-miqdor,
+                    created_by=request.user
+                )
+
+                # Step bilan bog‘lash
+                TexnikKorikEhtiyotQismStep.objects.create(
+                    korik_step=step,
+                    ehtiyot_qism=eq_obj,
+                    miqdor=miqdor
+                )
+
+                # Ombordagi miqdorni kamaytirish
+                eq_obj.miqdori -= miqdor
+                eq_obj.save(update_fields=["miqdori"])
+
+        # 🔹 Korik va tarkib holatini yangilash
         if yakunlash:
             korik.status = TexnikKorik.Status.BARTARAF_ETILDI
             korik.tarkib.holati = "Soz_holatda"
-            korik.chiqqan_vaqti = timezone.now()
+            if not step.chiqqan_vaqti:
+                step.chiqqan_vaqti = timezone.now()
+                step.save()
         else:
             korik.tarkib.holati = "Texnik_korikda"
 
         korik.tarkib.save()
         korik.save()
+        return step
 
-        # 🔧 Ehtiyot qismlar qo‘shish va ombordan ayirish
-        # TexnikKorikSerializer.create
-        for item in ehtiyot_qismlar:
-            eq_obj = None
-            miqdor = 1
-
-            if isinstance(item, dict):
-                eq_obj = item.get("ehtiyot_qism")  # ❗️ bu yerda ham get()
-                miqdor = item.get("miqdor", 1)
-
-            if eq_obj:
-                TexnikKorikEhtiyotQism.objects.create(
-                    korik=korik,
-                    ehtiyot_qism=eq_obj,
-                    miqdor=miqdor
-                )
-                eq_obj.miqdori -= miqdor
-                eq_obj.save(update_fields=["miqdori"])
-
-
-        return korik
 
     # ---- Update ----
     def update(self, instance, validated_data):
