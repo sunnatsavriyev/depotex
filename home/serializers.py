@@ -55,16 +55,30 @@ class ElektroDepoSerializer(serializers.ModelSerializer):
 
 
 class EhtiyotQismlariSerializer(serializers.ModelSerializer):
+    depo = serializers.CharField(source="depo.qisqacha_nomi", read_only=True)
     created_by = serializers.CharField(source="created_by.username", read_only=True)
 
     class Meta:
         model = EhtiyotQismlari
-        fields = "__all__"
-        read_only_fields = ["created_by", "created_at"]
+        fields = [
+            "id",
+            "created_by",
+            "ehtiyotqism_nomi",
+            "nomenklatura_raqami",
+            "birligi",
+            "miqdori",
+            "created_at",
+            "depo",   # 👈 faqat nomi chiqadi
+        ]
 
     def create(self, validated_data):
-        validated_data["created_by"] = self.context["request"].user
+        user = self.context["request"].user
+        validated_data["created_by"] = user
+        # 👇 foydalanuvchining deposi avtomatik qo‘yiladi
+        if hasattr(user, "depo") and user.depo:
+            validated_data["depo"] = user.depo
         return super().create(validated_data)
+
 
 
 class EhtiyotQismInputSerializer(serializers.Serializer):
@@ -212,10 +226,11 @@ class HarakatTarkibiActiveSerializer(HarakatTarkibiSerializer):
 
 class EhtiyotQismWithMiqdorSerializer(serializers.ModelSerializer):
     miqdor = serializers.SerializerMethodField()
+    depo = serializers.CharField(source="depo.qisqacha_nomi", read_only=True)
 
     class Meta:
         model = EhtiyotQismlari
-        fields = ["id", "ehtiyotqism_nomi", "birligi", "miqdor"]
+        fields = ["id", "ehtiyotqism_nomi", "birligi","depo", "miqdor"]
 
     def get_miqdor(self, obj):
         parent = self.context.get("parent_instance")
@@ -255,31 +270,63 @@ class SlugOrPkRelatedField(serializers.SlugRelatedField):
 
 # --- Ehtiyot qismlar uchun serializerlar ---
 class TexnikKorikEhtiyotQismSerializer(serializers.ModelSerializer):
-    # inputda id sifatida nom yoki raqam yuborish mumkin
-    id = SlugOrPkRelatedField(
-        slug_field="ehtiyotqism_nomi",
-        queryset=EhtiyotQismlari.objects.all(),
-        source="ehtiyot_qism"
-    )
+    ehtiyot_qism_nomi = serializers.CharField(source="ehtiyot_qism.ehtiyotqism_nomi", read_only=True)
     birligi = serializers.CharField(source="ehtiyot_qism.birligi", read_only=True)
 
     class Meta:
         model = TexnikKorikEhtiyotQism
-        fields = ["id", "birligi", "miqdor"]
+        fields = ["id", "ehtiyot_qism", "ehtiyot_qism_nomi", "birligi", "miqdor"]
+
+    def validate(self, attrs):
+        user = self.context["request"].user
+        eq = attrs["ehtiyot_qism"]
+
+        # ✅ faqat o‘z deposidagi ehtiyot qismlardan foydalanish
+        if eq.depo != getattr(user, "depo", None):
+            raise serializers.ValidationError("❌ Siz faqat o‘z deposingizdagi ehtiyot qismlardan foydalana olasiz!")
+
+        if eq.miqdori < attrs["miqdor"]:
+            raise serializers.ValidationError(
+                f"Omborda {eq.ehtiyotqism_nomi} dan {eq.miqdori} ta bor, siz {attrs['miqdor']} ta ishlatmoqchisiz!"
+            )
+        return attrs
+
+    def create(self, validated_data):
+        instance = super().create(validated_data)
+        eq = instance.ehtiyot_qism
+        eq.miqdori -= instance.miqdor
+        eq.save()
+        return instance
+    
 
 
 class TexnikKorikEhtiyotQismStepSerializer(serializers.ModelSerializer):
-    id = SlugOrPkRelatedField(
-        slug_field="ehtiyotqism_nomi",
-        queryset=EhtiyotQismlari.objects.all(),
-        source="ehtiyot_qism"
-    )
+    ehtiyot_qism_nomi = serializers.CharField(source="ehtiyot_qism.ehtiyotqism_nomi", read_only=True)
     birligi = serializers.CharField(source="ehtiyot_qism.birligi", read_only=True)
 
     class Meta:
         model = TexnikKorikEhtiyotQismStep
-        fields = ["id", "birligi", "miqdor"]
+        fields = ["id", "ehtiyot_qism", "ehtiyot_qism_nomi", "birligi", "miqdor"]
 
+    def validate(self, attrs):
+        user = self.context["request"].user
+        eq = attrs["ehtiyot_qism"]
+
+        if eq.depo != getattr(user, "depo", None):
+            raise serializers.ValidationError("❌ Siz faqat o‘z deposingizdagi ehtiyot qismlardan foydalana olasiz!")
+
+        if eq.miqdori < attrs["miqdor"]:
+            raise serializers.ValidationError(
+                f"Omborda {eq.ehtiyotqism_nomi} dan {eq.miqdori} ta bor, siz {attrs['miqdor']} ta ishlatmoqchisiz!"
+            )
+        return attrs
+
+    def create(self, validated_data):
+        instance = super().create(validated_data)
+        eq = instance.ehtiyot_qism
+        eq.miqdori -= instance.miqdor
+        eq.save()
+        return instance
 
 
 class TexnikKorikDetailForStepSerializer(serializers.ModelSerializer):
@@ -539,11 +586,12 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
 
 
     def create(self, validated_data):
+        request = self.context["request"]
         ehtiyot_qismlar = validated_data.pop("ehtiyot_qismlar", []) or []
         akt_file = validated_data.pop("akt_file", None)
         yakunlash = validated_data.pop("yakunlash", False)
 
-        validated_data["created_by"] = self.context["request"].user
+        validated_data["created_by"] = request.user
         if akt_file:
             validated_data["akt_file"] = akt_file
 
@@ -554,15 +602,14 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
         if yakunlash:
             korik.status = TexnikKorik.Status.BARTARAF_ETILDI
             korik.tarkib.holati = "Soz_holatda"
-            korik.chiqqan_vaqti = korik.created_at 
+            korik.chiqqan_vaqti = korik.created_at
         else:
             korik.tarkib.holati = "Texnik_korikda"
-
 
         korik.tarkib.save()
         korik.save()
 
-        # Endi ehtiyot qismlarni qo‘shamiz
+        # Endi ehtiyot qismlar asosiy korikka yoziladi
         for item in ehtiyot_qismlar:
             eq_obj = item.get("ehtiyot_qism")
             miqdor = item.get("miqdor", 1)
@@ -572,7 +619,20 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
                 miqdor=miqdor
             )
 
+        # ❗️ Agar to‘g‘ridan-to‘g‘ri yakunlansa → step ham yaratib yuboramiz
+        if yakunlash:
+            TexnikKorikStep.objects.create(
+                korik=korik,
+                tamir_turi=korik.tamir_turi,
+                created_by=request.user,
+                akt_file=akt_file,
+                status=TexnikKorikStep.Status.BARTARAF_ETILDI,
+                kamchiliklar_haqida=validated_data.get("kamchiliklar_haqida", ""),
+                bartaraf_etilgan_kamchiliklar=validated_data.get("bartaraf_etilgan_kamchiliklar", "")
+            )
+
         return korik
+
 
 
 
@@ -625,7 +685,10 @@ class StepPagination(PageNumberPagination):
         }
 
 
-# --- Ehtiyot Qism Serializers ---
+
+
+
+
 class NosozlikEhtiyotQismSerializer(serializers.ModelSerializer):
     ehtiyot_qism_nomi = serializers.CharField(source="ehtiyot_qism.ehtiyotqism_nomi", read_only=True)
     birligi = serializers.CharField(source="ehtiyot_qism.birligi", read_only=True)
@@ -633,6 +696,31 @@ class NosozlikEhtiyotQismSerializer(serializers.ModelSerializer):
     class Meta:
         model = NosozlikEhtiyotQism
         fields = ["id", "ehtiyot_qism", "ehtiyot_qism_nomi", "birligi", "miqdor"]
+
+    def validate(self, attrs):
+        user = self.context["request"].user
+        eq = attrs["ehtiyot_qism"]
+
+        # ✅ faqat o‘z deposidagi ehtiyot qismlardan foydalanish
+        if eq.depo != getattr(user, "depo", None):
+            raise serializers.ValidationError(
+                "❌ Siz faqat o‘z deposingizdagi ehtiyot qismlardan foydalana olasiz!"
+            )
+
+        # ✅ ombordagi miqdordan ko‘p ishlatmaslik
+        if eq.miqdori < attrs["miqdor"]:
+            raise serializers.ValidationError(
+                f"Omborda {eq.ehtiyotqism_nomi} dan {eq.miqdori} ta bor, "
+                f"siz {attrs['miqdor']} ta ishlatmoqchisiz!"
+            )
+        return attrs
+
+    def create(self, validated_data):
+        instance = super().create(validated_data)
+        eq = instance.ehtiyot_qism
+        eq.miqdori -= instance.miqdor
+        eq.save()
+        return instance
 
 
 class NosozlikEhtiyotQismStepSerializer(serializers.ModelSerializer):
@@ -643,31 +731,56 @@ class NosozlikEhtiyotQismStepSerializer(serializers.ModelSerializer):
         model = NosozlikEhtiyotQismStep
         fields = ["id", "ehtiyot_qism", "ehtiyot_qism_nomi", "birligi", "miqdor"]
 
+    def validate(self, attrs):
+        user = self.context["request"].user
+        eq = attrs["ehtiyot_qism"]
 
-# --- Detail serializer for parent ---
+        if eq.depo != getattr(user, "depo", None):
+            raise serializers.ValidationError(
+                "❌ Siz faqat o‘z deposingizdagi ehtiyot qismlardan foydalana olasiz!"
+            )
+
+        if eq.miqdori < attrs["miqdor"]:
+            raise serializers.ValidationError(
+                f"Omborda {eq.ehtiyotqism_nomi} dan {eq.miqdori} ta bor, "
+                f"siz {attrs['miqdor']} ta ishlatmoqchisiz!"
+            )
+        return attrs
+
+    def create(self, validated_data):
+        instance = super().create(validated_data)
+        eq = instance.ehtiyot_qism
+        eq.miqdori -= instance.miqdor
+        eq.save()
+        return instance
+
+
+
+
+
+# --- parent detail for steps (joylashuvi: step va parent serializerlardan OLDIN yozing) ---
 class NosozlikDetailForStepSerializer(serializers.ModelSerializer):
     created_by = serializers.CharField(source="created_by.username", read_only=True)
     tarkib_nomi = serializers.CharField(source="tarkib.tarkib_raqami", read_only=True)
+    is_active = serializers.BooleanField(source="tarkib.is_active", read_only=True)
+
+    # agar parentda ehtiyot qismlar kerak bo'lsa (parent darajasida ko'rsatiladi)
     ehtiyot_qismlar_detail = NosozlikEhtiyotQismSerializer(
         source="nosozlikehtiyotqism_set", many=True, read_only=True
     )
+
     status = serializers.CharField(read_only=True)
 
     class Meta:
         model = Nosozliklar
         fields = [
-            "id", "tarkib", "tarkib_nomi",
+            "id", "tarkib", "tarkib_nomi", "is_active",
             "nosozliklar_haqida", "bartaraf_etilgan_nosozliklar",
-            "status", "aniqlangan_vaqti", "bartarafqilingan_vaqti",
-            "created_by", "created_at",
-            "ehtiyot_qismlar_detail",
+            "ehtiyot_qismlar_detail", "status", "created_by", "created_at"
         ]
-        read_only_fields = fields
 
-    def to_representation(self, instance):
-        data = super().to_representation(instance)
-        # Faqat qiymati bo‘lgan maydonlarni qaytaradi
-        return {k: v for k, v in data.items() if v not in [None, False, [], {}]}
+
+
 
 
 # --- Step Serializer ---
@@ -798,6 +911,7 @@ class NosozliklarSerializer(serializers.ModelSerializer):
         if not password or not request.user.check_password(password):
             raise serializers.ValidationError({"password": "Parol noto‘g‘ri."})
 
+        # asosiy nosozlik yaratish
         instance = Nosozliklar.objects.create(
             created_by=request.user,
             akt_file=akt_file,
@@ -805,24 +919,51 @@ class NosozliklarSerializer(serializers.ModelSerializer):
             **validated_data
         )
 
-        # Ehtiyot qismlar
+        # Ehtiyot qismlar asosiy nosozlikka yoziladi
         for item in ehtiyot_qismlar:
             eq_obj = item.get("ehtiyot_qism")
             miqdor = item.get("miqdor", 1)
             if eq_obj:
-                NosozlikEhtiyotQism.objects.create(nosozlik=instance, ehtiyot_qism=eq_obj, miqdor=miqdor)
+                NosozlikEhtiyotQism.objects.create(
+                    nosozlik=instance,
+                    ehtiyot_qism=eq_obj,
+                    miqdor=miqdor
+                )
 
-        # Yakunlash bo‘lsa
+        # Agar yakunlansa → step ham yozib qo‘yamiz
         if yakunlash:
             instance.status = Nosozliklar.Status.BARTARAF_ETILDI
             instance.bartarafqilingan_vaqti = timezone.now()
             instance.save()
 
-            # ✅ Tarkib holatini yangilash
+            # Tarkibni soz holatga qaytarish
             instance.tarkib.holati = "Soz_holatda"
             instance.tarkib.save(update_fields=["holati"])
 
-        return instance 
+            # ✅ Avtomatik NosozlikStep yaratish
+            step = NosozlikStep.objects.create(
+                nosozlik=instance,
+                created_by=request.user,
+                akt_file=akt_file,
+                status=NosozlikStep.Status.BARTARAF_ETILDI,
+                nosozliklar_haqida=validated_data.get("nosozliklar_haqida", ""),
+                bartaraf_etilgan_nosozliklar=validated_data.get("bartaraf_etilgan_nosozliklar", ""),
+                bartaraf_qilingan_vaqti=timezone.now()
+            )
+
+            # Step uchun ham ehtiyot qismlarni yozib qo‘yamiz
+            for item in ehtiyot_qismlar:
+                eq_obj = item.get("ehtiyot_qism")
+                miqdor = item.get("miqdor", 1)
+                if eq_obj:
+                    NosozlikEhtiyotQismStep.objects.create(
+                        step=step,
+                        ehtiyot_qism=eq_obj,
+                        miqdor=miqdor
+                    )
+
+        return instance
+
     
     
     def get_steps(self, obj):

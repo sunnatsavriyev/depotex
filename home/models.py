@@ -8,6 +8,7 @@ class CustomUser(AbstractUser):
     ROLE_CHOICES = [
         ("monitoring", "Monitoring"),
         ("texnik", "Texnik"),
+        ("skladchi", "Skladchi"),
     ]
     role = models.CharField(max_length=20, choices=ROLE_CHOICES)
 
@@ -90,6 +91,12 @@ class EhtiyotQismlari(models.Model):
         ],
         default="dona"
     )
+    depo = models.ForeignKey(
+        "ElektroDepo",
+        on_delete=models.SET_NULL,
+        null=True, blank=True
+    )
+    miqdori = models.PositiveIntegerField(default=1)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -108,6 +115,29 @@ class TexnikKorikEhtiyotQism(models.Model):
     ehtiyot_qism = models.ForeignKey('EhtiyotQismlari',on_delete=models.SET_NULL, null=True, blank=True)
     miqdor = models.PositiveIntegerField(default=1)
 
+    
+    def save(self, *args, **kwargs):
+        if self.ehtiyot_qism:
+            if self.pk:
+                # 🔄 update holati
+                old = TexnikKorikEhtiyotQism.objects.get(pk=self.pk)
+                farq = self.miqdor - old.miqdor  # yangi va eski miqdor farqi
+                if farq > 0:  # ko‘proq ishlatilsa
+                    if self.ehtiyot_qism.miqdori < farq:
+                        raise ValueError("❌ Yetarli ehtiyot qism yo‘q!")
+                    self.ehtiyot_qism.miqdori -= farq
+                elif farq < 0:  # kamroq ishlatilsa
+                    self.ehtiyot_qism.miqdori += abs(farq)
+            else:
+                # 🆕 yangi yozuv
+                if self.ehtiyot_qism.miqdori < self.miqdor:
+                    raise ValueError("❌ Yetarli ehtiyot qism yo‘q!")
+                self.ehtiyot_qism.miqdori -= self.miqdor
+
+            self.ehtiyot_qism.save()
+
+        super().save(*args, **kwargs)
+    
     def __str__(self):
         return f"{self.korik} - {self.ehtiyot_qism} ({self.miqdor})"
 
@@ -117,6 +147,27 @@ class TexnikKorikEhtiyotQismStep(models.Model):
     korik_step = models.ForeignKey('TexnikKorikStep',on_delete=models.SET_NULL, null=True, blank=True)
     ehtiyot_qism = models.ForeignKey('EhtiyotQismlari',on_delete=models.SET_NULL, null=True, blank=True)
     miqdor = models.PositiveIntegerField(default=1)
+    
+    
+    def save(self, *args, **kwargs):
+        if self.ehtiyot_qism:
+            if self.pk:
+                old = TexnikKorikEhtiyotQismStep.objects.get(pk=self.pk)
+                farq = self.miqdor - old.miqdor
+                if farq > 0:
+                    if self.ehtiyot_qism.miqdori < farq:
+                        raise ValueError("❌ Yetarli ehtiyot qism yo‘q!")
+                    self.ehtiyot_qism.miqdori -= farq
+                elif farq < 0:
+                    self.ehtiyot_qism.miqdori += abs(farq)
+            else:
+                if self.ehtiyot_qism.miqdori < self.miqdor:
+                    raise ValueError("❌ Yetarli ehtiyot qism yo‘q!")
+                self.ehtiyot_qism.miqdori -= self.miqdor
+
+            self.ehtiyot_qism.save()
+
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.korik_step} - {self.ehtiyot_qism} ({self.miqdor})"
@@ -127,33 +178,6 @@ class TexnikKorikEhtiyotQismStep(models.Model):
 
 
 
-
-# class HarakatTarkibi(models.Model):
-#     depo = models.ForeignKey(ElektroDepo, related_name="tarkiblar", on_delete=models.SET_NULL, null=True, blank=True)
-#     guruhi = models.CharField(max_length=100)
-#     turi = models.CharField(max_length=100)
-#     tarkib_raqami = models.CharField(max_length=100, unique=True)
-#     ishga_tushgan_vaqti = models.DateField()
-#     eksplutatsiya_vaqti = models.BigIntegerField(help_text="km da")
-#     image = models.ImageField(upload_to="tarkiblar/", blank=True, null=True)
-
-#     CHOICES = [
-#         ("Soz_holatda", "Soz_holatda"),
-#         ("Texnik_korikda", "Texnik_korikda"),
-#         ("Nosozlikda", "Nosozlikda"),
-#     ]
-#     holati = models.CharField(choices=CHOICES, max_length=100, default="Soz_holatda")
-
-#     created_by = models.ForeignKey(
-#         settings.AUTH_USER_MODEL,
-#         on_delete=models.SET_NULL,
-#         null=True,
-#         blank=True
-#     )
-#     created_at = models.DateTimeField(auto_now_add=True)
-
-#     def __str__(self):
-#         return f"{self.tarkib_raqami} - {self.turi} ({self.holati})"
     
     
     

@@ -116,38 +116,12 @@ class ElektroDepoAdmin(admin.ModelAdmin):
 
 @admin.register(EhtiyotQismlari)
 class EhtiyotQismlariAdmin(admin.ModelAdmin):
-    list_display = ("id", "ehtiyotqism_nomi", "nomenklatura_raqami", "created_by", "created_at", "birligi")
+    list_display = ("id", "ehtiyotqism_nomi", "nomenklatura_raqami", "depo","miqdori", "created_by", "created_at", "birligi")
     search_fields = ("ehtiyotqism_nomi", "nomenklatura_raqami")
 
 
 
 
-
-
-# @admin.register(HarakatTarkibi)
-# class HarakatTarkibiAdmin(admin.ModelAdmin):
-#     list_display = (
-#         "id", "tarkib_raqami", "turi", "guruhi", "depo",
-#         "ishga_tushgan_vaqti", "eksplutatsiya_vaqti", "holati",
-#         "created_by", "created_at",
-#     )
-#     search_fields = ("tarkib_raqami", "turi", "guruhi")
-#     list_filter = ("depo", "holati")
-#     readonly_fields = ("image",)
-
-#     def get_queryset(self, request):
-#         qs = super().get_queryset(request)
-#         if request.user.is_superuser or request.user.role == "monitoring":
-#             return qs
-#         if request.user.role == "texnik" and request.user.depo:
-#             return qs.filter(depo=request.user.depo)
-#         return qs.none()
-
-#     def save_model(self, request, obj, form, change):
-#         if not request.user.is_superuser and request.user.role == "texnik":
-#             obj.depo = request.user.depo
-#         obj.created_by = request.user
-#         super().save_model(request, obj, form, change)
 
 
 class VagonInline(admin.TabularInline):
