@@ -669,15 +669,21 @@ class TexnikKorikViewSet(BaseViewSet):
     
     @action(detail=True, methods=["post"], url_path="add-step")
     def add_step(self, request, pk=None):
-        korik = self.get_object()
-        if korik.status == TexnikKorik.Status.BARTARAF_ETILDI:
-            return Response({"detail": "Bu korik yakunlangan, yangi step qo'shib bo'lmaydi!"},
-                            status=status.HTTP_400_BAD_REQUEST)
+        try:
+            korik = self.get_object()
+            if korik.status == TexnikKorik.Status.BARTARAF_ETILDI:
+                return Response({"detail": "Bu korik yakunlangan, yangi step qo'shib bo'lmaydi!"},
+                                status=status.HTTP_400_BAD_REQUEST)
 
-        serializer = TexnikKorikStepSerializer(data=request.data, context={"request": request})
-        serializer.is_valid(raise_exception=True)
-        step = serializer.save(korik=korik)
-        return Response(TexnikKorikStepSerializer(step).data, status=status.HTTP_201_CREATED)
+            serializer = TexnikKorikStepSerializer(data=request.data, context={"request": request})
+            serializer.is_valid(raise_exception=True)
+            step = serializer.save(korik=korik, created_by=request.user)
+            return Response(TexnikKorikStepSerializer(step).data, status=status.HTTP_201_CREATED)
+        except ValidationError as e:
+            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response({"detail": "Server error: " + str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
 class TexnikKorikStepViewSet(BaseViewSet):
     serializer_class = TexnikKorikStepSerializer

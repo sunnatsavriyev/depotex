@@ -988,7 +988,7 @@ class NosozliklarSerializer(serializers.ModelSerializer):
 
         # 🔹 Parentga ehtiyot qismlar qo‘shamiz
         ishlatilgan_qismlar = []
-        for item in obj.ehtiyot_qism_aloqalari.all():  # ✅ shu yerda to‘g‘rilandi
+        for item in obj.nosozlikehtiyotqism_set.all():
             eq = item.ehtiyot_qism
             ishlatilgan_qismlar.append({
                 "ehtiyot_qism": eq.ehtiyotqism_nomi,
