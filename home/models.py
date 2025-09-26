@@ -138,11 +138,13 @@ class EhtiyotQismlari(models.Model):
 
     @property
     def jami_miqdor(self):
-        """Qo‘shilgan va ishlatilgan miqdorlarni hisoblab jami miqdor"""
+        """Kirim va chiqimlarni hisoblab qoldiqni chiqaradi"""
+        # Omborga qo‘shilganlar
         qoshilgan = self.ehtiyotqism_hist.aggregate(
             total=Sum('miqdor')
         )['total'] or 0
 
+        # Turli joylarda ishlatilganlar
         ishlatilgan = (
             TexnikKorikEhtiyotQism.objects.filter(ehtiyot_qism=self)
             .aggregate(total=Sum('miqdor'))['total'] or 0
@@ -161,8 +163,8 @@ class EhtiyotQismlari(models.Model):
 
 class EhtiyotQismHistory(models.Model):
     ehtiyot_qism = models.ForeignKey(
-        EhtiyotQismlari, 
-        on_delete=models.CASCADE, 
+        EhtiyotQismlari,
+        on_delete=models.CASCADE,
         related_name="ehtiyotqism_hist"
     )
     miqdor = models.FloatField(default=0)
@@ -174,29 +176,28 @@ class EhtiyotQismHistory(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        return f"{self.ehtiyot_qism.ehtiyotqism_nomi} +{self.miqdor} ({self.created_at})"
+        return f"{self.ehtiyot_qism.ehtiyotqism_nomi} +{self.miqdor} ({self.created_at:%Y-%m-%d})"
 
 
-# --- Texnik ko'rik va nosozliklar uchun ishlatilish ---
 class TexnikKorikEhtiyotQism(models.Model):
-    korik = models.ForeignKey('TexnikKorik', on_delete=models.SET_NULL, null=True, blank=True)
-    ehtiyot_qism = models.ForeignKey('EhtiyotQismlari', on_delete=models.SET_NULL, null=True, blank=True)
+    korik = models.ForeignKey("TexnikKorik", on_delete=models.SET_NULL, null=True, blank=True)
+    ehtiyot_qism = models.ForeignKey("EhtiyotQismlari", on_delete=models.SET_NULL, null=True, blank=True)
     miqdor = models.FloatField(default=1)
 
     def save(self, *args, **kwargs):
         if self.ehtiyot_qism and self.miqdor > self.ehtiyot_qism.jami_miqdor:
-            raise ValueError(f"❌ Omborda yetarli miqdor yo'q ({self.ehtiyot_qism.jami_miqdor})")
+            raise ValueError(f"❌ Omborda yetarli miqdor yo‘q (qoldiq: {self.ehtiyot_qism.jami_miqdor})")
         super().save(*args, **kwargs)
 
 
 class TexnikKorikEhtiyotQismStep(models.Model):
-    korik_step = models.ForeignKey('TexnikKorikStep', on_delete=models.SET_NULL, null=True, blank=True)
-    ehtiyot_qism = models.ForeignKey('EhtiyotQismlari', on_delete=models.SET_NULL, null=True, blank=True)
+    korik_step = models.ForeignKey("TexnikKorikStep", on_delete=models.SET_NULL, null=True, blank=True)
+    ehtiyot_qism = models.ForeignKey("EhtiyotQismlari", on_delete=models.SET_NULL, null=True, blank=True)
     miqdor = models.FloatField(default=1)
 
     def save(self, *args, **kwargs):
         if self.ehtiyot_qism and self.miqdor > self.ehtiyot_qism.jami_miqdor:
-            raise ValueError(f"❌ Omborda yetarli miqdor yo'q ({self.ehtiyot_qism.jami_miqdor})")
+            raise ValueError(f"❌ Omborda yetarli miqdor yo‘q (qoldiq: {self.ehtiyot_qism.jami_miqdor})")
         super().save(*args, **kwargs)
 
 
@@ -207,20 +208,19 @@ class NosozlikEhtiyotQism(models.Model):
 
     def save(self, *args, **kwargs):
         if self.ehtiyot_qism and self.miqdor > self.ehtiyot_qism.jami_miqdor:
-            raise ValueError(f"❌ Omborda yetarli miqdor yo'q ({self.ehtiyot_qism.jami_miqdor})")
+            raise ValueError(f"❌ Omborda yetarli miqdor yo‘q (qoldiq: {self.ehtiyot_qism.jami_miqdor})")
         super().save(*args, **kwargs)
 
 
 class NosozlikEhtiyotQismStep(models.Model):
-    step = models.ForeignKey('NosozlikStep', on_delete=models.SET_NULL, null=True, blank=True, related_name="ehtiyot_qismlar_step")
-    ehtiyot_qism = models.ForeignKey('EhtiyotQismlari', on_delete=models.SET_NULL, null=True, blank=True)
+    step = models.ForeignKey("NosozlikStep", on_delete=models.SET_NULL, null=True, blank=True, related_name="ehtiyot_qismlar_step")
+    ehtiyot_qism = models.ForeignKey("EhtiyotQismlari", on_delete=models.SET_NULL, null=True, blank=True)
     miqdor = models.FloatField(default=1)
 
     def save(self, *args, **kwargs):
         if self.ehtiyot_qism and self.miqdor > self.ehtiyot_qism.jami_miqdor:
-            raise ValueError(f"❌ Omborda yetarli miqdor yo'q ({self.ehtiyot_qism.jami_miqdor})")
+            raise ValueError(f"❌ Omborda yetarli miqdor yo‘q (qoldiq: {self.ehtiyot_qism.jami_miqdor})")
         super().save(*args, **kwargs)
-
 
 
 # ✅ ManyToMany uchun oraliq jadval
