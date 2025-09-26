@@ -4,6 +4,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.http import HttpResponse
 from openpyxl import Workbook
+from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from .models import (
     TamirTuri, ElektroDepo, EhtiyotQismlari,
     HarakatTarkibi, TexnikKorik, CustomUser, Nosozliklar, NosozlikEhtiyotQism, TexnikKorikStep,KunlikYurish,
@@ -24,14 +25,14 @@ from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.decorators import api_view, permission_classes, action
 from reportlab.lib import colors
-from reportlab.lib.pagesizes import A4, landscape
+from reportlab.lib.pagesizes import A4, landscape, inch
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, HRFlowable, Image
 import io
 from reportlab.lib.styles import getSampleStyleSheet
 import requests
 import django_filters
 from rest_framework.exceptions import ValidationError
-from reportlab.platypus import Paragraph, Spacer, HRFlowable, Image
+from reportlab.platypus import Paragraph, Spacer, HRFlowable, Image, Table, TableStyle
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from django.db.models import Count
 from django.utils.timezone import now
@@ -39,6 +40,7 @@ from datetime import timedelta
 from rest_framework.views import APIView
 from drf_spectacular.utils import extend_schema, OpenApiParameter
 from .permissions import IsMonitoringReadOnly, IsTexnik, IsSkladchi
+import json
 
 class UserViewSet(viewsets.ModelViewSet):
     queryset = CustomUser.objects.all()
@@ -117,156 +119,184 @@ class BaseViewSet(viewsets.ModelViewSet):
         doc = SimpleDocTemplate(buffer, pagesize=A4, title=title)
 
         styles = getSampleStyleSheet()
-        # Rangli va chiroyli style’lar
-        title_style = ParagraphStyle('title_style', parent=styles['Title'], textColor=colors.darkblue)
-        header_style = ParagraphStyle('header_style', parent=styles['Heading2'], backColor=colors.lightblue, textColor=colors.white)
-        step_style = ParagraphStyle('step_style', parent=styles['Heading3'], textColor=colors.darkgreen)
-        field_style = ParagraphStyle('field_style', parent=styles['Normal'], textColor=colors.black, leftIndent=10)
-        eq_style = ParagraphStyle('eq_style', parent=styles['Normal'], textColor=colors.purple, leftIndent=20)
+        title_style = ParagraphStyle('title_style', parent=styles['Title'], textColor=colors.darkblue, alignment=1)
+        header_style = ParagraphStyle('header_style', parent=styles['Heading2'], textColor=colors.white, backColor=colors.darkblue, alignment=1)
+        field_style = ParagraphStyle('field_style', parent=styles['Normal'], textColor=colors.black, fontSize=9, leading=11)
 
         elements = []
-
-        # Document title
-        elements.append(Paragraph(f"{title}", title_style))
-        elements.append(Spacer(1, 12))
+        elements.append(Paragraph(title, title_style))
+        elements.append(Spacer(1, 20))
 
         for idx, item in enumerate(data_list, start=1):
-            # Asosiy obyekt
             elements.append(Paragraph(f"Obyekt #{idx}", header_style))
-            elements.append(Spacer(1, 6))
+            elements.append(Spacer(1, 10))
 
-            # IMAGE
-            if "image" in item and item["image"]:
-                try:
-                    img_resp = requests.get(item["image"], timeout=5)
-                    if img_resp.status_code == 200:
-                        img_data = io.BytesIO(img_resp.content)
-                        img = Image(img_data, width=120, height=80)
-                        elements.append(img)
-                        elements.append(Spacer(1, 6))
-                except:
-                    elements.append(Paragraph("<b>image:</b> [Rasm yuklashda xato]", field_style))
-
-            # Asosiy maydonlar
+            # Asosiy jadval (steps va ichki narsalarsiz)
+            table_data = [[Paragraph("<b>Maydon</b>", field_style), Paragraph("<b>Qiymat</b>", field_style)]]
             for key, value in item.items():
-                if key.lower() == "image":
+                if key in ["image", "steps", "vagonlar"]:  # ichki obyektlarni asosiydan chiqarib turamiz
                     continue
-                if key == "steps" and isinstance(value, dict):
-                    results = value.get("results", [])
-                    for s_idx, step in enumerate(results, start=1):
-                        elements.append(Paragraph(f"{idx},{s_idx} Step", step_style))
-                        for skey, svalue in step.items():
-                            if skey.lower() == "ehtiyot_qismlar_detail":
-                                # Step ehtiyot qismlar
-                                for eq in svalue:
-                                    eq_text = f"- {eq.get('ehtiyotqism_nomi')} ({eq.get('birligi')}) x {eq.get('miqdor')}"
-                                    elements.append(Paragraph(eq_text, eq_style))
-                            else:
-                                elements.append(Paragraph(f"<b>{skey}:</b> {svalue}", field_style))
-                        elements.append(Spacer(1, 4))
-                    continue
+                table_data.append([Paragraph(str(key), field_style), Paragraph(str(value), field_style)])
 
-                if key.lower() == "ehtiyot_qismlar_detail" and isinstance(value, list):
-                    # Asosiy obyekt ehtiyot qismlarini ham chiroyli chiqaramiz
-                    for eq in value:
-                        eq_text = f"- {eq.get('ehtiyotqism_nomi')} ({eq.get('birligi')}) x {eq.get('miqdor')}"
-                        elements.append(Paragraph(eq_text, eq_style))
-                    elements.append(Spacer(1, 4))
-                    continue
+            table = Table(table_data, colWidths=[150, 350])
+            table.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.black),
+                ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, -1), 9),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+            ]))
+            elements.append(table)
+            elements.append(Spacer(1, 15))
 
-                # Oddiy maydonlar
-                elements.append(Paragraph(f"<b>{key}:</b> {value}", field_style))
-                elements.append(Spacer(1, 2))
+            # Agar steps bo‘lsa
+            if "steps" in item and isinstance(item["steps"], dict):
+                steps = item["steps"].get("results", [])
+                if steps:
+                    elements.append(Paragraph("🔹 Ko‘rik bosqichlari", header_style))
+                    elements.append(Spacer(1, 8))
 
-            elements.append(Spacer(1, 6))
-            elements.append(HRFlowable(width="100%", color=colors.grey, thickness=0.7, lineCap='round'))
-            elements.append(Spacer(1, 12))
+                    step_table_data = [
+                        [Paragraph("<b>ID</b>", field_style),
+                        Paragraph("<b>Kamchiliklar</b>", field_style),
+                        Paragraph("<b>Kim tomonidan</b>", field_style)]
+                    ]
+
+                    for step in steps:
+                        step_table_data.append([
+                            Paragraph(str(step.get("id")), field_style),
+                            Paragraph(str(step.get("kamchiliklar_haqida")), field_style),
+                            Paragraph(str(step.get("created_by")), field_style),
+                        ])
+
+                    step_table = Table(step_table_data, colWidths=[40, 200, 150])
+                    step_table.setStyle(TableStyle([
+                        ("BACKGROUND", (0, 0), (-1, 0), colors.lightblue),
+                        ("TEXTCOLOR", (0, 0), (-1, 0), colors.black),
+                        ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+                        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                        ("FONTSIZE", (0, 0), (-1, -1), 8),
+                        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                    ]))
+                    elements.append(step_table)
+                    elements.append(Spacer(1, 20))
+
+            elements.append(HRFlowable(width="100%", color=colors.darkgrey, thickness=0.7))
+            elements.append(Spacer(1, 20))
 
         doc.build(elements)
         buffer.seek(0)
+
         response = HttpResponse(buffer, content_type="application/pdf")
         response["Content-Disposition"] = f'attachment; filename="{filename}.pdf"'
         return response
 
-
-    # 🔹 Action endpoint
+    # 🔹 PDF eksport
     @action(detail=False, methods=["get"], url_path="export-pdf")
     def export_pdf(self, request):
         queryset = self.get_queryset()
         serializer = self.get_serializer(queryset, many=True)
-        data_list = serializer.data  # serializer natijasini PDF ga uzatamiz
-        return self.generate_pdf_detail(self.basename, self.basename + " ro'yxati", data_list)
+        data_list = serializer.data
+        return self.generate_pdf_detail(self.basename, f"{self.basename.capitalize()} ro'yxati", data_list)
 
 
+
+    excel_headers = None        # optional: ["ID", "Name", ...]
+    excel_filename = None       # optional: "my_export.xlsx"
+    exclude_excel_fields = ["image", "vagonlar", "steps"]   # keraksiz ustunlar
 
     @action(detail=False, methods=["get"], url_path="export-excel")
     def export_excel(self, request):
-        queryset = self.get_queryset()
+        queryset = self.filter_queryset(self.get_queryset())
         serializer = self.get_serializer(queryset, many=True)
 
         wb = Workbook()
         ws = wb.active
-        ws.title = self.basename
+        ws.title = (getattr(self, "basename", None) or self.__class__.__name__).capitalize()
 
-        # Asosiy ustunlar + step uchun ustunlar
-        headers = [
-            "ID", "Tarkib", "Tarkib nomi", "Tamir turi", "Tamir turi nomi", 
-            "Status", "Kamchiliklar", "Ehtiyot qismlar", "Bartaraf etilgan", 
-            "Kirgan vaqti", "Yaratdi", "Yaratilgan vaqti",
-            "Step raqami", "Step kamchilik", "Step ehtiyot qismlar", 
-            "Step bartaraf etilgan", "Step yaratuvchi", "Step vaqti", "Step status"
-        ]
-        ws.append(headers)
+        # Headerlar
+        headers = self.get_excel_headers(serializer)
+        if headers:
+            ws.append(headers)
 
-        for obj in serializer.data:
-            # Ehtiyot qismlar
-            eq_text = ", ".join(f"{eq['ehtiyotqism_nomi']} ({eq['birligi']}) x {eq['miqdor']}" for eq in obj.get("ehtiyot_qismlar_detail", []))
+            # Header style
+            header_fill = PatternFill("solid", fgColor="4F81BD")
+            header_font = Font(bold=True, color="FFFFFF")
+            for cell in ws[1]:
+                cell.fill = header_fill
+                cell.font = header_font
+                cell.alignment = Alignment(horizontal="center", vertical="center")
 
-            # Asosiy obyekt info
-            base_data = [
-                obj.get("id"), obj.get("tarkib"), obj.get("tarkib_nomi"), obj.get("tamir_turi"),
-                obj.get("tamir_turi_nomi"), obj.get("status"), obj.get("kamchiliklar_haqida"),
-                eq_text, obj.get("bartaraf_etilgan_kamchiliklar"), obj.get("kirgan_vaqti"),
-                obj.get("created_by"), obj.get("created_at")
-            ]
-
-            steps = obj.get("steps", [])
-            if steps:
-                # steps dict bo'lsa -> results ichidan olish
-                if isinstance(steps, dict):
-                    steps = steps.get("results", [])
-
-                for s_idx, step in enumerate(steps, start=1):
-                    step_eq = ", ".join(
-                        f"{eq['ehtiyotqism_nomi']} ({eq['birligi']}) x {eq['miqdor']}"
-                        for eq in step.get("ehtiyot_qismlar_detail", [])
-                    )
-                    step_data = [
-                        f"{s_idx}",  # Step raqami
-                        step.get("kamchiliklar_haqida", ""),
-                        step_eq,
-                        step.get("bartaraf_etilgan_kamchiliklar", ""),
-                        step.get("created_by", ""),
-                        step.get("created_at", ""),
-                        step.get("status", "")
-                    ]
-                    ws.append(base_data + step_data)
-            else:
-                ws.append(base_data + [""]*7)
-
-
-        # Kenglik berish
-        for col in ws.columns:
-            max_length = max(len(str(cell.value)) if cell.value else 0 for cell in col)
-            ws.column_dimensions[col[0].column_letter].width = max_length + 2
-
-        response = HttpResponse(
-            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        thin_border = Border(
+            left=Side(style="thin"), right=Side(style="thin"),
+            top=Side(style="thin"), bottom=Side(style="thin")
         )
-        response["Content-Disposition"] = f'attachment; filename="{self.basename}.xlsx"'
+
+        # Data yozish
+        for row_data in self.format_excel_data(serializer.data, headers=headers):
+            ws.append(row_data)
+
+        # Border & alignment
+        if ws.max_row >= 2:
+            for row in ws.iter_rows(min_row=2, max_row=ws.max_row, max_col=ws.max_column):
+                for cell in row:
+                    cell.border = thin_border
+                    cell.alignment = Alignment(vertical="center", wrap_text=True)
+
+        # Column auto width
+        for col in ws.columns:
+            try:
+                max_length = max(len(str(cell.value)) if cell.value else 0 for cell in col)
+                ws.column_dimensions[get_column_letter(col[0].column)].width = max_length + 2
+            except Exception:
+                pass
+
+        # Fayl nomi
+        filename = self.excel_filename or f"{(getattr(self, 'basename', None) or self.__class__.__name__).lower()}.xlsx"
+        response = HttpResponse(content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
         wb.save(response)
         return response
 
+    def get_excel_headers(self, serializer):
+        """
+        Agar child viewset excel_headers bersa — uni ishlatamiz.
+        Aks holda serializer.data[0].keys() dan olamiz va exclude qilamiz.
+        """
+        headers = []
+        if getattr(self, "excel_headers", None):
+            headers = list(self.excel_headers)
+        elif getattr(serializer, "data", None):
+            if len(serializer.data) > 0 and isinstance(serializer.data[0], dict):
+                headers = list(serializer.data[0].keys())
+
+        # exclude qilingan ustunlarni olib tashlaymiz
+        exclude = getattr(self, "exclude_excel_fields", [])
+        headers = [h for h in headers if h not in exclude]
+        return headers
+
+    def format_excel_data(self, data_list, headers=None):
+        """
+        Serializer.data ichidan faqat kerakli headerlarga mos qiymatlarni olib beradi.
+        """
+        rows = []
+        headers = headers or []
+        if not data_list:
+            return rows
+
+        for obj in data_list:
+            row = []
+            for h in headers:
+                value = obj.get(h, "")
+                if isinstance(value, (list, dict)):
+                    try:
+                        value = json.dumps(value, ensure_ascii=False)
+                    except Exception:
+                        value = str(value)
+                row.append(value if value is not None else "")
+            rows.append(row)
+        return rows
 
 
 class TamirTuriViewSet(BaseViewSet):
@@ -649,7 +679,7 @@ class TexnikKorikViewSet(BaseViewSet):
         step = serializer.save(korik=korik)
         return Response(TexnikKorikStepSerializer(step).data, status=status.HTTP_201_CREATED)
 
-class TexnikKorikStepViewSet(viewsets.ModelViewSet):
+class TexnikKorikStepViewSet(BaseViewSet):
     serializer_class = TexnikKorikStepSerializer
     permission_classes = [IsAuthenticated, IsTexnik]
     pagination_class = CustomPagination
@@ -740,7 +770,7 @@ class NosozliklarGetViewSet(mixins.ListModelMixin,
 
 # --- Nosozliklar ViewSet (Texnik Korikga o'xshash) ---
 
-class NosozliklarViewSet(viewsets.ModelViewSet):
+class NosozliklarViewSet(BaseViewSet):
     queryset = (
         Nosozliklar.objects
         .select_related("tarkib", "created_by")
@@ -828,7 +858,7 @@ class NosozliklarViewSet(viewsets.ModelViewSet):
 
 
 # --- Nosozlik Step ViewSet ---
-class NosozlikStepViewSet(viewsets.ModelViewSet):
+class NosozlikStepViewSet(BaseViewSet):
     serializer_class = NosozlikStepSerializer
     permission_classes = [IsAuthenticated, IsTexnik]
     pagination_class = CustomPagination
