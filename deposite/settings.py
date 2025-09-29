@@ -118,6 +118,7 @@ REST_FRAMEWORK = {
     ],
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 50000000000000000000000000000000000000000000000000, 
+    'EXCEPTION_HANDLER': 'home.utils.custom_exception_handler',
     
     
     
@@ -181,7 +182,6 @@ SPECTACULAR_SETTINGS = {
     'DESCRIPTION': 'Drf depo tex',
     'VERSION': '1.0.0',
 }
-
 
 
 LOGGING = {

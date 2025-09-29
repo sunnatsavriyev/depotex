@@ -346,10 +346,7 @@ class TexnikKorikDetailForStepSerializer(serializers.ModelSerializer):
 class TexnikKorikStepSerializer(serializers.ModelSerializer):
     created_by = serializers.CharField(source="created_by.username", read_only=True)
     tamir_turi_nomi = serializers.CharField(source="tamir_turi.tamir_nomi", read_only=True)
-    korik = serializers.PrimaryKeyRelatedField(
-        queryset=TexnikKorik.objects.all(),
-        write_only=True
-    )
+    korik = serializers.PrimaryKeyRelatedField(read_only=True)
     korik_nomi = serializers.CharField(source="korik.tarkib.tarkib_raqami", read_only=True)
     pervious_version = serializers.SerializerMethodField()
 
@@ -374,7 +371,7 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
             "bartaraf_etilgan_kamchiliklar", "chiqqan_vaqti", "akt_file",
             "yakunlash", "created_by", "created_at", "password", "status"
         ]
-        read_only_fields = ["tamir_turi_nomi", "created_by", "created_at"]
+        read_only_fields = ["korik", "korik_nomi", "tamir_turi_nomi", "created_by", "created_at"]
 
     def get_pervious_version(self, obj):
         if obj.korik and obj.korik.tarkib and obj.korik.tarkib.previous_version:
@@ -404,12 +401,9 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         request = self.context.get("request")
-        korik = validated_data.pop("korik", None)
+        korik = self.context.get("korik")  # 👈 perform_create() dan uzatiladi
         ehtiyot_qismlar = validated_data.pop("ehtiyot_qismlar", []) or []
         validated_data.pop("created_by", None)
-
-        if not korik or korik.status != TexnikKorik.Status.JARAYONDA:
-            raise serializers.ValidationError({"korik": "Avval Texnik Korik boshlang yoki u tugallanmagan."})
 
         yakunlash = validated_data.pop("yakunlash", False)
         akt_file = validated_data.pop("akt_file", None)
@@ -438,7 +432,6 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
                     created_by=request.user
                 )
 
-                # Step bilan bog‘lash
                 TexnikKorikEhtiyotQismStep.objects.create(
                     korik_step=step,
                     ehtiyot_qism=eq_obj,
@@ -469,59 +462,73 @@ class StepPagination(PageNumberPagination):
 
 
 
-
-
 class TexnikKorikSerializer(serializers.ModelSerializer):
     created_by = serializers.CharField(source="created_by.username", read_only=True)
 
-    tarkib = serializers.PrimaryKeyRelatedField(
-    queryset=HarakatTarkibi.objects.filter(is_active=True, holati="Soz_holatda"),
-    )
+    # Tarkib va tamir turi
+    tarkib = serializers.PrimaryKeyRelatedField(queryset=HarakatTarkibi.objects.none())
+
     is_active = serializers.BooleanField(source="tarkib.is_active", read_only=True)
     pervious_version = serializers.SerializerMethodField()
-    tarkib_detail = serializers.SerializerMethodField(read_only=True)
     tarkib_nomi = serializers.CharField(source="tarkib.tarkib_raqami", read_only=True)
-    kirgan_vaqti = serializers.DateTimeField(read_only=True)
-    tamir_turi = serializers.PrimaryKeyRelatedField(
-    queryset=TamirTuri.objects.all(),
-    )
+
+    tamir_turi = serializers.PrimaryKeyRelatedField(queryset=TamirTuri.objects.all())
     tamir_turi_nomi = serializers.CharField(source="tamir_turi.tamir_nomi", read_only=True)
 
+    # Steps
     steps = serializers.SerializerMethodField()
 
+    # Ehtiyot qismlar
     ehtiyot_qismlar = TexnikKorikEhtiyotQismSerializer(
-    many=True, write_only=True, required=False, allow_null=True, default=list
+        many=True, write_only=True, required=False, allow_null=True, default=list
     )
     ehtiyot_qismlar_detail = TexnikKorikEhtiyotQismSerializer(
         source="texnikkorikehtiyotqism_set", many=True, read_only=True
     )
+
     akt_file = serializers.FileField(write_only=True, required=False)
     password = serializers.CharField(write_only=True, required=True)
     yakunlash = serializers.BooleanField(required=False, default=False)
-    chiqqan_vaqti = serializers.DateTimeField(required=False,read_only=True)
+    chiqqan_vaqti = serializers.DateTimeField(read_only=True)
 
     class Meta:
         model = TexnikKorik
         fields = [
-            "id", "tarkib","tarkib_detail", "tarkib_nomi","is_active","pervious_version", "tamir_turi", "tamir_turi_nomi", "status",
+            "id", "tarkib", "tarkib_nomi", "is_active", "pervious_version",
+            "tamir_turi", "tamir_turi_nomi", "status",
             "kamchiliklar_haqida", "ehtiyot_qismlar", "ehtiyot_qismlar_detail",
             "bartaraf_etilgan_kamchiliklar", "kirgan_vaqti", "chiqqan_vaqti",
             "akt_file", "yakunlash", "created_by", "created_at", "steps", "password"
         ]
         read_only_fields = ["status", "created_by", "created_at", "steps"]
 
+
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Har safar serializer ochilganda dinamik querysetni DB’dan oladi
+        self.fields["tarkib"].queryset = HarakatTarkibi.objects.filter(
+            is_active=True,
+            holati="Soz_holatda"
+        )
     
     
+    # --- Serializer metodlari ---
     def get_pervious_version(self, obj):
         return obj.tarkib.previous_version.id if obj.tarkib and obj.tarkib.previous_version else None
 
+    def get_tarkib_detail(self, obj):
+        return {
+            "id": obj.tarkib.id,
+            "tarkib_raqami": obj.tarkib.tarkib_raqami,
+            "holati": obj.tarkib.holati,
+            "is_active": obj.tarkib.is_active,
+        }
+
     def get_steps(self, obj):
         request = self.context.get("request")
-
-        # 🔹 Parent (asosiy obyekt – texnik ko‘rik)
         parent_data = TexnikKorikDetailForStepSerializer(obj, context=self.context).data
 
-        # 🔹 Parentga ehtiyot qismlar qo‘shamiz
         ishlatilgan_qismlar = []
         for item in obj.texnikkorikehtiyotqism_set.all():
             ehtiyot_qism = item.ehtiyot_qism
@@ -529,16 +536,11 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
                 "ehtiyot_qism": ehtiyot_qism.ehtiyotqism_nomi,
                 "birligi": ehtiyot_qism.birligi,
                 "ishlatilgan_miqdor": item.miqdor,
-                # ✅ property ishlatyapmiz
-                "qoldiq": ehtiyot_qism.jami_miqdor  
+                "qoldiq": ehtiyot_qism.jami_miqdor
             })
-
         parent_data["ishlatilgan_qismlar"] = ishlatilgan_qismlar
 
-        # 🔹 Steps queryset
         steps_qs = obj.steps.all().order_by("created_at")
-
-        # 🔍 Search
         search = request.query_params.get("search")
         if search:
             steps_qs = steps_qs.filter(
@@ -546,11 +548,9 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
                 Q(bartaraf_etilgan_kamchiliklar__icontains=search)
             )
 
-        # 🔹 Pagination
         paginator = StepPagination()
         page = paginator.paginate_queryset(steps_qs, request)
 
-        # ✅ Agar step bo‘lmasa ham parent chiqishi kerak
         if page is not None:
             steps_data = TexnikKorikStepSerializer(page, many=True, context=self.context).data
             return {
@@ -572,20 +572,7 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
                 "results": [parent_data] + steps_data,
             }
 
-
-
-
-    
-    
-    def get_tarkib_detail(self, obj):
-        return {
-            "id": obj.tarkib.id,
-            "tarkib_raqami": obj.tarkib.tarkib_raqami,
-            "holati": obj.tarkib.holati,
-            "is_active": obj.tarkib.is_active,
-        }
-    
-    
+    # --- Validation ---
     def validate(self, attrs):
         request = self.context.get("request")
         password = attrs.pop("password", None)
@@ -593,84 +580,74 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({"password": "Parol noto‘g‘ri."})
 
         yakunlash = attrs.get("yakunlash", False)
-        akt_file = attrs.get("akt_file", None)
-
-        # ❗️ Agar yakunlash bo‘lsa → akt_file majburiy
+        akt_file = attrs.get("akt_file")
         if yakunlash and not akt_file:
-            raise serializers.ValidationError({
-                "akt_file": "Yakunlash uchun akt fayl majburiy."
-            })
+            raise serializers.ValidationError({"akt_file": "Yakunlash uchun akt fayl majburiy."})
 
         return attrs
 
-    
     def to_representation(self, instance):
         data = super().to_representation(instance)
-        clean_data = {
-            key: value for key, value in data.items()
-            if value not in [None, False, [], {}]
-        }
-        return clean_data
+        return {k: v for k, v in data.items() if v not in [None, False, [], {}]}
 
-
-        # ---- CREATE ----
+    # --- CREATE ---
     def create(self, validated_data):
         request = self.context["request"]
 
-        korik = validated_data.pop("korik")  
-        ehtiyot_qismlar = validated_data.pop("ehtiyot_qismlar", []) or []
-        akt_file = validated_data.pop("akt_file", None)
+        tarkib = validated_data.pop("tarkib")
+        tamir_turi = validated_data.pop("tamir_turi")
         yakunlash = validated_data.pop("yakunlash", False)
+        akt_file = validated_data.pop("akt_file", None)
+        ehtiyot_qismlar = validated_data.pop("ehtiyot_qismlar", []) or []
 
-        step = TexnikKorikStep.objects.create(
-            korik=korik,
-            tamir_turi=korik.tamir_turi,
+        # Korikni avval jarayon holatida yaratamiz
+        korik = TexnikKorik.objects.create(
+            tarkib=tarkib,
+            tamir_turi=tamir_turi,
             created_by=request.user,
-            akt_file=akt_file,
-            status=TexnikKorikStep.Status.BARTARAF_ETILDI if yakunlash else TexnikKorikStep.Status.JARAYONDA,
+            status=TexnikKorik.Status.JARAYONDA,
             **validated_data
         )
 
-        # 🔧 Ehtiyot qismlar ishlatish
-        for item in ehtiyot_qismlar:
-            eq_id = item.get("ehtiyot_qism")
-            miqdor = item.get("miqdor", 1)
-            if eq_id:
-                eq_obj = EhtiyotQismlari.objects.get(id=eq_id)
-
-                # History yozish (minus qilib)
-                EhtiyotQismHistory.objects.create(
-                    ehtiyot_qism=eq_obj,
-                    miqdor=-miqdor,
-                    created_by=request.user
-                )
-
-                # Step bilan bog‘lash
-                TexnikKorikEhtiyotQismStep.objects.create(
-                    korik_step=step,
-                    ehtiyot_qism=eq_obj,
-                    miqdor=miqdor
-                )
-
-        # 🔹 Korik va tarkib holatini yangilash
         if yakunlash:
             korik.status = TexnikKorik.Status.BARTARAF_ETILDI
             korik.tarkib.holati = "Soz_holatda"
-            if not step.chiqqan_vaqti:
-                step.chiqqan_vaqti = timezone.now()
-                step.save()
+            korik.tarkib.save()   # 🔴 qo‘shish kerak
+            korik.save()
         else:
+            # Yakunlamasa, step yaratamiz
+            step = TexnikKorikStep.objects.create(
+                korik=korik,
+                tamir_turi=tamir_turi,
+                created_by=request.user,
+                akt_file=akt_file,
+                status=TexnikKorikStep.Status.JARAYONDA
+            )
+
+            for item in ehtiyot_qismlar:
+                eq_id = item.get("ehtiyot_qism")
+                miqdor = item.get("miqdor", 1)
+                if not eq_id:
+                    continue
+                eq_obj = EhtiyotQismlari.objects.get(id=eq_id)
+                EhtiyotQismHistory.objects.create(
+                    ehtiyot_qism=eq_obj, miqdor=-miqdor, created_by=request.user
+                )
+                TexnikKorikEhtiyotQismStep.objects.create(
+                    korik_step=step, ehtiyot_qism=eq_obj, miqdor=miqdor
+                )
+
             korik.tarkib.holati = "Texnik_korikda"
+            korik.tarkib.save()
+            korik.save()
 
-        korik.tarkib.save()
-        korik.save()
-        return step
+        return korik
 
 
-    # ---- UPDATE ----
+    # --- UPDATE ---
     def update(self, instance, validated_data):
         request = self.context["request"]
-        ehtiyot_qismlar = validated_data.pop("ehtiyot_qismlar", None) or []
+        ehtiyot_qismlar = validated_data.pop("ehtiyot_qismlar", []) or []
         akt_file = validated_data.pop("akt_file", None)
         yakunlash = validated_data.pop("yakunlash", False)
 
@@ -682,27 +659,28 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
             instance.tarkib.holati = "Soz_holatda"
             if not instance.chiqqan_vaqti:
                 instance.chiqqan_vaqti = timezone.now()
+            instance.tarkib.save()  
         else:
             instance.tarkib.holati = "Texnik_korikda"
 
         instance.tarkib.save()
         instance = super().update(instance, validated_data)
 
-        # 🔧 Yangilash paytida ham ehtiyot qismlar ishlatilsa
         for item in ehtiyot_qismlar:
             eq_id = item.get("ehtiyot_qism")
             miqdor = item.get("miqdor", 1)
             if eq_id:
-                eq_obj = EhtiyotQismlari.objects.get(id=eq_id)
+                try:
+                    eq_obj = EhtiyotQismlari.objects.get(id=eq_id)
+                except EhtiyotQismlari.DoesNotExist:
+                    continue
 
-                # History yozish
                 EhtiyotQismHistory.objects.create(
                     ehtiyot_qism=eq_obj,
                     miqdor=-miqdor,
                     created_by=request.user
                 )
 
-                # Korik bilan bog‘lash
                 TexnikKorikEhtiyotQism.objects.create(
                     korik=instance,
                     ehtiyot_qism=eq_obj,
@@ -907,11 +885,14 @@ class NosozlikStepSerializer(serializers.ModelSerializer):
 class NosozliklarSerializer(serializers.ModelSerializer):
     created_by = serializers.CharField(source="created_by.username", read_only=True)
     tarkib = serializers.PrimaryKeyRelatedField(
-        queryset=HarakatTarkibi.objects.filter(is_active=True,holati="Soz_holatda"),
+        queryset=HarakatTarkibi.objects.filter(is_active=True, holati="Soz_holatda")
     )
     tarkib_nomi = serializers.CharField(source="tarkib.tarkib_raqami", read_only=True)
     is_active = serializers.BooleanField(source="tarkib.is_active", read_only=True)
-    ehtiyot_qismlar = NosozlikEhtiyotQismSerializer(many=True, write_only=True, required=False)
+
+    ehtiyot_qismlar = NosozlikEhtiyotQismSerializer(
+        many=True, write_only=True, required=False, allow_null=True, default=list
+    )
     ehtiyot_qismlar_detail = NosozlikEhtiyotQismSerializer(
         source="nosozlikehtiyotqism_set", many=True, read_only=True
     )
@@ -919,7 +900,7 @@ class NosozliklarSerializer(serializers.ModelSerializer):
     akt_file = serializers.FileField(write_only=True, required=False)
     password = serializers.CharField(write_only=True, required=True)
     yakunlash = serializers.BooleanField(required=False, default=False)
-    bartarafqilingan_vaqti = serializers.DateTimeField(required=False, read_only=True)
+    bartarafqilingan_vaqti = serializers.DateTimeField(read_only=True)
 
     steps = serializers.SerializerMethodField()
     status = serializers.CharField(read_only=True)
@@ -927,112 +908,127 @@ class NosozliklarSerializer(serializers.ModelSerializer):
     class Meta:
         model = Nosozliklar
         fields = [
-            "id", "tarkib", "tarkib_nomi", "is_active", "nosozliklar_haqida",
-            "bartaraf_etilgan_nosozliklar", "status",
-            "aniqlangan_vaqti", "bartarafqilingan_vaqti",
+            "id", "tarkib", "tarkib_nomi", "is_active",
+            "nosozliklar_haqida", "bartaraf_etilgan_nosozliklar",
+            "status", "aniqlangan_vaqti", "bartarafqilingan_vaqti",
             "created_by", "created_at",
             "ehtiyot_qismlar", "ehtiyot_qismlar_detail",
             "akt_file", "yakunlash", "steps", "password"
         ]
         read_only_fields = ["status", "created_by", "created_at", "steps"]
 
-    
-    def create(self, validated_data):
-        request = self.context.get("request")
-        password = validated_data.pop("password", None)
-        yakunlash = validated_data.pop("yakunlash", False)
-        akt_file = validated_data.pop("akt_file", None)
-        ehtiyot_qismlar = validated_data.pop("ehtiyot_qismlar", [])
+    # --- Stepsni olish ---
+    def get_steps(self, obj):
+        steps_qs = obj.steps.all().order_by("created_at")
+        return NosozlikStepSerializer(steps_qs, many=True).data
 
+    # --- Validatsiya ---
+    def validate(self, attrs):
+        request = self.context.get("request")
+        password = attrs.pop("password", None)
         if not password or not request.user.check_password(password):
             raise serializers.ValidationError({"password": "Parol noto‘g‘ri."})
 
-        instance = Nosozliklar.objects.create(
+        yakunlash = attrs.get("yakunlash", False)
+        akt_file = attrs.get("akt_file")
+        if yakunlash and not akt_file:
+            raise serializers.ValidationError({"akt_file": "Yakunlash uchun akt fayl majburiy."})
+
+        return attrs
+
+    # --- CREATE ---
+    def create(self, validated_data):
+        request = self.context["request"]
+
+        # dublikat bo‘ladigan fieldlarni olib tashlaymiz
+        validated_data.pop("created_by", None)
+        validated_data.pop("status", None)   # <-- 🔥 shu joy muhim
+
+        tarkib = validated_data.pop("tarkib")
+        yakunlash = validated_data.pop("yakunlash", False)
+        akt_file = validated_data.pop("akt_file", None)
+        ehtiyot_qismlar = validated_data.pop("ehtiyot_qismlar", []) or []
+
+        # asosiy nosozlik yaratamiz
+        nosozlik = Nosozliklar.objects.create(
+            tarkib=tarkib,
             created_by=request.user,
-            akt_file=akt_file,
             status=Nosozliklar.Status.BARTARAF_ETILDI if yakunlash else Nosozliklar.Status.JARAYONDA,
+            akt_file=akt_file,
             **validated_data
         )
 
-        for item in ehtiyot_qismlar:
-            eq_obj = item.get("ehtiyot_qism")
-            miqdor = item.get("miqdor", 1)
-            if eq_obj:
-                NosozlikEhtiyotQism.objects.create(
-                    nosozlik=instance,
-                    ehtiyot_qism=eq_obj,
-                    miqdor=miqdor
+        if yakunlash:
+            nosozlik.bartarafqilingan_vaqti = timezone.now()
+            nosozlik.tarkib.holati = "Soz_holatda"
+            nosozlik.tarkib.save()
+            nosozlik.save()
+        else:
+            step = NosozlikStep.objects.create(
+                nosozlik=nosozlik,
+                created_by=request.user,
+                akt_file=akt_file,
+                status=NosozlikStep.Status.JARAYONDA
+            )
+
+            for item in ehtiyot_qismlar:
+                eq_id = item.get("ehtiyot_qism")
+                miqdor = item.get("miqdor", 1)
+                if not eq_id:
+                    continue
+                eq_obj = EhtiyotQismlari.objects.get(id=eq_id)
+                EhtiyotQismHistory.objects.create(
+                    ehtiyot_qism=eq_obj, miqdor=-miqdor, created_by=request.user
                 )
-                EhtiyotQismHistory.objects.create(  # 🔹 faqat History
-                    ehtiyot_qism=eq_obj,
-                    miqdor=-miqdor,
-                    created_by=request.user
+                NosozlikEhtiyotQismStep.objects.create(
+                    step=step, ehtiyot_qism=eq_obj, miqdor=miqdor
                 )
+
+            nosozlik.tarkib.holati = "Nosozlikda"
+            nosozlik.tarkib.save()
+            nosozlik.save()
+
+        return nosozlik
+
+
+    # --- UPDATE ---
+    def update(self, instance, validated_data):
+        request = self.context["request"]
+        ehtiyot_qismlar = validated_data.pop("ehtiyot_qismlar", []) or []
+        akt_file = validated_data.pop("akt_file", None)
+        yakunlash = validated_data.pop("yakunlash", False)
+
+        if akt_file:
+            instance.akt_file = akt_file
 
         if yakunlash:
             instance.status = Nosozliklar.Status.BARTARAF_ETILDI
             instance.bartarafqilingan_vaqti = timezone.now()
             instance.tarkib.holati = "Soz_holatda"
-            instance.tarkib.save(update_fields=["holati"])
-            instance.save()
+            instance.tarkib.save()
+        else:
+            instance.tarkib.holati = "Nosozlikda"
+
+        instance = super().update(instance, validated_data)
+
+        for item in ehtiyot_qismlar:
+            eq_id = item.get("ehtiyot_qism")
+            miqdor = item.get("miqdor", 1)
+            if not eq_id:
+                continue
+            try:
+                eq_obj = EhtiyotQismlari.objects.get(id=eq_id)
+            except EhtiyotQismlari.DoesNotExist:
+                continue
+            EhtiyotQismHistory.objects.create(
+                ehtiyot_qism=eq_obj, miqdor=-miqdor, created_by=request.user
+            )
+            NosozlikEhtiyotQism.objects.create(
+                nosozlik=instance, ehtiyot_qism=eq_obj, miqdor=miqdor
+            )
 
         return instance
 
-
-
-    
-    
-    def get_steps(self, obj):
-        request = self.context.get("request")
-        parent_data = NosozlikDetailForStepSerializer(obj, context=self.context).data
-
-        # 🔹 Parentga ehtiyot qismlar qo‘shamiz
-        ishlatilgan_qismlar = []
-        for item in obj.nosozlikehtiyotqism_set.all():
-            eq = item.ehtiyot_qism
-            ishlatilgan_qismlar.append({
-                "ehtiyot_qism": eq.ehtiyotqism_nomi,
-                "birligi": eq.birligi,
-                "ishlatilgan_miqdor": item.miqdor,
-                "qoldiq": eq.jami_miqdor
-            })
-        parent_data["ishlatilgan_qismlar"] = ishlatilgan_qismlar
-
-        # 🔹 Step’lar
-        steps_qs = obj.steps.all().order_by("created_at")
-
-        # 🔍 Search
-        search = request.query_params.get("search")
-        if search:
-            steps_qs = steps_qs.filter(
-                Q(kamchiliklar_haqida__icontains=search) |
-                Q(bartaraf_etilgan_kamchiliklar__icontains=search)
-            )
-
-        # 🔹 Pagination
-        paginator = StepPagination()
-        page = paginator.paginate_queryset(steps_qs, request)
-
-        if page is not None:
-            steps_data = NosozlikStepSerializer(page, many=True, context=self.context).data
-            return {
-                "count": paginator.page.paginator.count + 1,
-                "num_pages": paginator.page.paginator.num_pages,
-                "current_page": paginator.page.number,
-                "next": paginator.get_next_link(),
-                "previous": paginator.get_previous_link(),
-                "results": [parent_data] + steps_data,
-            }
-        else:
-            steps_data = NosozlikStepSerializer(steps_qs, many=True, context=self.context).data
-            return {
-                "count": steps_qs.count() + 1,
-                "num_pages": 1,
-                "current_page": 1,
-                "next": None,
-                "previous": None,
-                "results": [parent_data] + steps_data,
-            }
 
 
 
