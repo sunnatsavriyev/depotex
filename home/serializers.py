@@ -351,7 +351,7 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
     pervious_version = serializers.SerializerMethodField()
 
     ehtiyot_qismlar = TexnikKorikEhtiyotQismStepSerializer(
-        many=True, write_only=True, required=False
+        many=True, write_only=True, required=False, allow_null=True, default=list
     )
     ehtiyot_qismlar_detail = TexnikKorikEhtiyotQismStepSerializer(
         source="texnikkorikehtiyotqismstep_set", many=True, read_only=True
@@ -483,6 +483,8 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
     ehtiyot_qismlar_detail = TexnikKorikEhtiyotQismSerializer(
         source="texnikkorikehtiyotqism_set", many=True, read_only=True
     )
+    
+    
 
     akt_file = serializers.FileField(write_only=True, required=False)
     password = serializers.CharField(write_only=True, required=True)
@@ -528,6 +530,8 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
         parent_data = TexnikKorikDetailForStepSerializer(obj, context=self.context).data
 
         ishlatilgan_qismlar = []
+
+        # 🔹 1) Korik yakunlanganda korik-level ehtiyot qismlarini chiqaramiz
         for item in obj.texnikkorikehtiyotqism_set.all():
             ehtiyot_qism = item.ehtiyot_qism
             ishlatilgan_qismlar.append({
@@ -536,8 +540,8 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
                 "ishlatilgan_miqdor": item.miqdor,
                 "qoldiq": ehtiyot_qism.jami_miqdor
             })
-        parent_data["ishlatilgan_qismlar"] = ishlatilgan_qismlar
 
+        # 🔹 2) Agar steplar bo‘lsa → ularni ham qo‘shamiz
         steps_qs = obj.steps.all().order_by("created_at")
         search = request.query_params.get("search")
         if search:
@@ -549,8 +553,14 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
         paginator = StepPagination()
         page = paginator.paginate_queryset(steps_qs, request)
 
+        steps_data = TexnikKorikStepSerializer(
+            page if page is not None else steps_qs, 
+            many=True, context=self.context
+        ).data
+
+        parent_data["ishlatilgan_qismlar"] = ishlatilgan_qismlar
+
         if page is not None:
-            steps_data = TexnikKorikStepSerializer(page, many=True, context=self.context).data
             return {
                 "count": paginator.page.paginator.count + 1,
                 "num_pages": paginator.page.paginator.num_pages,
@@ -560,7 +570,6 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
                 "results": [parent_data] + steps_data,
             }
         else:
-            steps_data = TexnikKorikStepSerializer(steps_qs, many=True, context=self.context).data
             return {
                 "count": steps_qs.count() + 1,
                 "num_pages": 1,
@@ -569,6 +578,8 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
                 "previous": None,
                 "results": [parent_data] + steps_data,
             }
+
+            
 
     # --- Validation ---
     def validate(self, attrs):
@@ -860,7 +871,7 @@ class NosozlikStepSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         request = self.context.get("request")
-        nosozlik = validated_data.pop("nosozlik")
+        nosozlik = self.context.get("nosozlik")
         ehtiyot_qismlar = validated_data.pop("ehtiyot_qismlar", [])
         yakunlash = validated_data.pop("yakunlash", False)
         akt_file = validated_data.pop("akt_file", None)
@@ -935,8 +946,27 @@ class NosozliklarSerializer(serializers.ModelSerializer):
 
     # --- Stepsni olish ---
     def get_steps(self, obj):
+        ishlatilgan_qismlar = []
+
+        # 🔹 1) Agar nosozlik yakunlangan bo‘lsa → NosozlikEhtiyotQism (asosiy)
+        for item in obj.nosozlikehtiyotqism_set.all():
+            if not item.ehtiyot_qism:
+                continue
+            ishlatilgan_qismlar.append({
+                "ehtiyot_qism": item.ehtiyot_qism.ehtiyotqism_nomi,
+                "birligi": item.ehtiyot_qism.birligi,
+                "ishlatilgan_miqdor": item.miqdor,
+                "qoldiq": item.ehtiyot_qism.jami_miqdor
+            })
+
+        # 🔹 2) Agar step bo‘lsa → steplarni NosozlikStepSerializer orqali chiqaramiz
         steps_qs = obj.steps.all().order_by("created_at")
-        return NosozlikStepSerializer(steps_qs, many=True).data
+        steps_data = NosozlikStepSerializer(steps_qs, many=True).data
+
+        return {
+            "ishlatilgan_qismlar": ishlatilgan_qismlar,
+            "steps": steps_data
+        }
 
     # --- Validatsiya ---
     def validate(self, attrs):

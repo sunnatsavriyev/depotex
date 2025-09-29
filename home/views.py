@@ -669,20 +669,21 @@ class TexnikKorikViewSet(BaseViewSet):
     
     @action(detail=True, methods=["post"], url_path="add-step")
     def add_step(self, request, pk=None):
-        try:
-            korik = self.get_object()
-            if korik.status == TexnikKorik.Status.BARTARAF_ETILDI:
-                return Response({"detail": "Bu korik yakunlangan, yangi step qo'shib bo'lmaydi!"},
-                                status=status.HTTP_400_BAD_REQUEST)
+        korik = self.get_object()
+        if korik.status == TexnikKorik.Status.BARTARAF_ETILDI:
+            return Response(
+                {"detail": "Bu korik yakunlangan, yangi step qo'shib bo'lmaydi!"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
-            serializer = TexnikKorikStepSerializer(data=request.data, context={"request": request})
-            serializer.is_valid(raise_exception=True)
-            step = serializer.save(korik=korik, created_by=request.user)
-            return Response(TexnikKorikStepSerializer(step).data, status=status.HTTP_201_CREATED)
-        except ValidationError as e:
-            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
-        except Exception as e:
-            return Response({"detail": "Server error: " + str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        serializer = TexnikKorikStepSerializer(
+            data=request.data,
+            context={"request": request, "korik": korik}  # 👈 korikni contextga qo‘shdik
+        )
+        serializer.is_valid(raise_exception=True)
+        step = serializer.save(created_by=request.user)  # 👈 korikni save ichida olib beradi
+        return Response(TexnikKorikStepSerializer(step).data, status=status.HTTP_201_CREATED)
+
 
 
 class TexnikKorikStepViewSet(BaseViewSet):
@@ -719,7 +720,11 @@ class TexnikKorikStepViewSet(BaseViewSet):
     def perform_create(self, serializer):
         korik_id = self.request.query_params.get("korik")
         if not korik_id:
-            raise ValidationError({"korik": "korik_id yuborilmagan!"})
+            # agar frontend yubormasa ham, context orqali olishga urinamiz
+            korik_id = self.kwargs.get("korik_pk") or self.request.data.get("korik")
+
+        if not korik_id:
+            raise ValidationError({"korik": "Texnik korik ID aniqlanmadi!"})
 
         try:
             korik = TexnikKorik.objects.get(id=korik_id)
@@ -729,9 +734,9 @@ class TexnikKorikStepViewSet(BaseViewSet):
         if korik.status != TexnikKorik.Status.JARAYONDA:
             raise ValidationError({"korik": "Avval Texnik Korik boshlang yoki u tugallangan."})
 
-        # 👇 faqat contextga beramiz, serializer.create() ichida foydalaniladi
-        serializer.context["korik"] = korik
-        serializer.save()
+        serializer.context["korik"] = korik  # 👈 korikni serializerga contextda uzatamiz
+        serializer.save(created_by=self.request.user)
+
 
 
 
@@ -816,6 +821,22 @@ class NosozliklarViewSet(BaseViewSet):
         if user.role == "texnik" and user.depo:
             qs = qs.filter(tarkib__depo=user.depo)
         return qs
+    
+    
+    @action(detail=True, methods=["post"], url_path="add-step")
+    def add_step(self, request, pk=None):
+        nosozlik = self.get_object()
+        if nosozlik.status == Nosozliklar.Status.BARTARAF_ETILDI:
+            return Response({"detail": "Bu nosozlik yakunlangan, yangi step qo‘shib bo‘lmaydi!"},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        serializer = NosozlikStepSerializer(
+            data=request.data,
+            context={"request": request, "nosozlik": nosozlik}  # 👈 avtomatik context
+        )
+        serializer.is_valid(raise_exception=True)
+        step = serializer.save()
+        return Response(NosozlikStepSerializer(step).data, status=status.HTTP_201_CREATED)
 
     def perform_create(self, serializer):
         request = self.request
@@ -905,20 +926,42 @@ class NosozlikStepViewSet(BaseViewSet):
         if nosozlik.status != Nosozliklar.Status.JARAYONDA:
             raise ValidationError({"nosozlik": "Avval nosozlik boshlang yoki u tugallanmagan."})
 
+        # --- Step yaratish ---
+        yakunlash = serializer.validated_data.pop("yakunlash", False)
+        ehtiyot_qismlar = serializer.validated_data.pop("ehtiyot_qismlar", [])
+
         step = serializer.save(
             nosozlik=nosozlik,
-            created_by=request.user
+            created_by=request.user,
+            yakunlash=yakunlash
         )
 
-        # Agar step yakunlansa → asosiy nosozlikni ham yakunlash
-        if serializer.validated_data.get("yakunlash", False):
+        # --- Step ehtiyot qismlari ---
+        for item in ehtiyot_qismlar:
+            eq_obj = item.get("ehtiyot_qism")
+            miqdor = item.get("miqdor", 1)
+            if eq_obj:
+                NosozlikEhtiyotQism.objects.create(
+                    nosozlik=nosozlik,
+                    ehtiyot_qism=eq_obj,
+                    miqdor=miqdor,
+                    step=step,  # step bilan bog‘lash
+                )
+                EhtiyotQismHistory.objects.create(
+                    ehtiyot_qism=eq_obj,
+                    miqdor=-miqdor,
+                    created_by=request.user,
+                    step=step
+                )
+
+        # --- Agar step yakunlansa → asosiy nosozlikni ham yakunlash ---
+        if yakunlash:
             nosozlik.status = Nosozliklar.Status.BARTARAF_ETILDI
-            nosozlik.bartarafqilingan_vaqti = timezone.now()
-            nosozlik.save()
+            nosozlik.bartaraf_qilingan_vaqti = timezone.now()
+            nosozlik.save(update_fields=["status", "bartaraf_qilingan_vaqti"])
 
             nosozlik.tarkib.holati = "Soz_holatda"
             nosozlik.tarkib.save(update_fields=["holati"])
-
 
 
 
