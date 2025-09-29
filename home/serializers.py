@@ -259,16 +259,21 @@ class SlugOrPkRelatedField(serializers.SlugRelatedField):
 class TexnikKorikEhtiyotQismSerializer(serializers.ModelSerializer):
     ehtiyot_qism_nomi = serializers.CharField(source="ehtiyot_qism.ehtiyotqism_nomi", read_only=True)
     birligi = serializers.CharField(source="ehtiyot_qism.birligi", read_only=True)
+    ehtiyot_qism = serializers.PrimaryKeyRelatedField(queryset=EhtiyotQismlari.objects.all())
 
     class Meta:
         model = TexnikKorikEhtiyotQism
         fields = ["id", "ehtiyot_qism", "ehtiyot_qism_nomi", "birligi", "miqdor"]
 
     def validate(self, attrs):
-        eq = attrs["ehtiyot_qism"]
-        if attrs["miqdor"] > eq.jami_miqdor:
+        eq = attrs.get("ehtiyot_qism")
+        if not eq:
+            raise serializers.ValidationError({"ehtiyot_qism": "Ehtiyot qism majburiy."})
+        
+        if attrs.get("miqdor", 0) > eq.jami_miqdor:
             raise serializers.ValidationError(f"Omborda yetarli miqdor yo‘q ({eq.jami_miqdor})")
         return attrs
+
 
     def create(self, validated_data):
         instance = super().create(validated_data)
@@ -285,6 +290,7 @@ class TexnikKorikEhtiyotQismSerializer(serializers.ModelSerializer):
 class TexnikKorikEhtiyotQismStepSerializer(serializers.ModelSerializer):
     ehtiyot_qism_nomi = serializers.CharField(source="ehtiyot_qism.ehtiyotqism_nomi", read_only=True)
     birligi = serializers.CharField(source="ehtiyot_qism.birligi", read_only=True)
+    ehtiyot_qism = serializers.PrimaryKeyRelatedField(queryset=EhtiyotQismlari.objects.all())
 
     class Meta:
         model = TexnikKorikEhtiyotQismStep
