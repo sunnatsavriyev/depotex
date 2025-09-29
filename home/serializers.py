@@ -288,7 +288,8 @@ class TexnikKorikEhtiyotQismStepSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = TexnikKorikEhtiyotQismStep
-        fields = ["id", "korik_step", "ehtiyot_qism", "ehtiyot_qism_nomi", "birligi", "miqdor"]
+        fields = ["id","ehtiyot_qism", "ehtiyot_qism_nomi", "birligi", "miqdor"]
+        read_only_fields = ["korik_step"]
 
     def validate(self, attrs):
         eq = attrs["ehtiyot_qism"]
