@@ -401,8 +401,8 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         request = self.context.get("request")
+        korik = self.context.get("korik")   
 
-        korik = validated_data.pop("korik")   # 👈 endi bu yerda to‘g‘ri keladi
         ehtiyot_qismlar = validated_data.pop("ehtiyot_qismlar", []) or []
         yakunlash = validated_data.pop("yakunlash", False)
         akt_file = validated_data.pop("akt_file", None)
@@ -610,10 +610,26 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
         if yakunlash:
             korik.status = TexnikKorik.Status.BARTARAF_ETILDI
             korik.tarkib.holati = "Soz_holatda"
-            korik.tarkib.save()   # 🔴 qo‘shish kerak
+            korik.tarkib.save()
             korik.save()
+
+            # ✅ Yakunlanganda ham ehtiyot qismlar yozilsin
+            for item in ehtiyot_qismlar:
+                eq_id = item.get("ehtiyot_qism")
+                miqdor = item.get("miqdor", 1)
+                if not eq_id:
+                    continue
+                eq_obj = EhtiyotQismlari.objects.get(id=eq_id)
+
+                EhtiyotQismHistory.objects.create(
+                    ehtiyot_qism=eq_obj, miqdor=-miqdor, created_by=request.user
+                )
+                TexnikKorikEhtiyotQism.objects.create(
+                    korik=korik, ehtiyot_qism=eq_obj, miqdor=miqdor
+                )
+
         else:
-            # Yakunlamasa, step yaratamiz
+            # Yakunlamasa → step yaratamiz
             step = TexnikKorikStep.objects.create(
                 korik=korik,
                 tamir_turi=tamir_turi,
@@ -628,6 +644,7 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
                 if not eq_id:
                     continue
                 eq_obj = EhtiyotQismlari.objects.get(id=eq_id)
+
                 EhtiyotQismHistory.objects.create(
                     ehtiyot_qism=eq_obj, miqdor=-miqdor, created_by=request.user
                 )
@@ -640,6 +657,7 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
             korik.save()
 
         return korik
+
 
 
     # --- UPDATE ---
@@ -938,16 +956,16 @@ class NosozliklarSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         request = self.context["request"]
 
-        # dublikat bo‘ladigan fieldlarni olib tashlaymiz
+        # dublikat bo‘lishi mumkin bo‘lgan fieldlarni olib tashlaymiz
         validated_data.pop("created_by", None)
-        validated_data.pop("status", None)   # <-- 🔥 shu joy muhim
+        validated_data.pop("status", None)
 
         tarkib = validated_data.pop("tarkib")
         yakunlash = validated_data.pop("yakunlash", False)
         akt_file = validated_data.pop("akt_file", None)
         ehtiyot_qismlar = validated_data.pop("ehtiyot_qismlar", []) or []
 
-        # asosiy nosozlik yaratamiz
+        # asosiy nosozlikni yaratamiz
         nosozlik = Nosozliklar.objects.create(
             tarkib=tarkib,
             created_by=request.user,
@@ -961,35 +979,27 @@ class NosozliklarSerializer(serializers.ModelSerializer):
             nosozlik.tarkib.holati = "Soz_holatda"
             nosozlik.tarkib.save()
             nosozlik.save()
-        else:
-            step = NosozlikStep.objects.create(
-                nosozlik=nosozlik,
-                created_by=request.user,
-                akt_file=akt_file,
-                status=NosozlikStep.Status.JARAYONDA
-            )
 
+            # step OCHMAYMIZ ❌
+            # lekin ehtiyot qismlarni baribir yozamiz
             for item in ehtiyot_qismlar:
                 eq_id = item.get("ehtiyot_qism")
                 miqdor = item.get("miqdor", 1)
                 if not eq_id:
                     continue
                 eq_obj = EhtiyotQismlari.objects.get(id=eq_id)
+
                 EhtiyotQismHistory.objects.create(
                     ehtiyot_qism=eq_obj, miqdor=-miqdor, created_by=request.user
                 )
-                NosozlikEhtiyotQismStep.objects.create(
-                    step=step, ehtiyot_qism=eq_obj, miqdor=miqdor
+                NosozlikEhtiyotQism.objects.create(   # <-- bevosita Nosozlikka
+                    nosozlik=nosozlik, ehtiyot_qism=eq_obj, miqdor=miqdor
                 )
 
-            nosozlik.tarkib.holati = "Nosozlikda"
-            nosozlik.tarkib.save()
-            nosozlik.save()
 
         return nosozlik
 
 
-    # --- UPDATE ---
     def update(self, instance, validated_data):
         request = self.context["request"]
         ehtiyot_qismlar = validated_data.pop("ehtiyot_qismlar", []) or []
@@ -1004,11 +1014,24 @@ class NosozliklarSerializer(serializers.ModelSerializer):
             instance.bartarafqilingan_vaqti = timezone.now()
             instance.tarkib.holati = "Soz_holatda"
             instance.tarkib.save()
+            step = NosozlikStep.objects.create(
+                nosozlik=instance,
+                created_by=request.user,
+                akt_file=akt_file,
+                status=NosozlikStep.Status.BARTARAF_ETILDI
+            )
         else:
             instance.tarkib.holati = "Nosozlikda"
+            step = NosozlikStep.objects.create(
+                nosozlik=instance,
+                created_by=request.user,
+                akt_file=akt_file,
+                status=NosozlikStep.Status.JARAYONDA
+            )
 
         instance = super().update(instance, validated_data)
 
+        # ✅ yakunlash bo‘lsa ham ehtiyot qismlar ishlanadi
         for item in ehtiyot_qismlar:
             eq_id = item.get("ehtiyot_qism")
             miqdor = item.get("miqdor", 1)
@@ -1018,14 +1041,16 @@ class NosozliklarSerializer(serializers.ModelSerializer):
                 eq_obj = EhtiyotQismlari.objects.get(id=eq_id)
             except EhtiyotQismlari.DoesNotExist:
                 continue
+
             EhtiyotQismHistory.objects.create(
                 ehtiyot_qism=eq_obj, miqdor=-miqdor, created_by=request.user
             )
-            NosozlikEhtiyotQism.objects.create(
-                nosozlik=instance, ehtiyot_qism=eq_obj, miqdor=miqdor
+            NosozlikEhtiyotQismStep.objects.create(
+                step=step, ehtiyot_qism=eq_obj, miqdor=miqdor
             )
 
         return instance
+
 
 
 
