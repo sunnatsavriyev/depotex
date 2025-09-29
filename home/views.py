@@ -717,7 +717,7 @@ class TexnikKorikStepViewSet(BaseViewSet):
         return qs
 
     def perform_create(self, serializer):
-        korik_id = self.request.query_params.get("korik")  # frontend URL da ?korik=5 qilib yuboradi
+        korik_id = self.request.query_params.get("korik")
         if not korik_id:
             raise ValidationError({"korik": "korik_id yuborilmagan!"})
 
@@ -727,12 +727,10 @@ class TexnikKorikStepViewSet(BaseViewSet):
             raise ValidationError({"korik": "Bunday Texnik Korik topilmadi!"})
 
         if korik.status != TexnikKorik.Status.JARAYONDA:
-            raise ValidationError({"korik": "Avval Texnik Korik boshlang yoki u tugallanmagan."})
+            raise ValidationError({"korik": "Avval Texnik Korik boshlang yoki u tugallangan."})
 
-        serializer.save(
-            korik=korik,
-            created_by=self.request.user
-        )
+        serializer.save(korik=korik, created_by=self.request.user)
+
 
 
 

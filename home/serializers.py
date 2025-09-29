@@ -401,10 +401,9 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         request = self.context.get("request")
-        korik = self.context.get("korik")  # 👈 perform_create() dan uzatiladi
-        ehtiyot_qismlar = validated_data.pop("ehtiyot_qismlar", []) or []
-        validated_data.pop("created_by", None)
 
+        korik = validated_data.pop("korik")   # 👈 endi bu yerda to‘g‘ri keladi
+        ehtiyot_qismlar = validated_data.pop("ehtiyot_qismlar", []) or []
         yakunlash = validated_data.pop("yakunlash", False)
         akt_file = validated_data.pop("akt_file", None)
 
@@ -425,7 +424,6 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
             if eq_id:
                 eq_obj = EhtiyotQismlari.objects.get(id=eq_id)
 
-                # History orqali minus yozish
                 EhtiyotQismHistory.objects.create(
                     ehtiyot_qism=eq_obj,
                     miqdor=-miqdor,
@@ -438,7 +436,7 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
                     miqdor=miqdor
                 )
 
-        # 🔹 Step yakunlash → korik va tarkibni ham yangilash
+        # 🔹 Agar step yakunlansa → korik va tarkibni yangilash
         if yakunlash:
             korik.status = TexnikKorik.Status.BARTARAF_ETILDI
             korik.tarkib.holati = "Soz_holatda"
