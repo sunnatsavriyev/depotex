@@ -259,7 +259,11 @@ class SlugOrPkRelatedField(serializers.SlugRelatedField):
 class TexnikKorikEhtiyotQismSerializer(serializers.ModelSerializer):
     ehtiyot_qism_nomi = serializers.CharField(source="ehtiyot_qism.ehtiyotqism_nomi", read_only=True)
     birligi = serializers.CharField(source="ehtiyot_qism.birligi", read_only=True)
-    ehtiyot_qism = serializers.PrimaryKeyRelatedField(queryset=EhtiyotQismlari.objects.all())
+    ehtiyot_qism = serializers.PrimaryKeyRelatedField(
+        queryset=EhtiyotQismlari.objects.all(),
+        required=False,  # majburiy emas
+        allow_null=True
+    )
 
     class Meta:
         model = TexnikKorikEhtiyotQism
@@ -267,22 +271,21 @@ class TexnikKorikEhtiyotQismSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         eq = attrs.get("ehtiyot_qism")
-        if not eq:
-            raise serializers.ValidationError({"ehtiyot_qism": "Ehtiyot qism majburiy."})
-        
-        if attrs.get("miqdor", 0) > eq.jami_miqdor:
+        if eq and attrs.get("miqdor", 0) > eq.jami_miqdor:
             raise serializers.ValidationError(f"Omborda yetarli miqdor yo‘q ({eq.jami_miqdor})")
         return attrs
 
 
+
     def create(self, validated_data):
         instance = super().create(validated_data)
-        # history - minus yozamiz
-        EhtiyotQismHistory.objects.create(
-            ehtiyot_qism=instance.ehtiyot_qism,
-            miqdor=-instance.miqdor,
-            created_by=self.context["request"].user
-        )
+        eq = validated_data.get("ehtiyot_qism")
+        if eq:  # agar ehtiyot qism bo'lsa history yozamiz
+            EhtiyotQismHistory.objects.create(
+                ehtiyot_qism=eq,
+                miqdor=-instance.miqdor,
+                created_by=self.context["request"].user
+            )
         return instance
     
 
@@ -290,7 +293,11 @@ class TexnikKorikEhtiyotQismSerializer(serializers.ModelSerializer):
 class TexnikKorikEhtiyotQismStepSerializer(serializers.ModelSerializer):
     ehtiyot_qism_nomi = serializers.CharField(source="ehtiyot_qism.ehtiyotqism_nomi", read_only=True)
     birligi = serializers.CharField(source="ehtiyot_qism.birligi", read_only=True)
-    ehtiyot_qism = serializers.PrimaryKeyRelatedField(queryset=EhtiyotQismlari.objects.all())
+    ehtiyot_qism = serializers.PrimaryKeyRelatedField(
+        queryset=EhtiyotQismlari.objects.all(),
+        required=False,  # majburiy emas
+        allow_null=True
+    )
 
     class Meta:
         model = TexnikKorikEhtiyotQismStep
@@ -298,19 +305,21 @@ class TexnikKorikEhtiyotQismStepSerializer(serializers.ModelSerializer):
         read_only_fields = ["korik_step"]
 
     def validate(self, attrs):
-        eq = attrs["ehtiyot_qism"]
-        if attrs["miqdor"] > eq.jami_miqdor:
+        eq = attrs.get("ehtiyot_qism")
+        if eq and attrs.get("miqdor", 0) > eq.jami_miqdor:
             raise serializers.ValidationError(f"Omborda yetarli miqdor yo‘q ({eq.jami_miqdor})")
         return attrs
 
+
     def create(self, validated_data):
         instance = super().create(validated_data)
-        # history - minus yozamiz
-        EhtiyotQismHistory.objects.create(
-            ehtiyot_qism=instance.ehtiyot_qism,
-            miqdor=-instance.miqdor,
-            created_by=self.context["request"].user
-        )
+        eq = validated_data.get("ehtiyot_qism")
+        if eq:  # agar ehtiyot qism bo'lsa history yozamiz
+            EhtiyotQismHistory.objects.create(
+                ehtiyot_qism=eq,
+                miqdor=-instance.miqdor,
+                created_by=self.context["request"].user
+            )
         return instance
 
     
@@ -631,20 +640,16 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
             korik.tarkib.save()
             korik.save()
 
-            # ✅ Yakunlanganda ham ehtiyot qismlar yozilsin
+            # ✅ Serializer orqali yaratish va context berish
             for item in ehtiyot_qismlar:
-                eq_id = item.get("ehtiyot_qism")
-                miqdor = item.get("miqdor", 1)
-                if not eq_id:
-                    continue
-                eq_obj = EhtiyotQismlari.objects.get(id=eq_id)
+                item["korik"] = korik.id
+                serializer = TexnikKorikEhtiyotQismSerializer(
+                    data=item,
+                    context={"request": request}
+                )
+                serializer.is_valid(raise_exception=True)
+                serializer.save()
 
-                EhtiyotQismHistory.objects.create(
-                    ehtiyot_qism=eq_obj, miqdor=-miqdor, created_by=request.user
-                )
-                TexnikKorikEhtiyotQism.objects.create(
-                    korik=korik, ehtiyot_qism=eq_obj, miqdor=miqdor
-                )
 
         else:
             # Yakunlamasa → step yaratamiz
