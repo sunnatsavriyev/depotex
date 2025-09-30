@@ -681,7 +681,7 @@ class TexnikKorikViewSet(BaseViewSet):
             context={"request": request, "korik": korik}  # 👈 korikni contextga qo‘shdik
         )
         serializer.is_valid(raise_exception=True)
-        step = serializer.save(created_by=request.user)  # 👈 korikni save ichida olib beradi
+        step = serializer.save()  # 👈 korikni save ichida olib beradi
         return Response(TexnikKorikStepSerializer(step).data, status=status.HTTP_201_CREATED)
 
 
@@ -735,7 +735,7 @@ class TexnikKorikStepViewSet(BaseViewSet):
             raise ValidationError({"korik": "Avval Texnik Korik boshlang yoki u tugallangan."})
 
         serializer.context["korik"] = korik  # 👈 korikni serializerga contextda uzatamiz
-        serializer.save(created_by=self.request.user)
+        serializer.save()
 
 
 
