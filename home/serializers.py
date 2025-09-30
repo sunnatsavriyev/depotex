@@ -802,7 +802,7 @@ class NosozlikStepSerializer(serializers.ModelSerializer):
 
     ehtiyot_qismlar = NosozlikEhtiyotQismStepSerializer(many=True, write_only=True, required=False)
     ehtiyot_qismlar_detail = NosozlikEhtiyotQismStepSerializer(
-        source="nosozlikehtiyotqismstep_set", many=True, read_only=True
+        source="ehtiyot_qismlar_step", many=True, read_only=True
     )
 
     status = serializers.CharField(read_only=True)
@@ -895,7 +895,7 @@ class NosozliklarSerializer(serializers.ModelSerializer):
         many=True, write_only=True, required=False, allow_null=True, default=list
     )
     ehtiyot_qismlar_detail = NosozlikEhtiyotQismSerializer(
-        source="nosozlikehtiyotqism_set", many=True, read_only=True
+        source="ehtiyot_qism_aloqalari", many=True, read_only=True
     )
 
     akt_file = serializers.FileField(write_only=True, required=False)
@@ -923,7 +923,7 @@ class NosozliklarSerializer(serializers.ModelSerializer):
         ishlatilgan_qismlar = []
 
         # 🔹 1) Agar nosozlik yakunlangan bo‘lsa → NosozlikEhtiyotQism (asosiy)
-        for item in obj.nosozlikehtiyotqism_set.all():
+        for item in obj.ehtiyot_qism_aloqalari.all():
             if not item.ehtiyot_qism:
                 continue
             ishlatilgan_qismlar.append({
