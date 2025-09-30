@@ -362,10 +362,8 @@ class TexnikKorikDetailForStepSerializer(serializers.ModelSerializer):
 class TexnikKorikStepSerializer(serializers.ModelSerializer):
     created_by = serializers.CharField(source="created_by.username", read_only=True)
     tamir_turi_nomi = serializers.CharField(source="tamir_turi.tamir_nomi", read_only=True)
-    korik = serializers.PrimaryKeyRelatedField(read_only=True)
     korik_nomi = serializers.CharField(source="korik.tarkib.tarkib_raqami", read_only=True)
-    pervious_version = serializers.SerializerMethodField()
-
+    
     ehtiyot_qismlar = TexnikKorikEhtiyotQismStepSerializer(
         many=True, write_only=True, required=False, allow_null=True, default=list
     )
@@ -373,26 +371,21 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
         source="texnikkorikehtiyotqismstep_set", many=True, read_only=True
     )
 
-    status = serializers.CharField(read_only=True)
-    akt_file = serializers.FileField(write_only=True, required=False)  # faqat bitta
     password = serializers.CharField(write_only=True, required=True)
     yakunlash = serializers.BooleanField(required=False)
-    chiqqan_vaqti = serializers.DateTimeField(required=False, read_only=True)
+    akt_file = serializers.FileField(write_only=True, required=False)
+    chiqqan_vaqti = serializers.DateTimeField(read_only=True)
+    status = serializers.CharField(read_only=True)
 
     class Meta:
         model = TexnikKorikStep
         fields = [
-            "id", "korik", "korik_nomi", "tamir_turi_nomi", "pervious_version",
+            "id", "korik_nomi", "tamir_turi_nomi",
             "kamchiliklar_haqida", "ehtiyot_qismlar", "ehtiyot_qismlar_detail",
             "bartaraf_etilgan_kamchiliklar", "chiqqan_vaqti", "akt_file",
             "yakunlash", "created_by", "created_at", "password", "status"
         ]
-        read_only_fields = ["korik", "korik_nomi", "tamir_turi_nomi", "created_by", "created_at"]
-
-    def get_pervious_version(self, obj):
-        if obj.korik and obj.korik.tarkib and obj.korik.tarkib.previous_version:
-            return obj.korik.tarkib.previous_version.id
-        return None
+        read_only_fields = ["korik_nomi", "tamir_turi_nomi", "created_by", "created_at", "status", "chiqqan_vaqti"]
 
     def validate(self, attrs):
         request = self.context.get("request")
@@ -400,29 +393,21 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
         if not password or not request.user.check_password(password):
             raise serializers.ValidationError({"password": "Parol noto‘g‘ri."})
 
-        chiqqan_vaqti = attrs.get("chiqqan_vaqti")
         yakunlash = attrs.get("yakunlash", False)
         akt_file = attrs.get("akt_file")
-
-        if chiqqan_vaqti:
-            if not yakunlash:
-                raise serializers.ValidationError({"yakunlash": "Chiqish vaqtini belgilash uchun yakunlash majburiy."})
-            if not akt_file:
-                raise serializers.ValidationError({"akt_file": "Chiqish vaqtini belgilash uchun akt fayl majburiy."})
-
-        if yakunlash and akt_file and not chiqqan_vaqti:
-            attrs["chiqqan_vaqti"] = timezone.now()
+        if yakunlash and not akt_file:
+            raise serializers.ValidationError({"akt_file": "Yakunlash uchun akt fayl majburiy."})
 
         return attrs
 
     def create(self, validated_data):
-        request = self.context.get("request")
-        korik = self.context.get("korik")   
-
-        ehtiyot_qismlar = validated_data.pop("ehtiyot_qismlar", []) or []
+        request = self.context["request"]
+        korik = self.context.get("korik")
         yakunlash = validated_data.pop("yakunlash", False)
         akt_file = validated_data.pop("akt_file", None)
+        ehtiyot_qismlar = validated_data.pop("ehtiyot_qismlar", [])
 
+        # Step yaratish
         step = TexnikKorikStep.objects.create(
             korik=korik,
             tamir_turi=korik.tamir_turi,
@@ -432,39 +417,36 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
             **validated_data
         )
 
-        # 🔧 Stepga ehtiyot qismlar ishlatish
+        # Step-level ehtiyot qismlar
         for item in ehtiyot_qismlar:
             eq_id = item.get("ehtiyot_qism")
             miqdor = item.get("miqdor", 1)
+            if not eq_id:
+                continue
+            eq_obj = EhtiyotQismlari.objects.get(id=eq_id)
+            TexnikKorikEhtiyotQismStep.objects.create(
+                korik_step=step,
+                ehtiyot_qism=eq_obj,
+                miqdor=miqdor
+            )
+            EhtiyotQismHistory.objects.create(
+                ehtiyot_qism=eq_obj,
+                miqdor=-miqdor,
+                created_by=request.user
+            )
 
-            if eq_id:
-                eq_obj = EhtiyotQismlari.objects.get(id=eq_id)
-
-                EhtiyotQismHistory.objects.create(
-                    ehtiyot_qism=eq_obj,
-                    miqdor=-miqdor,
-                    created_by=request.user
-                )
-
-                TexnikKorikEhtiyotQismStep.objects.create(
-                    korik_step=step,
-                    ehtiyot_qism=eq_obj,
-                    miqdor=miqdor
-                )
-
-        # 🔹 Agar step yakunlansa → korik va tarkibni yangilash
-        if yakunlash:
+        # Yakunlash sharti: yakunlash=True va akt_file mavjud bo‘lsa
+        if yakunlash and akt_file:
+            step.status = TexnikKorikStep.Status.BARTARAF_ETILDI
+            step.chiqqan_vaqti = timezone.now()
+            step.save()
             korik.status = TexnikKorik.Status.BARTARAF_ETILDI
             korik.tarkib.holati = "Soz_holatda"
-            if not step.chiqqan_vaqti:
-                step.chiqqan_vaqti = timezone.now()
-                step.save()
-        else:
-            korik.tarkib.holati = "Texnik_korikda"
+            korik.tarkib.save()
+            korik.save()
 
-        korik.tarkib.save()
-        korik.save()
         return step
+
 
     
 
@@ -625,61 +607,41 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
         akt_file = validated_data.pop("akt_file", None)
         ehtiyot_qismlar = validated_data.pop("ehtiyot_qismlar", []) or []
 
-        # Korikni avval jarayon holatida yaratamiz
+        # Korik yaratish
         korik = TexnikKorik.objects.create(
             tarkib=tarkib,
             tamir_turi=tamir_turi,
             created_by=request.user,
-            status=TexnikKorik.Status.JARAYONDA,
+            status=TexnikKorik.Status.BARTARAF_ETILDI if yakunlash else TexnikKorik.Status.JARAYONDA,
             **validated_data
         )
 
-        if yakunlash:
-            korik.status = TexnikKorik.Status.BARTARAF_ETILDI
-            korik.tarkib.holati = "Soz_holatda"
-            korik.tarkib.save()
-            korik.save()
+        # 🔹 Ehtiyot qismlar korik-level da har doim qo‘shiladi
+        for item in ehtiyot_qismlar:
+            eq_id = item.get("ehtiyot_qism")
+            miqdor = item.get("miqdor", 1)
+            if not eq_id:
+                continue
+            eq_obj = EhtiyotQismlari.objects.get(id=eq_id)
 
-            # ✅ Serializer orqali yaratish va context berish
-            for item in ehtiyot_qismlar:
-                item["korik"] = korik.id
-                serializer = TexnikKorikEhtiyotQismSerializer(
-                    data=item,
-                    context={"request": request}
-                )
-                serializer.is_valid(raise_exception=True)
-                serializer.save()
-
-
-        else:
-            # Yakunlamasa → step yaratamiz
-            step = TexnikKorikStep.objects.create(
-                korik=korik,
-                tamir_turi=tamir_turi,
-                created_by=request.user,
-                akt_file=akt_file,
-                status=TexnikKorikStep.Status.JARAYONDA
+            EhtiyotQismHistory.objects.create(
+                ehtiyot_qism=eq_obj,
+                miqdor=-miqdor if yakunlash else 0,
+                created_by=request.user
             )
 
-            for item in ehtiyot_qismlar:
-                eq_id = item.get("ehtiyot_qism")
-                miqdor = item.get("miqdor", 1)
-                if not eq_id:
-                    continue
-                eq_obj = EhtiyotQismlari.objects.get(id=eq_id)
+            TexnikKorikEhtiyotQism.objects.create(
+                korik=korik,
+                ehtiyot_qism=eq_obj,
+                miqdor=miqdor
+            )
 
-                EhtiyotQismHistory.objects.create(
-                    ehtiyot_qism=eq_obj, miqdor=-miqdor, created_by=request.user
-                )
-                TexnikKorikEhtiyotQismStep.objects.create(
-                    korik_step=step, ehtiyot_qism=eq_obj, miqdor=miqdor
-                )
-
-            korik.tarkib.holati = "Texnik_korikda"
+        if yakunlash:
+            korik.tarkib.holati = "Soz_holatda"
             korik.tarkib.save()
-            korik.save()
 
         return korik
+
 
 
 
