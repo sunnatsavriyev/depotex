@@ -1,4 +1,4 @@
-from rest_framework import viewsets, status, filters, mixins
+from rest_framework import viewsets, status, filters, mixins, generics
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -41,6 +41,9 @@ from drf_spectacular.utils import extend_schema, OpenApiParameter
 from .permissions import IsMonitoringReadOnly, IsTexnik, IsSkladchi
 import json
 from reportlab.lib.units import cm
+from drf_yasg.utils import swagger_auto_schema
+from drf_yasg import openapi
+
 class UserViewSet(viewsets.ModelViewSet):
     queryset = CustomUser.objects.all()
     serializer_class = UserSerializer
@@ -333,9 +336,13 @@ class EhtiyotQismlariViewSet(viewsets.ModelViewSet):
     
     
     
-class EhtiyotQismMiqdorAPIView(APIView):
+class EhtiyotQismMiqdorListAPIView(APIView):
     permission_classes = [IsAuthenticated, IsSkladchi]
 
+    @swagger_auto_schema(
+        operation_description="Ehtiyot qism tarixini olish",
+        responses={200: EhtiyotQismHistorySerializer(many=True)}
+    )
     def get(self, request, ehtiyotqism_pk):
         try:
             ehtiyot_qism = EhtiyotQismlari.objects.get(pk=ehtiyotqism_pk)
@@ -343,15 +350,9 @@ class EhtiyotQismMiqdorAPIView(APIView):
             return Response({"error": "Ehtiyot qism topilmadi"}, status=status.HTTP_404_NOT_FOUND)
 
         history = EhtiyotQismHistory.objects.filter(ehtiyot_qism=ehtiyot_qism).order_by('-created_at')
-        history_data = [
-            {
-                "miqdor": h.miqdor,
-                "created_by": h.created_by.username if h.created_by else None,
-                "created_at": h.created_at
-            }
-            for h in history
-        ]
         jami_miqdor = history.aggregate(total=Sum('miqdor'))['total'] or 0
+
+        serializer = EhtiyotQismHistorySerializer(history, many=True)
 
         return Response({
             "id": ehtiyot_qism.id,
@@ -359,43 +360,43 @@ class EhtiyotQismMiqdorAPIView(APIView):
             "birligi": ehtiyot_qism.birligi,
             "depo": ehtiyot_qism.depo.qisqacha_nomi,
             "jami_miqdor": jami_miqdor,
-            "history": history_data
+            "history": serializer.data
         })
 
-    def post(self, request, ehtiyotqism_pk):
-        try:
-            ehtiyot_qism = EhtiyotQismlari.objects.get(pk=ehtiyotqism_pk)
-        except EhtiyotQismlari.DoesNotExist:
-            return Response({"error": "Ehtiyot qism topilmadi"}, status=status.HTTP_404_NOT_FOUND)
 
-        serializer = EhtiyotQismHistorySerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        miqdor = serializer.validated_data['miqdor']
+class EhtiyotQismMiqdorCreateAPIView(generics.CreateAPIView):
+    serializer_class = EhtiyotQismHistorySerializer
+    permission_classes = [IsAuthenticated, IsSkladchi]
 
-        EhtiyotQismHistory.objects.create(
+    def perform_create(self, serializer):
+        ehtiyotqism_pk = self.kwargs.get("ehtiyotqism_pk")
+        ehtiyot_qism = EhtiyotQismlari.objects.get(pk=ehtiyotqism_pk)
+
+        serializer.save(
             ehtiyot_qism=ehtiyot_qism,
-            miqdor=miqdor,
-            created_by=request.user
+            created_by=self.request.user
         )
 
-        history = EhtiyotQismHistory.objects.filter(ehtiyot_qism=ehtiyot_qism).order_by('-created_at')
-        history_data = [
-            {
-                "miqdor": h.miqdor,
-                "created_by": h.created_by.username if h.created_by else None,
-                "created_at": h.created_at
-            }
-            for h in history
-        ]
-        jami_miqdor = history.aggregate(total=Sum('miqdor'))['total'] or 0
+    def create(self, request, *args, **kwargs):
+        response = super().create(request, *args, **kwargs)
 
-        return Response({
+        ehtiyotqism_pk = self.kwargs.get("ehtiyotqism_pk")
+        ehtiyot_qism = EhtiyotQismlari.objects.get(pk=ehtiyotqism_pk)
+
+        history = EhtiyotQismHistory.objects.filter(
+            ehtiyot_qism=ehtiyot_qism
+        ).order_by("-created_at")
+
+        jami_miqdor = history.aggregate(total=Sum("miqdor"))['total'] or 0
+
+        response.data = {
             "status": "Miqdor qo'shildi",
             "id": ehtiyot_qism.id,
             "jami_miqdor": jami_miqdor,
-            "history": history_data
-        }, status=status.HTTP_201_CREATED)
-
+            "history": EhtiyotQismHistorySerializer(history, many=True).data,
+        }
+        return response
+        
 
 class HarakatTarkibiViewSet(BaseViewSet):
     queryset = (

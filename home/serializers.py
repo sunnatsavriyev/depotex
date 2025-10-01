@@ -237,12 +237,14 @@ class EhtiyotQismWithMiqdorSerializer(serializers.ModelSerializer):
 
 
 class EhtiyotQismHistorySerializer(serializers.ModelSerializer):
+    miqdor = serializers.FloatField(required=True)
     created_by = serializers.CharField(source='created_by.username', read_only=True)
     created_at = serializers.DateTimeField(read_only=True)
 
     class Meta:
         model = EhtiyotQismHistory
         fields = ['id', 'miqdor', 'created_by', 'created_at']
+        read_only_fields = ['created_by', 'created_at']
 
 
 class SlugOrPkRelatedField(serializers.SlugRelatedField):
