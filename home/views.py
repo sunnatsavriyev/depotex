@@ -15,7 +15,7 @@ from .serializers import (
     EhtiyotQismlariSerializer, HarakatTarkibiSerializer,
     TexnikKorikSerializer, UserSerializer, NosozliklarSerializer, TexnikKorikStepSerializer, NosozlikStepSerializer,
     NosozlikStep,KunlikYurishSerializer,VagonSerializer,
-    HarakatTarkibiActiveSerializer, EhtiyotQismWithMiqdorSerializer,EhtiyotQismMiqdorSerializer, TarkibFullDetailSerializer,TexnikKorikDetailForStepSerializer,NosozlikDetailForStepSerializer)
+    HarakatTarkibiActiveSerializer, EhtiyotQismWithMiqdorSerializer,EhtiyotQismHistorySerializer, TarkibFullDetailSerializer,TexnikKorikDetailForStepSerializer,NosozlikDetailForStepSerializer)
 from django.utils import timezone
 from django.db.models import Sum
 from django.contrib.auth import authenticate
@@ -333,12 +333,10 @@ class EhtiyotQismlariViewSet(viewsets.ModelViewSet):
     
     
     
-class EhtiyotQismMiqdorViewSet(viewsets.ModelViewSet):
+class EhtiyotQismMiqdorAPIView(APIView):
     permission_classes = [IsAuthenticated, IsSkladchi]
-    serializer_class = EhtiyotQismMiqdorSerializer 
-    queryset = EhtiyotQismHistory.objects.all()  
 
-    def get(self, request, ehtiyotqism_pk=None):
+    def get(self, request, ehtiyotqism_pk):
         try:
             ehtiyot_qism = EhtiyotQismlari.objects.get(pk=ehtiyotqism_pk)
         except EhtiyotQismlari.DoesNotExist:
@@ -348,12 +346,11 @@ class EhtiyotQismMiqdorViewSet(viewsets.ModelViewSet):
         history_data = [
             {
                 "miqdor": h.miqdor,
-                "created_by": h.created_by.username,
+                "created_by": h.created_by.username if h.created_by else None,
                 "created_at": h.created_at
             }
             for h in history
         ]
-
         jami_miqdor = history.aggregate(total=Sum('miqdor'))['total'] or 0
 
         return Response({
@@ -365,13 +362,13 @@ class EhtiyotQismMiqdorViewSet(viewsets.ModelViewSet):
             "history": history_data
         })
 
-    def create(self, request, ehtiyotqism_pk=None):
+    def post(self, request, ehtiyotqism_pk):
         try:
             ehtiyot_qism = EhtiyotQismlari.objects.get(pk=ehtiyotqism_pk)
         except EhtiyotQismlari.DoesNotExist:
             return Response({"error": "Ehtiyot qism topilmadi"}, status=status.HTTP_404_NOT_FOUND)
 
-        serializer = EhtiyotQismMiqdorSerializer(data=request.data)
+        serializer = EhtiyotQismHistorySerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         miqdor = serializer.validated_data['miqdor']
 
@@ -381,12 +378,11 @@ class EhtiyotQismMiqdorViewSet(viewsets.ModelViewSet):
             created_by=request.user
         )
 
-        # History va jami miqdorni qayta olish
         history = EhtiyotQismHistory.objects.filter(ehtiyot_qism=ehtiyot_qism).order_by('-created_at')
         history_data = [
             {
                 "miqdor": h.miqdor,
-                "created_by": h.created_by.username,
+                "created_by": h.created_by.username if h.created_by else None,
                 "created_at": h.created_at
             }
             for h in history
@@ -399,7 +395,6 @@ class EhtiyotQismMiqdorViewSet(viewsets.ModelViewSet):
             "jami_miqdor": jami_miqdor,
             "history": history_data
         }, status=status.HTTP_201_CREATED)
-
 
 
 class HarakatTarkibiViewSet(BaseViewSet):

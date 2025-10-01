@@ -233,12 +233,16 @@ class EhtiyotQismWithMiqdorSerializer(serializers.ModelSerializer):
         return total_added
 
 
-class EhtiyotQismMiqdorSerializer(serializers.ModelSerializer):
+
+
+
+class EhtiyotQismHistorySerializer(serializers.ModelSerializer):
+    created_by = serializers.CharField(source='created_by.username', read_only=True)
+    created_at = serializers.DateTimeField(read_only=True)
+
     class Meta:
         model = EhtiyotQismHistory
-        fields = ['miqdor']
-
-
+        fields = ['id', 'miqdor', 'created_by', 'created_at']
 
 
 class SlugOrPkRelatedField(serializers.SlugRelatedField):
