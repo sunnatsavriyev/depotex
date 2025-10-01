@@ -11,7 +11,6 @@ djangorestframework==3.16.1
 djangorestframework_simplejwt==5.5.1
 drf-nested-routers==0.95.0
 drf-spectacular==0.28.0
-drf-yasg==1.21.11
 et_xmlfile==2.0.0
 gunicorn==23.0.0
 idna==3.10

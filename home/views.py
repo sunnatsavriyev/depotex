@@ -335,34 +335,30 @@ class EhtiyotQismlariViewSet(viewsets.ModelViewSet):
     pagination_class = CustomPagination
     
     
-    
 class EhtiyotQismMiqdorListAPIView(APIView):
-    permission_classes = [IsAuthenticated, IsSkladchi]
+        permission_classes = [IsAuthenticated, IsSkladchi]
 
-    @swagger_auto_schema(
-        operation_description="Ehtiyot qism tarixini olish",
-        responses={200: EhtiyotQismHistorySerializer(many=True)}
-    )
-    def get(self, request, ehtiyotqism_pk):
-        try:
-            ehtiyot_qism = EhtiyotQismlari.objects.get(pk=ehtiyotqism_pk)
-        except EhtiyotQismlari.DoesNotExist:
-            return Response({"error": "Ehtiyot qism topilmadi"}, status=status.HTTP_404_NOT_FOUND)
+        def get(self, request, ehtiyotqism_pk):
+            try:
+                ehtiyot_qism = EhtiyotQismlari.objects.get(pk=ehtiyotqism_pk)
+            except EhtiyotQismlari.DoesNotExist:
+                return Response({"error": "Ehtiyot qism topilmadi"}, status=status.HTTP_404_NOT_FOUND)
 
-        history = EhtiyotQismHistory.objects.filter(ehtiyot_qism=ehtiyot_qism).order_by('-created_at')
-        jami_miqdor = history.aggregate(total=Sum('miqdor'))['total'] or 0
+            history = EhtiyotQismHistory.objects.filter(
+                ehtiyot_qism=ehtiyot_qism
+            ).order_by('-created_at')
 
-        serializer = EhtiyotQismHistorySerializer(history, many=True)
+            jami_miqdor = history.aggregate(total=Sum('miqdor'))['total'] or 0
+            serializer = EhtiyotQismHistorySerializer(history, many=True)
 
-        return Response({
-            "id": ehtiyot_qism.id,
-            "ehtiyotqism_nomi": ehtiyot_qism.ehtiyotqism_nomi,
-            "birligi": ehtiyot_qism.birligi,
-            "depo": ehtiyot_qism.depo.qisqacha_nomi,
-            "jami_miqdor": jami_miqdor,
-            "history": serializer.data
-        })
-
+            return Response({
+                "id": ehtiyot_qism.id,
+                "ehtiyotqism_nomi": ehtiyot_qism.ehtiyotqism_nomi,
+                "birligi": ehtiyot_qism.birligi,
+                "depo": ehtiyot_qism.depo.qisqacha_nomi,
+                "jami_miqdor": jami_miqdor,
+                "history": serializer.data
+            })
 
 class EhtiyotQismMiqdorCreateAPIView(generics.CreateAPIView):
     serializer_class = EhtiyotQismHistorySerializer
