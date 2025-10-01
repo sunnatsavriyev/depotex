@@ -329,6 +329,8 @@ class EhtiyotQismlariViewSet(viewsets.ModelViewSet):
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['ehtiyotqism_nomi', 'nomenklatura_raqami']
     ordering_fields = ['id', 'nomenklatura_raqami']
+    pagination_class = CustomPagination
+    
     
     
 class EhtiyotQismMiqdorViewSet(viewsets.ModelViewSet):
