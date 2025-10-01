@@ -15,8 +15,7 @@ from .serializers import (
     EhtiyotQismlariSerializer, HarakatTarkibiSerializer,
     TexnikKorikSerializer, UserSerializer, NosozliklarSerializer, TexnikKorikStepSerializer, NosozlikStepSerializer,
     NosozlikStep,KunlikYurishSerializer,VagonSerializer,
-    HarakatTarkibiActiveSerializer, EhtiyotQismWithMiqdorSerializer,EhtiyotQismMiqdorSerializer
-)
+    HarakatTarkibiActiveSerializer, EhtiyotQismWithMiqdorSerializer,EhtiyotQismMiqdorSerializer, TarkibFullDetailSerializer,TexnikKorikDetailForStepSerializer,NosozlikDetailForStepSerializer)
 from django.utils import timezone
 from django.db.models import Sum
 from django.contrib.auth import authenticate
@@ -41,7 +40,7 @@ from rest_framework.views import APIView
 from drf_spectacular.utils import extend_schema, OpenApiParameter
 from .permissions import IsMonitoringReadOnly, IsTexnik, IsSkladchi
 import json
-
+from reportlab.lib.units import cm
 class UserViewSet(viewsets.ModelViewSet):
     queryset = CustomUser.objects.all()
     serializer_class = UserSerializer
@@ -1040,3 +1039,170 @@ class KorikNosozlikStatisticsView(APIView):
             "last_month_nosozlik": last_month_nosozlik,
             "top_5_tarkib": top_5_tarkib,
         })
+
+
+
+class TarkibDetailViewSet(BaseViewSet):
+    permission_classes = [IsAuthenticated, IsTexnik, IsMonitoringReadOnly]
+
+    def get_queryset(self):
+        return HarakatTarkibi.objects.filter(is_active=True)
+
+    def get_serializer(self, *args, **kwargs):
+        return TarkibFullDetailSerializer(*args, **kwargs)
+
+    def check_permissions(self, request):
+        if request.user.is_superuser:
+            return
+        return super().check_permissions(request)
+
+    def retrieve(self, request, pk=None):
+        tarkib = self.get_queryset().filter(pk=pk).first()
+        if not tarkib:
+            return Response({"detail": "Tarkib topilmadi."}, status=404)
+
+        texnik_koriklar = TexnikKorik.objects.filter(tarkib=tarkib)
+        tamir_turi_count = texnik_koriklar.values('tamir_turi__tamir_nomi').annotate(count=Count('id'))
+        texnik_korik_summary = [{"tamir_turi": t["tamir_turi__tamir_nomi"], "soni": t["count"]} for t in tamir_turi_count]
+
+        nosozliklar = Nosozliklar.objects.filter(tarkib=tarkib)
+        nosozlik_data = NosozlikDetailForStepSerializer(nosozliklar, many=True, context={'request': request}).data
+
+        response_data = {
+            "tarkib_id": tarkib.id,
+            "tarkib_raqami": tarkib.tarkib_raqami,
+            "depo_nomi": tarkib.depo.qisqacha_nomi if tarkib.depo else None,
+            "guruhi": tarkib.guruhi,
+            "turi": tarkib.turi,
+            "holati": tarkib.holati,
+            "tarkib_photo": request.build_absolute_uri(tarkib.image.url) if getattr(tarkib, 'image', None) else None,
+            "ishga_tushgan_vaqti": tarkib.ishga_tushgan_vaqti,
+            "eksplutatsiya_vaqti": tarkib.eksplutatsiya_vaqti,
+            "created_at": tarkib.created_at,
+            "previous_version": tarkib.previous_version.id if getattr(tarkib, 'previous_version', None) else None,
+            "created_by": tarkib.created_by.username if getattr(tarkib, 'created_by', None) else None,
+            "is_active": tarkib.is_active,
+            "texnik_korik_soni_turi": texnik_korik_summary,
+            "nosozliklar": nosozlik_data,
+        }
+        return Response(response_data)
+
+    @action(detail=True, methods=["get"], url_path="export-pdf")
+    def export_pdf(self, request, pk=None):
+        tarkib = self.get_queryset().filter(pk=pk).first()
+        if not tarkib:
+            return Response({"detail": "Tarkib topilmadi."}, status=404)
+
+        texnik_koriklar = TexnikKorik.objects.filter(tarkib=tarkib)
+        tamir_turi_count = texnik_koriklar.values('tamir_turi__tamir_nomi').annotate(count=Count('id'))
+        texnik_korik_summary = [[t["tamir_turi__tamir_nomi"], t["count"]] for t in tamir_turi_count]
+
+        nosozliklar = Nosozliklar.objects.filter(tarkib=tarkib)
+        nosozlik_data = [[n.id, n.nosozliklar_haqida, n.bartaraf_etilgan_nosozliklar, n.status] for n in nosozliklar]
+
+        # PDF tayyorlash
+        response = HttpResponse(content_type='application/pdf')
+        response['Content-Disposition'] = f'attachment; filename="Tarkib_{tarkib.id}.pdf"'
+        doc = SimpleDocTemplate(response, pagesize=A4)
+        elements = []
+        styles = getSampleStyleSheet()
+
+        # --- Tarkib umumiy ma'lumotlari ---
+        elements.append(Paragraph(f"Tarkib #{tarkib.id} ({tarkib.tarkib_raqami})", styles['Heading2']))
+        elements.append(Paragraph(f"Depo: {tarkib.depo.qisqacha_nomi if tarkib.depo else ''}", styles['Normal']))
+        elements.append(Paragraph(f"Guruhi: {tarkib.guruhi}, Turi: {tarkib.turi}", styles['Normal']))
+        elements.append(Paragraph(f"Holati: {tarkib.holati}", styles['Normal']))
+        elements.append(Paragraph(f"Ishga tushgan vaqti: {tarkib.ishga_tushgan_vaqti}", styles['Normal']))
+        elements.append(Paragraph(f"Eksplutatsiya vaqti: {tarkib.eksplutatsiya_vaqti}", styles['Normal']))
+        elements.append(Paragraph(f"Created by: {tarkib.created_by.username if tarkib.created_by else ''}", styles['Normal']))
+        elements.append(Spacer(1, 12))
+
+        # --- Tarkib rasmi ---
+        if getattr(tarkib, 'image', None):
+            try:
+                img_path = tarkib.image.path
+                img = Image(img_path, width=12*cm, height=8*cm)  # o‘lchamini sozlash mumkin
+                img.hAlign = 'CENTER'
+                elements.append(img)
+                elements.append(Spacer(1, 12))
+            except:
+                pass  # agar rasm topilmasa, o'tkazib yuboradi
+
+        # --- Texnik koriklar jadvali ---
+        if texnik_korik_summary:
+            elements.append(Paragraph("Texnik koriklar soni har bir tamir turida", styles['Heading3']))
+            table_data = [["Tamir turi", "Soni"]] + texnik_korik_summary
+            t = Table(table_data, hAlign='LEFT')
+            t.setStyle(TableStyle([
+                ('BACKGROUND', (0,0), (-1,0), colors.lightblue),
+                ('GRID', (0,0), (-1,-1), 1, colors.black),
+                ('ALIGN', (1,1), (-1,-1), 'CENTER'),
+            ]))
+            elements.append(t)
+            elements.append(Spacer(1, 12))
+
+        # --- Nosozliklar jadvali ---
+        if nosozlik_data:
+            elements.append(Paragraph("Nosozliklar batafsil", styles['Heading3']))
+            table_data = [["ID", "Nosozliklar", "Bartaf etilgan", "Holati"]] + nosozlik_data
+            t = Table(table_data, hAlign='LEFT')
+            t.setStyle(TableStyle([
+                ('BACKGROUND', (0,0), (-1,0), colors.lightgrey),
+                ('GRID', (0,0), (-1,-1), 1, colors.black),
+                ('ALIGN', (1,1), (-1,-1), 'LEFT'),
+            ]))
+            elements.append(t)
+
+        doc.build(elements)
+        return response
+
+    @action(detail=True, methods=["get"], url_path="export-excel")
+    def export_excel(self, request, pk=None):
+        tarkib = self.get_queryset().filter(pk=pk).first()
+        if not tarkib:
+            return Response({"detail": "Tarkib topilmadi."}, status=404)
+
+        texnik_koriklar = TexnikKorik.objects.filter(tarkib=tarkib)
+        tamir_turi_count = texnik_koriklar.values('tamir_turi__tamir_nomi').annotate(count=Count('id'))
+
+        nosozliklar = Nosozliklar.objects.filter(tarkib=tarkib)
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = f"Tarkib_{tarkib.id}"
+
+        # --- Tarkib umumiy ma'lumotlari ---
+        general_info = [
+            ["Tarkib ID", tarkib.id],
+            ["Tarkib raqami", tarkib.tarkib_raqami],
+            ["Depo", tarkib.depo.qisqacha_nomi if tarkib.depo else ""],
+            ["Guruhi", tarkib.guruhi],
+            ["Turi", tarkib.turi],
+            ["Holati", tarkib.holati],
+            ["Ishga tushgan vaqti", tarkib.ishga_tushgan_vaqti],
+            ["Eksplutatsiya vaqti", tarkib.eksplutatsiya_vaqti],
+            ["Created by", tarkib.created_by.username if tarkib.created_by else ""],
+        ]
+        for row in general_info:
+            ws.append(row)
+        ws.append([])  # bo‘sh qator
+
+        # --- Texnik koriklar jadvali ---
+        ws.append(["Texnik koriklar (soni tamir turi bo‘yicha)"])
+        ws.append(["Tamir turi", "Soni"])
+        for t in tamir_turi_count:
+            ws.append([t['tamir_turi__tamir_nomi'], t['count']])
+        ws.append([])
+
+        # --- Nosozliklar jadvali ---
+        ws.append(["Nosozliklar batafsil"])
+        ws.append(["ID", "Nosozliklar", "Bartaf etilgan", "Holati"])
+        for n in nosozliklar:
+            ws.append([n.id, n.nosozliklar_haqida, n.bartaraf_etilgan_nosozliklar, n.status])
+
+        response = HttpResponse(
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+        response["Content-Disposition"] = f'attachment; filename="Tarkib_{tarkib.id}.xlsx"'
+        wb.save(response)
+        return response
