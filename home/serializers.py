@@ -201,12 +201,13 @@ class EhtiyotQismlariSerializer(serializers.ModelSerializer):
     depo = serializers.PrimaryKeyRelatedField(queryset=ElektroDepo.objects.all())
     created_by = serializers.CharField(source="created_by.username", read_only=True)
     jami_miqdor = serializers.FloatField(read_only=True)
+    depo_nomi = serializers.CharField(source="depo.qisqacha_nomi", read_only=True)
 
     class Meta:
         model = EhtiyotQismlari
         fields = [
             "id", "created_by", "ehtiyotqism_nomi", "nomenklatura_raqami",
-            "birligi", "created_at", "depo", "jami_miqdor"
+            "birligi", "created_at", "depo","depo_nomi", "jami_miqdor"
         ]
 
     def create(self, validated_data):
