@@ -7,7 +7,7 @@ from rest_framework.pagination import PageNumberPagination
 from django.db.models import Q
 from django.db.models import Sum
 from django.db import models
-import json
+
 User = get_user_model()
 class UserSerializer(serializers.ModelSerializer):
     depo_nomi = serializers.CharField(source="depo.qisqacha_nomi", read_only=True)
@@ -605,7 +605,7 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
         tamir_turi = validated_data.pop("tamir_turi")
         yakunlash = validated_data.pop("yakunlash", False)
         akt_file = validated_data.pop("akt_file", None)
-        ehtiyot_qismlar_data = self.context["request"].data.get("ehtiyot_qismlar", [])
+        ehtiyot_qismlar = validated_data.pop("ehtiyot_qismlar", []) or []
 
         # Korik yaratish
         korik = TexnikKorik.objects.create(
@@ -617,17 +617,12 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
         )
 
         # 🔹 Ehtiyot qismlar korik-level da har doim qo‘shiladi
-        for item in ehtiyot_qismlar_data:
+        for item in ehtiyot_qismlar:
             eq_id = item.get("ehtiyot_qism")
             miqdor = item.get("miqdor", 1)
             if not eq_id:
                 continue
             eq_obj = EhtiyotQismlari.objects.get(id=eq_id)
-            TexnikKorikEhtiyotQism.objects.create(
-                korik=korik,
-                ehtiyot_qism=eq_obj,
-                miqdor=miqdor
-            )
 
             EhtiyotQismHistory.objects.create(
                 ehtiyot_qism=eq_obj,
@@ -635,6 +630,11 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
                 created_by=request.user
             )
 
+            TexnikKorikEhtiyotQism.objects.create(
+                korik=korik,
+                ehtiyot_qism=eq_obj,
+                miqdor=miqdor
+            )
 
         if yakunlash:
             korik.tarkib.holati = "Soz_holatda"
@@ -845,25 +845,8 @@ class NosozlikStepSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         request = self.context.get("request")
-        # o'zgartirish: nosozlikni validated_data dan olinadi (context fallback)
-        nosozlik = validated_data.pop("nosozlik", None) or self.context.get("nosozlik")
-        if not nosozlik:
-            raise serializers.ValidationError({"nosozlik": "Nosozlik belgilanmagan."})
-
-        # ehtiyot_qismlarni turli manbalardan olish (validated_data / request.data JSON string / list)
-        ehtiyot_qismlar = validated_data.pop("ehtiyot_qismlar", None)
-        if ehtiyot_qismlar is None:
-            raw = request.data.get("ehtiyot_qismlar")
-            if raw is None:
-                ehtiyot_qismlar = []
-            elif isinstance(raw, str):
-                try:
-                    ehtiyot_qismlar = json.loads(raw)
-                except Exception:
-                    ehtiyot_qismlar = []
-            else:
-                ehtiyot_qismlar = raw or []
-
+        nosozlik = self.context.get("nosozlik")
+        ehtiyot_qismlar = validated_data.pop("ehtiyot_qismlar", [])
         yakunlash = validated_data.pop("yakunlash", False)
         akt_file = validated_data.pop("akt_file", None)
 
@@ -875,36 +858,18 @@ class NosozlikStepSerializer(serializers.ModelSerializer):
             **validated_data
         )
 
-        # Ehtiyot qismlarni mos formatda qayta ishlash (id yoki ehtiyot_qism yoki model instance)
+        # 🔹 ishlatilgan qismlarni yozamiz
         for item in ehtiyot_qismlar:
-            # item turli formatda bo'lishi mumkin: {"id": 3, "miqdor": 2} yoki {"ehtiyot_qism": 3, "miqdor":2}
-            miqdor = 1
-            raw_eq = None
+            eq_obj = item.get("ehtiyot_qism")
+            miqdor = item.get("miqdor", 1)
+            if eq_obj:
+                NosozlikEhtiyotQismStep.objects.create(step=step, ehtiyot_qism=eq_obj, miqdor=miqdor)
+                EhtiyotQismHistory.objects.create(  # faqat History orqali kamayadi
+                    ehtiyot_qism=eq_obj,
+                    miqdor=-miqdor,
+                    created_by=request.user
+                )
 
-            if isinstance(item, dict):
-                miqdor = item.get("miqdor", 1)
-                raw_eq = item.get("ehtiyot_qism") or item.get("id")
-            else:
-                # agar item oddiy raqam yuborilgan bo'lsa (masalan [3,5])
-                raw_eq = item
-
-            # raw_eq endi int yoki model instance
-            eq_obj = None
-            if isinstance(raw_eq, (int, str)) and str(raw_eq).isdigit():
-                try:
-                    eq_obj = EhtiyotQismlari.objects.get(pk=int(raw_eq))
-                except EhtiyotQismlari.DoesNotExist:
-                    continue
-            elif isinstance(raw_eq, EhtiyotQismlari):
-                eq_obj = raw_eq
-            else:
-                # nomuvofiq format, o'tkazib yuborish
-                continue
-
-            NosozlikEhtiyotQismStep.objects.create(step=step, ehtiyot_qism=eq_obj, miqdor=miqdor)
-            EhtiyotQismHistory.objects.create(ehtiyot_qism=eq_obj, miqdor=-miqdor, created_by=request.user)
-
-        # yakunlash bo'lsa vaqt belgilanadi
         if yakunlash:
             nosozlik.status = Nosozliklar.Status.BARTARAF_ETILDI
             nosozlik.tarkib.holati = "Soz_holatda"
@@ -1053,8 +1018,6 @@ class NosozliklarSerializer(serializers.ModelSerializer):
             instance.bartarafqilingan_vaqti = timezone.now()
             instance.tarkib.holati = "Soz_holatda"
             instance.tarkib.save()
-
-            # Step ochiladi
             step = NosozlikStep.objects.create(
                 nosozlik=instance,
                 created_by=request.user,
@@ -1072,10 +1035,7 @@ class NosozliklarSerializer(serializers.ModelSerializer):
 
         instance = super().update(instance, validated_data)
 
-        # 🔹 eski asosiy ehtiyot qismlarni o‘chirib tashlaymiz (dublikat bo‘lmasligi uchun)
-        instance.ehtiyot_qism_aloqalari.all().delete()
-
-        # ✅ Yangi ehtiyot qismlar ham nosozlik, ham stepga yoziladi
+        # ✅ yakunlash bo‘lsa ham ehtiyot qismlar ishlanadi
         for item in ehtiyot_qismlar:
             eq_id = item.get("ehtiyot_qism")
             miqdor = item.get("miqdor", 1)
@@ -1086,17 +1046,9 @@ class NosozliklarSerializer(serializers.ModelSerializer):
             except EhtiyotQismlari.DoesNotExist:
                 continue
 
-            # History yozamiz
             EhtiyotQismHistory.objects.create(
                 ehtiyot_qism=eq_obj, miqdor=-miqdor, created_by=request.user
             )
-
-            # 🔸 asosiy nosozlikka
-            NosozlikEhtiyotQism.objects.create(
-                nosozlik=instance, ehtiyot_qism=eq_obj, miqdor=miqdor
-            )
-
-            # 🔸 stepga ham
             NosozlikEhtiyotQismStep.objects.create(
                 step=step, ehtiyot_qism=eq_obj, miqdor=miqdor
             )
