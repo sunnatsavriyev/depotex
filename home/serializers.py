@@ -126,7 +126,7 @@ class HarakatTarkibiSerializer(serializers.ModelSerializer):
         fields = "__all__"
         read_only_fields = [
             "created_by", "created_at", "holati",
-            "is_active", "previous_version","vagonlar" 
+            "is_active", "pervious_version","vagonlar" 
         ]
 
     def update(self, instance, validated_data):
@@ -152,7 +152,7 @@ class HarakatTarkibiSerializer(serializers.ModelSerializer):
             **validated_data,
             depo=depo,
             created_by=request.user,
-            previous_version=instance,
+            pervious_version=instance,
             is_active=True,
         )
 
@@ -520,7 +520,7 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
     
     # --- Serializer metodlari ---
     def get_pervious_version(self, obj):
-        return obj.tarkib.previous_version.id if obj.tarkib and obj.tarkib.previous_version else None
+        return obj.tarkib.pervious_version.id if obj.tarkib and obj.tarkib.pervious_version else None
 
     def get_tarkib_detail(self, obj):
         return {

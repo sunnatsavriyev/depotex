@@ -249,7 +249,7 @@ class HarakatTarkibi(models.Model):
 
     # 🔹 versionlash maydonlari
     is_active = models.BooleanField(default=True)  
-    previous_version = models.ForeignKey(
+    pervious_version = models.ForeignKey(
         "self", null=True, blank=True,
         on_delete=models.SET_NULL, related_name="next_versions"
     )
