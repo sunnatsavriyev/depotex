@@ -324,37 +324,59 @@ class TexnikKorikEhtiyotQismStepSerializer(serializers.ModelSerializer):
         return instance
 
 
-
 class TexnikKorikDetailForStepSerializer(serializers.ModelSerializer):
     created_by = serializers.CharField(source="created_by.username", read_only=True)
     tarkib_nomi = serializers.CharField(source="tarkib.tarkib_raqami", read_only=True)
     tamir_turi_nomi = serializers.CharField(source="tamir_turi.tamir_nomi", read_only=True)
+
+    # GET id bilan korik-level ehtiyot qismlar
     ehtiyot_qismlar_detail = TexnikKorikEhtiyotQismSerializer(
-        source="texnikkorikehtiyotqism_set", many=True, read_only=True
+        source="texnikkorikehtiyotqism_set",  
+        many=True,
+        read_only=True
     )
 
     class Meta:
         model = TexnikKorik
         fields = [
-            "id", "tarkib", "tarkib_nomi",
-            "tamir_turi", "tamir_turi_nomi",
-            "status", "kamchiliklar_haqida",
+            "id",
+            "tarkib",
+            "tarkib_nomi",
+            "tamir_turi",
+            "tamir_turi_nomi",
+            "status",
+            "kamchiliklar_haqida",
             "bartaraf_etilgan_kamchiliklar",
-            "kirgan_vaqti", "chiqqan_vaqti", "created_by", "created_at",
+            "kirgan_vaqti",
+            "chiqqan_vaqti",
+            "created_by",
+            "created_at",
             "ehtiyot_qismlar_detail",
         ]
         read_only_fields = fields
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
+
+        # Korik-level ehtiyot qismlar uchun id bilan obyektni to‘liq chiqarish
+        if hasattr(instance, "texnikkorikehtiyotqism_set"):
+            data["ehtiyot_qismlar_detail"] = [
+                {
+                    "id": item.id,
+                    "ehtiyot_qism": item.ehtiyot_qism.id,  # id bilan olish
+                    "ehtiyot_qism_nomi": item.ehtiyot_qism.ehtiyotqism_nomi,
+                    "birligi": item.ehtiyot_qism.birligi,
+                    "miqdor": item.miqdor
+                }
+                for item in instance.texnikkorikehtiyotqism_set.all()
+            ]
+
+        # Bo‘sh qiymatlarni olib tashlash
         clean_data = {
             k: v for k, v in data.items()
             if v not in [None, False, [], {}] and not (isinstance(v, str) and v.strip() == "")
         }
         return clean_data
-
-
-
 
 
 
