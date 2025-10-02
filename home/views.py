@@ -553,26 +553,24 @@ class KunlikYurishViewSet(BaseViewSet):
 
         serializer.save(created_by=user)
 
-    # 🔹  Umumiy jami yurilgan km
     @action(detail=True, methods=["get"])
     def total(self, request, pk=None):
         tarkib = self.get_object().tarkib
         total_km = KunlikYurish.objects.filter(tarkib=tarkib).aggregate(Sum("kilometr"))["kilometr__sum"] or 0
         return Response({"tarkib": tarkib.tarkib_raqami, "total_km": total_km})
 
-    # 🔹 Sana bo‘yicha hisoblash
     @action(detail=False, methods=["get"])
     def by_date(self, request):
         tarkib_id = request.query_params.get("tarkib_id")
-        sana = request.query_params.get("sana")  # kutilayotgan format: "DD:MM:YYYY"
+        sana = request.query_params.get("sana")  
 
         if not tarkib_id or not sana:
             return Response({"error": "tarkib_id va sana kerak"}, status=400)
 
         try:
-            sana_date = datetime.strptime(sana, "%d:%m:%Y").date()
+            sana_date = datetime.strptime(sana, "%d-%m-%Y").date()
         except ValueError:
-            return Response({"error": "Sana format noto‘g‘ri, DD:MM:YYYY bo‘lishi kerak"}, status=400)
+            return Response({"error": "Sana format noto‘g‘ri, DD-MM-YYYY bo‘lishi kerak"}, status=400)
 
         qs = KunlikYurish.objects.filter(tarkib_id=tarkib_id)
 
@@ -607,9 +605,9 @@ class KunlikYurishHistoryAPIView(APIView):
             return Response({"error": "tarkib_id va sana kerak"}, status=400)
 
         try:
-            sana_date = datetime.strptime(sana, "%d:%m:%Y").date()
+            sana_date = datetime.strptime(sana, "%d-%m-%Y").date()
         except ValueError:
-            return Response({"error": "Sana format noto‘g‘ri, DD:MM:YYYY bo‘lishi kerak"}, status=400)
+            return Response({"error": "Sana format noto‘g‘ri, DD-MM-YYYY bo‘lishi kerak"}, status=400)
 
         qs = KunlikYurish.objects.filter(tarkib_id=tarkib_id)
 

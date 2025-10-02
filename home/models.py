@@ -339,26 +339,26 @@ class TexnikKorik(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     def save(self, *args, **kwargs):
-        if not self.id:
-            ongoing = TexnikKorik.objects.filter(
-                tarkib=self.tarkib,
-                status=TexnikKorik.Status.JARAYONDA
-            )
-            if ongoing.exists():
-                raise ValueError("Bu tarkib bo'yicha yakunlanmagan texnik ko'rik mavjud!")
-
-            self.kirgan_vaqti = timezone.now()
+        if not self.id:  # Yangi korik
             self.status = TexnikKorik.Status.JARAYONDA
 
-            self.tarkib.holati = "Texnik_korikda"
-            self.tarkib.save()
-
-        else:
+            # Tarkib holatini avtomatik "Texnik_korikda" qilamiz
+            if self.tarkib and self.tarkib.holati != "Texnik_korikda":
+                self.tarkib.holati = "Texnik_korikda"
+                self.tarkib.save()
+        else:  # Update
             old = TexnikKorik.objects.filter(id=self.id).first()
             if old:
-                self.kirgan_vaqti = old.kirgan_vaqti
+                self.chiqqan_vaqti = old.chiqqan_vaqti
 
-        # ❌ yakunlash tekshiruvini olib tashladik
+        # Agar akt_file mavjud bo‘lsa va yakunlash True bo‘lsa
+        if self.akt_file and self.yakunlash:
+            self.status = TexnikKorik.Status.BARTARAF_ETILDI
+            self.chiqqan_vaqti = timezone.now()
+            if self.tarkib:
+                self.tarkib.holati = "Soz_holatda"
+                self.tarkib.save()
+
         super().save(*args, **kwargs)
 
 
@@ -386,14 +386,21 @@ class TexnikKorikStep(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     def save(self, *args, **kwargs):
-    # Step faqat yakunlanmagan korikka qo‘shiladi
-        if self.korik.status == TexnikKorik.Status.BARTARAF_ETILDI:
-            raise ValueError("Bu korik yakunlangan, yangi step qo'shib bo'lmaydi!")
-
-        # Step ochilganda avtomatik tarzda tarkib holatini Texnik_korikda qilamiz
-        if self.korik.tarkib.holati != "Texnik_korikda":
-            self.korik.tarkib.holati = "Texnik_korikda"
-            self.korik.tarkib.save()
+        # Agar step yakunlansa va akt_file mavjud bo‘lsa → status o‘zgartirish
+        if self.akt_file:
+            self.status = self.Status.BARTARAF_ETILDI
+            self.chiqqan_vaqti = timezone.now()
+            if self.korik:
+                self.korik.status = TexnikKorik.Status.BARTARAF_ETILDI
+                self.korik.tarkib.holati = "Soz_holatda"
+                self.korik.tarkib.save()
+                self.korik.save()
+        else:
+            # Akt_file bo‘lmasa → Jarayonda va tarkib holatini tekshirish
+            self.status = self.Status.JARAYONDA
+            if self.korik and self.korik.tarkib.holati != "Texnik_korikda":
+                self.korik.tarkib.holati = "Texnik_korikda"
+                self.korik.tarkib.save()
 
         super().save(*args, **kwargs)
 
@@ -429,18 +436,23 @@ class Nosozliklar(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     def save(self, *args, **kwargs):
+        
         if not self.id:
             self.aniqlangan_vaqti = timezone.now()
             self.status = Nosozliklar.Status.JARAYONDA
-            self.tarkib.holati = "Nosozlikda"
-            self.tarkib.save()
-        else:
-            old = Nosozliklar.objects.filter(id=self.id).first()
-            if old:
-                self.aniqlangan_vaqti = old.aniqlangan_vaqti
+            if self.tarkib and self.tarkib.holati != "Nosozlikda":
+                self.tarkib.holati = "Nosozlikda"
+                self.tarkib.save()
 
-        # ❌ yakunlash tekshiruvini olib tashlaymiz
+        if self.id and self.yakunlash and self.akt_file:
+            self.status = Nosozliklar.Status.BARTARAF_ETILDI
+            self.bartarafqilingan_vaqti = timezone.now()
+            if self.tarkib and self.tarkib.holati != "Soz_holatda":
+                self.tarkib.holati = "Soz_holatda"
+                self.tarkib.save()
+
         super().save(*args, **kwargs)
+
 
 
         def __str__(self):
@@ -479,12 +491,26 @@ class NosozlikStep(models.Model):
 
     def save(self, *args, **kwargs):
         # Step faqat yakunlanmagan nosozliklarga qo‘shiladi
-        if self.nosozlik.status == Nosozliklar.Status.BARTARAF_ETILDI:
+        if self.nosozlik and self.nosozlik.status == Nosozliklar.Status.BARTARAF_ETILDI:
             raise ValueError("Bu nosozlik yakunlangan, yangi step qo'shib bo'lmaydi!")
 
-        # Agar step yakunlanayotgan bo‘lsa
-        if self.bartaraf_qilingan_vaqti and self.akt_file:
+        # Yangi step qo‘shilganda default Jarayonda
+        if not self.id:
+            self.status = self.Status.JARAYONDA
+            if self.nosozlik and self.nosozlik.tarkib.holati != "Nosozlikda":
+                self.nosozlik.tarkib.holati = "Nosozlikda"
+                self.nosozlik.tarkib.save()
+
+        # Agar akt_file yuklangan va step yakunlansa
+        if self.akt_file and self.status != self.Status.BARTARAF_ETILDI:
             self.status = self.Status.BARTARAF_ETILDI
+            self.bartaraf_qilingan_vaqti = timezone.now()
+            if self.nosozlik:
+                self.nosozlik.status = Nosozliklar.Status.BARTARAF_ETILDI
+                self.nosozlik.bartarafqilingan_vaqti = timezone.now()
+                self.nosozlik.tarkib.holati = "Soz_holatda"
+                self.nosozlik.tarkib.save()
+                self.nosozlik.save()
 
         super().save(*args, **kwargs)
 
