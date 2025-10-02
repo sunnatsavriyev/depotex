@@ -66,27 +66,27 @@ class CustomUserAdmin(UserAdmin):
 class TexnikKorikEhtiyotQismInline(admin.TabularInline):
     model = TexnikKorikEhtiyotQism
     extra = 1
-    readonly_fields = ["ehtiyot_qism", "miqdor"]
+    # readonly_fields = ["ehtiyot_qism", "miqdor"]
 
 class TexnikKorikEhtiyotQismStepInline(admin.TabularInline):
     model = TexnikKorikEhtiyotQismStep
     extra = 1
-    readonly_fields = ["ehtiyot_qism", "miqdor"]
+    # readonly_fields = ["ehtiyot_qism", "miqdor"]
 
 class NosozlikEhtiyotQismInline(admin.TabularInline):
     model = NosozlikEhtiyotQism
     extra = 1
-    readonly_fields = ["ehtiyot_qism", "miqdor"]
+    # readonly_fields = ["ehtiyot_qism", "miqdor"]
 
 class NosozlikEhtiyotQismStepInline(admin.TabularInline):
     model = NosozlikEhtiyotQismStep
     extra = 1
-    readonly_fields = ["ehtiyot_qism", "miqdor"]
+    # readonly_fields = ["ehtiyot_qism", "miqdor"]
 
 class EhtiyotQismHistoryInline(admin.TabularInline):
     model = EhtiyotQismHistory
     extra = 0
-    readonly_fields = ["miqdor", "created_by", "created_at"]
+    # readonly_fields = ["miqdor", "created_by", "created_at"]
 
 
 

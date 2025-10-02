@@ -586,6 +586,7 @@ class KunlikYurishViewSet(BaseViewSet):
 
 class KunlikYurishHistoryAPIView(APIView):
     permission_classes = [IsAuthenticated, IsTexnik]
+    pagination_class = CustomPagination
 
     def get(self, request, tarkib_id, *args, **kwargs):
         qs = KunlikYurish.objects.filter(

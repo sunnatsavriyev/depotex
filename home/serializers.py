@@ -268,7 +268,7 @@ class TexnikKorikEhtiyotQismSerializer(serializers.ModelSerializer):
     birligi = serializers.CharField(source="ehtiyot_qism.birligi", read_only=True)
     ehtiyot_qism = serializers.PrimaryKeyRelatedField(
         queryset=EhtiyotQismlari.objects.all(),
-        required=False,  # majburiy emas
+        required=False,
         allow_null=True
     )
 
@@ -483,7 +483,7 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
 
     # Ehtiyot qismlar
     ehtiyot_qismlar = TexnikKorikEhtiyotQismSerializer(
-        many=True, write_only=True, required=False, allow_null=True, default=list
+        many=True, write_only=True
     )
     ehtiyot_qismlar_detail = TexnikKorikEhtiyotQismSerializer(
         source="texnikkorikehtiyotqism_set", many=True, read_only=True
