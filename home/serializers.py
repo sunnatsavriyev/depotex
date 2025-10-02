@@ -68,7 +68,7 @@ class KunlikYurishSerializer(serializers.ModelSerializer):
     tarkib = serializers.PrimaryKeyRelatedField(
         queryset=HarakatTarkibi.objects.none(),  
     )
-    
+    sana = serializers.DateField(format="%d:%m:%Y")
     class Meta:
         model = KunlikYurish
         fields = ["id", "tarkib", "tarkib_nomi", "sana", "kilometr", "created_by", "created_at"]

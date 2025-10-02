@@ -35,7 +35,7 @@ from reportlab.platypus import Paragraph, Spacer, HRFlowable, Image, Table, Tabl
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from django.db.models import Count
 from django.utils.timezone import now
-from datetime import timedelta
+from datetime import timedelta, datetime
 from rest_framework.views import APIView
 from drf_spectacular.utils import extend_schema, OpenApiParameter
 from .permissions import IsMonitoringReadOnly, IsTexnik, IsSkladchi
@@ -564,18 +564,20 @@ class KunlikYurishViewSet(BaseViewSet):
     @action(detail=False, methods=["get"])
     def by_date(self, request):
         tarkib_id = request.query_params.get("tarkib_id")
-        sana = request.query_params.get("sana")  # YYYY-MM-DD format
+        sana = request.query_params.get("sana")  # kutilayotgan format: "DD:MM:YYYY"
 
         if not tarkib_id or not sana:
             return Response({"error": "tarkib_id va sana kerak"}, status=400)
 
+        try:
+            sana_date = datetime.strptime(sana, "%d:%m:%Y").date()
+        except ValueError:
+            return Response({"error": "Sana format noto‘g‘ri, DD:MM:YYYY bo‘lishi kerak"}, status=400)
+
         qs = KunlikYurish.objects.filter(tarkib_id=tarkib_id)
 
-        # o‘sha kunda nechchi km
-        daily_km = qs.filter(sana=sana).aggregate(Sum("kilometr"))["kilometr__sum"] or 0
-
-        # shu kungacha jami km
-        total_until = qs.filter(sana__lte=sana).aggregate(Sum("kilometr"))["kilometr__sum"] or 0
+        daily_km = qs.filter(sana=sana_date).aggregate(Sum("kilometr"))["kilometr__sum"] or 0
+        total_until = qs.filter(sana__lte=sana_date).aggregate(Sum("kilometr"))["kilometr__sum"] or 0
 
         return Response({
             "tarkib_id": tarkib_id,
@@ -595,6 +597,31 @@ class KunlikYurishHistoryAPIView(APIView):
 
         serializer = KunlikYurishSerializer(qs, many=True, context={"request": request})
         return Response(serializer.data)
+    
+    @action(detail=False, methods=["get"])
+    def by_date(self, request):
+        tarkib_id = request.query_params.get("tarkib_id")
+        sana = request.query_params.get("sana")  # kutilayotgan format: "DD:MM:YYYY"
+
+        if not tarkib_id or not sana:
+            return Response({"error": "tarkib_id va sana kerak"}, status=400)
+
+        try:
+            sana_date = datetime.strptime(sana, "%d:%m:%Y").date()
+        except ValueError:
+            return Response({"error": "Sana format noto‘g‘ri, DD:MM:YYYY bo‘lishi kerak"}, status=400)
+
+        qs = KunlikYurish.objects.filter(tarkib_id=tarkib_id)
+
+        daily_km = qs.filter(sana=sana_date).aggregate(Sum("kilometr"))["kilometr__sum"] or 0
+        total_until = qs.filter(sana__lte=sana_date).aggregate(Sum("kilometr"))["kilometr__sum"] or 0
+
+        return Response({
+            "tarkib_id": tarkib_id,
+            "sana": sana,
+            "daily_km": daily_km,
+            "total_until": total_until
+        })
 
 class TexnikKorikFilter(django_filters.FilterSet):
     tamir_turi_nomi = django_filters.CharFilter(
