@@ -1118,7 +1118,7 @@ class TarkibFullDetailSerializer(serializers.ModelSerializer):
             "nosozliklar",
             "tamir_turi_soni",
             "is_active",
-            "previous_version",
+            "pervious_version",
             "created_by",
         ]
 
