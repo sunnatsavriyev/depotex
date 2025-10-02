@@ -386,13 +386,17 @@ class TexnikKorikStep(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     def save(self, *args, **kwargs):
-        # Step qo'shish faqat yakunlanmagan korikka
+    # Step faqat yakunlanmagan korikka qo‘shiladi
         if self.korik.status == TexnikKorik.Status.BARTARAF_ETILDI:
             raise ValueError("Bu korik yakunlangan, yangi step qo'shib bo'lmaydi!")
+
+        # Step ochilganda avtomatik tarzda tarkib holatini Texnik_korikda qilamiz
+        if self.korik.tarkib.holati != "Texnik_korikda":
+            self.korik.tarkib.holati = "Texnik_korikda"
+            self.korik.tarkib.save()
+
         super().save(*args, **kwargs)
 
-    def __str__(self):
-        return f"Step: {self.korik.tarkib} — {self.created_by}"
 
 
 

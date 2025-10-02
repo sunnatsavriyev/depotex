@@ -584,7 +584,16 @@ class KunlikYurishViewSet(BaseViewSet):
             "total_until": total_until
         })
 
+class KunlikYurishHistoryAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsTexnik]
 
+    def get(self, request, tarkib_id, *args, **kwargs):
+        qs = KunlikYurish.objects.filter(
+            tarkib_id=tarkib_id
+        ).select_related("tarkib", "created_by").order_by("-sana", "-id")
+
+        serializer = KunlikYurishSerializer(qs, many=True, context={"request": request})
+        return Response(serializer.data)
 
 class TexnikKorikFilter(django_filters.FilterSet):
     tamir_turi_nomi = django_filters.CharFilter(

@@ -7,7 +7,7 @@ from .views import (
     TexnikKorikViewSet, UserViewSet, NosozliklarViewSet,
     HarakatTarkibiGetViewSet, NosozliklarGetViewSet,
     TexnikKorikGetViewSet, TexnikKorikStepViewSet,NosozlikStepViewSet,KorikNosozlikStatisticsView,
-    KunlikYurishViewSet,HarakatTarkibiActiveViewSet,EhtiyotQismMiqdorListAPIView,EhtiyotQismMiqdorCreateAPIView,TarkibDetailViewSet,
+    KunlikYurishViewSet,HarakatTarkibiActiveViewSet,EhtiyotQismMiqdorListAPIView,EhtiyotQismMiqdorCreateAPIView,TarkibDetailViewSet,KunlikYurishHistoryAPIView,
     get_me
 )
 routers
@@ -47,6 +47,11 @@ urlpatterns = [
         "ehtiyot-qismlari/<int:ehtiyotqism_pk>/add-miqdor/",
         EhtiyotQismMiqdorCreateAPIView.as_view(),
         name="ehtiyotqism-miqdorlar-create"
+    ),
+    path(
+        "kunlik-yurish-history/<int:tarkib_id>/",
+        KunlikYurishHistoryAPIView.as_view(),
+        name="kunlik-yurish-history"
     ),
     path("nosozliklar-get/", NosozliklarGetViewSet.as_view({"get": "list"}), name="nosozliklar-get"),
     path("texnik-korik-get/", TexnikKorikGetViewSet.as_view({"get": "list"}), name="texnik-korik-get"),

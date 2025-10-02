@@ -614,40 +614,44 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
         akt_file = validated_data.pop("akt_file", None)
         ehtiyot_qismlar = validated_data.pop("ehtiyot_qismlar", []) or []
 
-        # Korik yaratish
         korik = TexnikKorik.objects.create(
             tarkib=tarkib,
             tamir_turi=tamir_turi,
             created_by=request.user,
-            status=TexnikKorik.Status.BARTARAF_ETILDI if yakunlash else TexnikKorik.Status.JARAYONDA,
+            status=TexnikKorik.Status.JARAYONDA,
             **validated_data
         )
 
-        # 🔹 Ehtiyot qismlar korik-level da har doim qo‘shiladi
+        # 🔹 Step ochilmagan va user darhol yakunlashni tanlasa
+        if yakunlash and akt_file:
+            korik.akt_file = akt_file
+            korik.status = TexnikKorik.Status.BARTARAF_ETILDI
+            korik.chiqqan_vaqti = timezone.now()
+            korik.tarkib.holati = "Soz_holatda"
+            korik.tarkib.save()
+            korik.save()
+
+        # 🔹 Ehtiyot qismlar
         for item in ehtiyot_qismlar:
             eq_id = item.get("ehtiyot_qism")
             miqdor = item.get("miqdor", 1)
             if not eq_id:
                 continue
             eq_obj = EhtiyotQismlari.objects.get(id=eq_id)
-
-            EhtiyotQismHistory.objects.create(
-                ehtiyot_qism=eq_obj,
-                miqdor=-miqdor if yakunlash else 0,
-                created_by=request.user
-            )
-
             TexnikKorikEhtiyotQism.objects.create(
                 korik=korik,
                 ehtiyot_qism=eq_obj,
                 miqdor=miqdor
             )
-
-        if yakunlash:
-            korik.tarkib.holati = "Soz_holatda"
-            korik.tarkib.save()
+            if yakunlash:  # faqat yakunlaganda hisobdan chiqaramiz
+                EhtiyotQismHistory.objects.create(
+                    ehtiyot_qism=eq_obj,
+                    miqdor=-miqdor,
+                    created_by=request.user
+                )
 
         return korik
+
 
 
 
