@@ -829,14 +829,13 @@ class NosozlikEhtiyotQismStepSerializer(serializers.ModelSerializer):
 
 
 
-
 # --- parent detail for steps (joylashuvi: step va parent serializerlardan OLDIN yozing) ---
 class NosozlikDetailForStepSerializer(serializers.ModelSerializer):
     created_by = serializers.CharField(source="created_by.username", read_only=True)
     tarkib_nomi = serializers.CharField(source="tarkib.tarkib_raqami", read_only=True)
     is_active = serializers.BooleanField(source="tarkib.is_active", read_only=True)
 
-    # agar parentda ehtiyot qismlar kerak bo'lsa (parent darajasida ko'rsatiladi)
+    # parent-level ehtiyot qismlar
     ehtiyot_qismlar_detail = NosozlikEhtiyotQismSerializer(
         source="nosozlikehtiyotqism_set", many=True, read_only=True
     )
@@ -846,11 +845,41 @@ class NosozlikDetailForStepSerializer(serializers.ModelSerializer):
     class Meta:
         model = Nosozliklar
         fields = [
-            "id", "tarkib", "tarkib_nomi", "is_active",
-            "nosozliklar_haqida", "bartaraf_etilgan_nosozliklar",
-            "ehtiyot_qismlar_detail", "status", "created_by", "created_at"
+            "id",
+            "tarkib",
+            "tarkib_nomi",
+            "is_active",
+            "nosozliklar_haqida",
+            "bartaraf_etilgan_nosozliklar",
+            "ehtiyot_qismlar_detail",
+            "status",
+            "created_by",
+            "created_at"
         ]
+        read_only_fields = fields
 
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+
+        # Parent-level ehtiyot qismlarni id bilan obyekt sifatida chiqarish
+        if hasattr(instance, "nosozlikehtiyotqism_set"):
+            data["ehtiyot_qismlar_detail"] = [
+                {
+                    "id": item.id,
+                    "ehtiyot_qism": item.ehtiyot_qism.id,  # id bilan
+                    "ehtiyot_qism_nomi": item.ehtiyot_qism.ehtiyotqism_nomi,
+                    "birligi": item.ehtiyot_qism.birligi,
+                    "miqdor": item.miqdor
+                }
+                for item in instance.nosozlikehtiyotqism_set.all()
+            ]
+
+        # Bo‘sh yoki None qiymatlarni olib tashlash
+        clean_data = {
+            k: v for k, v in data.items()
+            if v not in [None, False, [], {}] and not (isinstance(v, str) and v.strip() == "")
+        }
+        return clean_data
 
 
 
