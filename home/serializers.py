@@ -923,6 +923,7 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
 
 
 
+
 class StepPagination(PageNumberPagination):
     page_size_query_param = "limit"
     max_page_size = 500000000000
