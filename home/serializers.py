@@ -414,9 +414,13 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
                 "birligi": item.ehtiyot_qism.birligi,
                 "ishlatilgan_miqdor": item.miqdor,
                 "qoldiq": item.ehtiyot_qism.jami_miqdor,
+                "manba": "step"
             }
             for item in obj.texnikkorikehtiyotqismstep_set.all()
         ]
+
+        if obj.status == TexnikKorikStep.Status.BARTARAF_ETILDI:
+            return step_qismlar  
 
         return step_qismlar
 
@@ -462,23 +466,28 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
         )
 
         for item in ehtiyot_qismlar:
-            eq_obj = item.get("ehtiyot_qism")  
+            eq_id = item.get("ehtiyot_qism")  
             miqdor = item.get("miqdor", 1)
-            if not eq_obj:
+            if not eq_id:
                 continue
+
+            try:
+                eq_obj = EhtiyotQismlari.objects.get(id=eq_id)
+            except EhtiyotQismlari.DoesNotExist:
+                raise serializers.ValidationError({"ehtiyot_qism": f"ID {eq_id} topilmadi"})
 
             TexnikKorikEhtiyotQismStep.objects.create(
                 korik_step=step,
                 ehtiyot_qism=eq_obj,
                 miqdor=miqdor
             )
+
             if step_status == TexnikKorikStep.Status.BARTARAF_ETILDI:
                 EhtiyotQismHistory.objects.create(
                     ehtiyot_qism=eq_obj,
                     miqdor=-miqdor,
                     created_by=request.user
                 )
-
 
         if step_status == TexnikKorikStep.Status.BARTARAF_ETILDI:
             step.chiqqan_vaqti = timezone.now()
@@ -719,23 +728,29 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
             korik.save()
 
         for item in ehtiyot_qismlar:
-            eq_obj = item.get("ehtiyot_qism")  # Bu allaqachon obyekt
+            eq_id = item.get("ehtiyot_qism")
             miqdor = item.get("miqdor", 1)
-            if not eq_obj:
+            if not eq_id:
                 continue
+
+            # ✅ ID bo‘yicha obyektni olib kelamiz
+            try:
+                eq_obj = EhtiyotQismlari.objects.get(id=eq_id)
+            except EhtiyotQismlari.DoesNotExist:
+                raise serializers.ValidationError({"ehtiyot_qism": f"ID {eq_id} topilmadi"})
 
             TexnikKorikEhtiyotQism.objects.create(
                 korik=korik,
                 ehtiyot_qism=eq_obj,
                 miqdor=miqdor
             )
+
             if yakunlash:
                 EhtiyotQismHistory.objects.create(
                     ehtiyot_qism=eq_obj,
                     miqdor=-miqdor,
                     created_by=request.user
                 )
-
 
         return korik
 
