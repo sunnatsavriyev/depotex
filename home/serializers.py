@@ -414,7 +414,9 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
                 "birligi": item.ehtiyot_qism.birligi,
                 "ishlatilgan_miqdor": item.miqdor,
                 "qoldiq": item.ehtiyot_qism.jami_miqdor,
-                "manba": "step"
+                "manba": "step",
+                "step_status": obj.status,  # Step statusi
+                "korik_status": obj.korik.status if obj.korik else None  # Asosiy ko'rik statusi
             }
             for item in obj.texnikkorikehtiyotqismstep_set.all()
         ]
@@ -489,10 +491,21 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
                     created_by=request.user
                 )
 
-        # 🔹 Step yakunlangandan keyin serializer bilan qaytaramiz
         return step
 
-
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        
+        # Ehtiyot qismlar detailni qo'lda qo'shamiz
+        if 'ehtiyot_qismlar_detail' not in data or not data['ehtiyot_qismlar_detail']:
+            data['ehtiyot_qismlar_detail'] = self.get_ehtiyot_qismlar_detail(instance)
+        
+        # Bo'sh qiymatlarni olib tashlamaslik
+        clean_data = {
+            k: v for k, v in data.items()
+            if v not in [None, False] and not (isinstance(v, str) and v.strip() == "")
+        }
+        return clean_data
 
 
 
@@ -544,7 +557,6 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
     
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # Har safar serializer ochilganda dinamik querysetni DB’dan oladi
         self.fields["tarkib"].queryset = HarakatTarkibi.objects.filter(
             is_active=True,
             holati="Soz_holatda"
@@ -560,25 +572,28 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
                 "birligi": item.ehtiyot_qism.birligi,
                 "ishlatilgan_miqdor": item.miqdor,
                 "qoldiq": item.ehtiyot_qism.jami_miqdor,
-                "manba": "korik"
+                "manba": "korik",
+                "qoshilgan_vaqt": item.created_at  # Qo'shilgan vaqtni qo'shing
             }
             for item in obj.texnikkorikehtiyotqism_set.all()
         ]
 
-        step_qismlar = [
-            {
-                "id": item.id,
-                "step_id": step.id,
-                "ehtiyot_qism": item.ehtiyot_qism.id,
-                "ehtiyot_qism_nomi": item.ehtiyot_qism.ehtiyotqism_nomi,
-                "birligi": item.ehtiyot_qism.birligi,
-                "ishlatilgan_miqdor": item.miqdor,
-                "qoldiq": item.ehtiyot_qism.jami_miqdor,
-                "manba": "step"
-            }
-            for step in obj.steps.all()
-            for item in step.texnikkorikehtiyotqismstep_set.all()
-        ]
+        step_qismlar = []
+        for step in obj.steps.all():
+            for item in step.texnikkorikehtiyotqismstep_set.all():
+                step_data = {
+                    "id": item.id,
+                    "step_id": step.id,
+                    "ehtiyot_qism": item.ehtiyot_qism.id,
+                    "ehtiyot_qism_nomi": item.ehtiyot_qism.ehtiyotqism_nomi,
+                    "birligi": item.ehtiyot_qism.birligi,
+                    "ishlatilgan_miqdor": item.miqdor,
+                    "qoldiq": item.ehtiyot_qism.jami_miqdor,
+                    "manba": "step",
+                    "qoshilgan_vaqt": item.created_at,  # Qo'shilgan vaqtni qo'shing
+                    "step_status": step.status  # Step statusini qo'shing
+                }
+                step_qismlar.append(step_data)
 
         return korik_qismlar + step_qismlar
 
@@ -603,10 +618,8 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
         request = self.context.get("request")
         parent_data = TexnikKorikDetailForStepSerializer(obj, context=self.context).data
 
-        # 🔹 Parent (korik) level + step-level barcha ehtiyot qismlar
         parent_data["ehtiyot_qismlar_detail"] = self.get_ehtiyot_qismlar_detail(obj)
 
-        # 🔹 Steplar queryseti
         steps_qs = obj.steps.all().order_by("created_at")
         search = request.query_params.get("search")
         if search:
@@ -671,10 +684,30 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
 
 
 
+    # def to_representation(self, instance):
+    #     data = super().to_representation(instance)
+    #     return {k: v for k, v in data.items() if v not in [None, False, [], {}]}
+
+    
     def to_representation(self, instance):
         data = super().to_representation(instance)
-        return {k: v for k, v in data.items() if v not in [None, False, [], {}]}
-
+        
+        # Ehtiyot qismlar detailni qayta hisoblash
+        if 'ehtiyot_qismlar_detail' in data:
+            data['ehtiyot_qismlar_detail'] = self.get_ehtiyot_qismlar_detail(instance)
+        
+        # Steps ma'lumotlarini qayta hisoblash
+        if 'steps' in data:
+            data['steps'] = self.get_steps(instance)
+        
+        # Faqat None va False qiymatlarni o'chirish
+        clean_data = {
+            k: v for k, v in data.items()
+            if v not in [None, False] and not (isinstance(v, str) and v.strip() == "")
+        }
+        return clean_data
+    
+    
     # --- CREATE ---
     def create(self, validated_data):
         request = self.context["request"]
@@ -722,7 +755,8 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
                 EhtiyotQismHistory.objects.create(
                     ehtiyot_qism=eq_obj,
                     miqdor=-miqdor,
-                    created_by=request.user
+                    created_by=request.user,
+                    izoh=f"Texnik ko'rik yakunlandi (ID: {korik.id})"
                 )
 
         if yakunlash and akt_file:
@@ -781,11 +815,21 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
             )
 
             if yakunlash:
-                EhtiyotQismHistory.objects.create(
-                    ehtiyot_qism=eq_obj,
-                    miqdor=-miqdor,
-                    created_by=request.user
-                )
+            # 🔹 Yangi qism qo'shilgan bo'lsa, uni ham ombordan chiqarish
+                existing_item = TexnikKorikEhtiyotQism.objects.filter(
+                    korik=instance, 
+                    ehtiyot_qism=eq_obj
+                ).first()
+                
+                if not existing_item or existing_item.miqdor != miqdor:
+                    eq_obj.jami_miqdor -= miqdor
+                    eq_obj.save()
+                    EhtiyotQismHistory.objects.create(
+                        ehtiyot_qism=eq_obj,
+                        miqdor=-miqdor,
+                        created_by=request.user,
+                        izoh=f"Texnik ko'rik yangilandi (ID: {instance.id})"
+                    )
 
         return instance
 
