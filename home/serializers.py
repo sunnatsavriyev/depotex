@@ -474,7 +474,7 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
             miqdor = item.get("miqdor", 1)
             if not eq_val:
                 continue
-            eq_obj = EhtiyotQismlari.objects.get(id=int(eq_val))
+            eq_obj = eq_val if isinstance(eq_val, EhtiyotQismlari) else EhtiyotQismlari.objects.get(id=int(eq_val))
             TexnikKorikEhtiyotQismStep.objects.create(
                 korik_step=step,
                 ehtiyot_qism=eq_obj,
@@ -490,7 +490,7 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
                 )
 
         # 🔹 Step yakunlangandan keyin serializer bilan qaytaramiz
-        return TexnikKorikStepSerializer(step, context=self.context).data
+        return step
 
 
 
