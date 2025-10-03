@@ -406,6 +406,7 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
         
         
     def get_ehtiyot_qismlar_detail(self, obj):
+        # faqat stepga tegishli qismlar chiqadi
         step_qismlar = [
             {
                 "id": item.id,
@@ -419,23 +420,7 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
             for item in obj.texnikkorikehtiyotqismstep_set.all()
         ]
 
-        # 🔑 Step yakunlanganda ham korik qismlarini qo‘shib ko‘rsatamiz
-        korik_qismlar = []
-        if obj.korik:
-            korik_qismlar = [
-                {
-                    "id": item.id,
-                    "ehtiyot_qism": item.ehtiyot_qism.id,
-                    "ehtiyot_qism_nomi": item.ehtiyot_qism.ehtiyotqism_nomi,
-                    "birligi": item.ehtiyot_qism.birligi,
-                    "ishlatilgan_miqdor": item.miqdor,
-                    "qoldiq": item.ehtiyot_qism.jami_miqdor,
-                    "manba": "korik"
-                }
-                for item in obj.korik.texnikkorikehtiyotqism_set.all()
-            ]
-
-        return korik_qismlar + step_qismlar
+        return step_qismlar
 
 
 
@@ -719,13 +704,7 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
             **validated_data
         )
 
-        if yakunlash and akt_file:
-            korik.akt_file = akt_file
-            korik.status = TexnikKorik.Status.BARTARAF_ETILDI
-            korik.chiqqan_vaqti = timezone.now()
-            korik.tarkib.holati = "Soz_holatda"
-            korik.tarkib.save()
-            korik.save()
+        
 
         for item in ehtiyot_qismlar:
             eq_val = item.get("ehtiyot_qism")
@@ -755,6 +734,13 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
                     created_by=request.user
                 )
 
+        if yakunlash and akt_file:
+            korik.akt_file = akt_file
+            korik.status = TexnikKorik.Status.BARTARAF_ETILDI
+            korik.chiqqan_vaqti = timezone.now()
+            korik.tarkib.holati = "Soz_holatda"
+            korik.tarkib.save()
+            korik.save()
 
         return korik
 
