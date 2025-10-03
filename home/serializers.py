@@ -592,7 +592,7 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
                         "qoldiq": item.ehtiyot_qism.jami_miqdor,
                     })
 
-        if obj.status == TexnikKorik.Status.YAKUNLANGAN:
+        if obj.status == TexnikKorik.Status.BARTARAF_ETILDI:
             return korik_qismlar
 
         return step_qismlar
