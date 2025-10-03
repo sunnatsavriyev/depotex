@@ -453,8 +453,14 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
         akt_file = validated_data.pop("akt_file", None)
         ehtiyot_qismlar = validated_data.pop("ehtiyot_qismlar", [])
 
-        step_status = TexnikKorikStep.Status.BARTARAF_ETILDI if yakunlash and akt_file else TexnikKorikStep.Status.JARAYONDA
+        # Step statusini aniqlash
+        step_status = (
+            TexnikKorikStep.Status.BARTARAF_ETILDI
+            if yakunlash and akt_file
+            else TexnikKorikStep.Status.JARAYONDA
+        )
 
+        # Step yaratish
         step = TexnikKorikStep.objects.create(
             korik=korik,
             tamir_turi=korik.tamir_turi,
@@ -464,12 +470,14 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
             **validated_data
         )
 
+        # Ehtiyot qismlarni stepga bog‘lash va yakunlash bo‘lsa chiqarish
         for item in ehtiyot_qismlar:
             eq_val = item.get("ehtiyot_qism")
             miqdor = item.get("miqdor", 1)
             if not eq_val:
                 continue
 
+            # Ehtiyot qismini olish
             if isinstance(eq_val, EhtiyotQismlari):
                 eq_obj = eq_val
             else:
@@ -478,21 +486,26 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
                 except (EhtiyotQismlari.DoesNotExist, ValueError, TypeError):
                     raise serializers.ValidationError({"ehtiyot_qism": f"ID {eq_val} topilmadi"})
 
-            TexnikKorikEhtiyotQismStep.objects.create(
+            # Stepga bog‘lash (har doim)
+            step_eh = TexnikKorikEhtiyotQismStep.objects.create(
                 korik_step=step,
                 ehtiyot_qism=eq_obj,
                 miqdor=miqdor
             )
 
+            # Agar step yakunlangan bo‘lsa, miqdorni chiqarish va history yozish
             if step_status == TexnikKorikStep.Status.BARTARAF_ETILDI:
+                eq_obj.jami_miqdor -= miqdor
+                eq_obj.save()
+
                 EhtiyotQismHistory.objects.create(
                     ehtiyot_qism=eq_obj,
                     miqdor=-miqdor,
                     created_by=request.user
                 )
 
-
         return step
+
 
 
 
