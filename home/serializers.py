@@ -329,7 +329,6 @@ class TexnikKorikDetailForStepSerializer(serializers.ModelSerializer):
     tarkib_nomi = serializers.CharField(source="tarkib.tarkib_raqami", read_only=True)
     tamir_turi_nomi = serializers.CharField(source="tamir_turi.tamir_nomi", read_only=True)
 
-    # GET id bilan korik-level ehtiyot qismlar
     ehtiyot_qismlar_detail = TexnikKorikEhtiyotQismSerializer(
         source="texnikkorikehtiyotqism_set",  
         many=True,
@@ -358,12 +357,11 @@ class TexnikKorikDetailForStepSerializer(serializers.ModelSerializer):
     def to_representation(self, instance):
         data = super().to_representation(instance)
 
-        # Korik-level ehtiyot qismlar uchun id bilan obyektni to‘liq chiqarish
         if hasattr(instance, "texnikkorikehtiyotqism_set"):
             data["ehtiyot_qismlar_detail"] = [
                 {
                     "id": item.id,
-                    "ehtiyot_qism": item.ehtiyot_qism.id,  # id bilan olish
+                    "ehtiyot_qism": item.ehtiyot_qism.id,  
                     "ehtiyot_qism_nomi": item.ehtiyot_qism.ehtiyotqism_nomi,
                     "birligi": item.ehtiyot_qism.birligi,
                     "miqdor": item.miqdor
@@ -371,7 +369,6 @@ class TexnikKorikDetailForStepSerializer(serializers.ModelSerializer):
                 for item in instance.texnikkorikehtiyotqism_set.all()
             ]
 
-        # Bo‘sh qiymatlarni olib tashlash
         clean_data = {
             k: v for k, v in data.items()
             if v not in [None, False, [], {}] and not (isinstance(v, str) and v.strip() == "")
@@ -555,12 +552,12 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
         request = self.context.get("request")
         parent_data = TexnikKorikDetailForStepSerializer(obj, context=self.context).data
 
-        ishlatilgan_qismlar = []
+        ehtiyot_qismlar_detail = []
 
         # 🔹 1) Korik yakunlanganda korik-level ehtiyot qismlarini chiqaramiz
         for item in obj.texnikkorikehtiyotqism_set.all():
             ehtiyot_qism = item.ehtiyot_qism
-            ishlatilgan_qismlar.append({
+            ehtiyot_qismlar_detail.append({
                 "ehtiyot_qism": ehtiyot_qism.ehtiyotqism_nomi,
                 "birligi": ehtiyot_qism.birligi,
                 "ishlatilgan_miqdor": item.miqdor,
@@ -584,7 +581,7 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
             many=True, context=self.context
         ).data
 
-        parent_data["ishlatilgan_qismlar"] = ishlatilgan_qismlar
+        parent_data["ehtiyot_qismlar_detail"] = ehtiyot_qismlar_detail
 
         if page is not None:
             return {

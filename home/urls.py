@@ -11,7 +11,6 @@ from .views import (
     get_me
 )
 routers
-# 🔹 Main router
 router = DefaultRouter()
 router.register(r"tamir-turi", TamirTuriViewSet)
 router.register(r"elektro-depo", ElektroDepoViewSet)
