@@ -762,7 +762,7 @@ class TexnikKorikStepViewSet(BaseViewSet):
         if korik.status != TexnikKorik.Status.JARAYONDA:
             raise ValidationError({"korik": "Avval Texnik Korik boshlang yoki u tugallangan."})
 
-        serializer.context["korik"] = korik  # 👈 korikni serializerga contextda uzatamiz
+        serializer.context["korik"] = korik 
         serializer.save()
 
 

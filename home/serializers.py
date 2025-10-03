@@ -406,7 +406,6 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
         
         
     def get_ehtiyot_qismlar_detail(self, obj):
-        # faqat stepga tegishli qismlar chiqadi
         step_qismlar = [
             {
                 "id": item.id,
@@ -453,7 +452,6 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
         akt_file = validated_data.pop("akt_file", None)
         ehtiyot_qismlar = validated_data.pop("ehtiyot_qismlar", [])
 
-        # Step statusini aniqlash
         step_status = (
             TexnikKorikStep.Status.BARTARAF_ETILDI
             if yakunlash and akt_file
@@ -476,35 +474,23 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
             miqdor = item.get("miqdor", 1)
             if not eq_val:
                 continue
-
-            # Ehtiyot qismini olish
-            if isinstance(eq_val, EhtiyotQismlari):
-                eq_obj = eq_val
-            else:
-                try:
-                    eq_obj = EhtiyotQismlari.objects.get(id=int(eq_val))
-                except (EhtiyotQismlari.DoesNotExist, ValueError, TypeError):
-                    raise serializers.ValidationError({"ehtiyot_qism": f"ID {eq_val} topilmadi"})
-
-            # Stepga bog‘lash (har doim)
-            step_eh = TexnikKorikEhtiyotQismStep.objects.create(
+            eq_obj = EhtiyotQismlari.objects.get(id=int(eq_val))
+            TexnikKorikEhtiyotQismStep.objects.create(
                 korik_step=step,
                 ehtiyot_qism=eq_obj,
                 miqdor=miqdor
             )
-
-            # Agar step yakunlangan bo‘lsa, miqdorni chiqarish va history yozish
             if step_status == TexnikKorikStep.Status.BARTARAF_ETILDI:
                 eq_obj.jami_miqdor -= miqdor
                 eq_obj.save()
-
                 EhtiyotQismHistory.objects.create(
                     ehtiyot_qism=eq_obj,
                     miqdor=-miqdor,
                     created_by=request.user
                 )
 
-        return step
+        # 🔹 Step yakunlangandan keyin serializer bilan qaytaramiz
+        return TexnikKorikStepSerializer(step, context=self.context).data
 
 
 
@@ -533,7 +519,7 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
     ehtiyot_qismlar = TexnikKorikEhtiyotQismSerializer(
         many=True, write_only=True,required=False
     )
-    ehtiyot_qismlar_detail = serializers.SerializerMethodField()  # 🔹 custom qilib olamiz
+    ehtiyot_qismlar_detail = serializers.SerializerMethodField()  
 
     
     
@@ -594,7 +580,6 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
             for item in step.texnikkorikehtiyotqismstep_set.all()
         ]
 
-        # ✅ Har doim ikkisini qo‘shib qaytaramiz
         return korik_qismlar + step_qismlar
 
 
@@ -618,19 +603,10 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
         request = self.context.get("request")
         parent_data = TexnikKorikDetailForStepSerializer(obj, context=self.context).data
 
-        ehtiyot_qismlar_detail = []
+        # 🔹 Parent (korik) level + step-level barcha ehtiyot qismlar
+        parent_data["ehtiyot_qismlar_detail"] = self.get_ehtiyot_qismlar_detail(obj)
 
-        # 🔹 1) Korik yakunlanganda korik-level ehtiyot qismlarini chiqaramiz
-        for item in obj.texnikkorikehtiyotqism_set.all():
-            ehtiyot_qism = item.ehtiyot_qism
-            ehtiyot_qismlar_detail.append({
-                "ehtiyot_qism_nomi": ehtiyot_qism.ehtiyotqism_nomi,
-                "birligi": ehtiyot_qism.birligi,
-                "ishlatilgan_miqdor": item.miqdor,
-                "qoldiq": ehtiyot_qism.jami_miqdor
-            })
-
-        # 🔹 2) Agar steplar bo‘lsa → ularni ham qo‘shamiz
+        # 🔹 Steplar queryseti
         steps_qs = obj.steps.all().order_by("created_at")
         search = request.query_params.get("search")
         if search:
@@ -647,8 +623,7 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
             many=True, context=self.context
         ).data
 
-        parent_data["ehtiyot_qismlar_detail"] = ehtiyot_qismlar_detail
-
+        # 🔹 Natija: parent korik + steps
         if page is not None:
             return {
                 "count": paginator.page.paginator.count + 1,
@@ -667,6 +642,7 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
                 "previous": None,
                 "results": [parent_data] + steps_data,
             }
+
 
             
 
