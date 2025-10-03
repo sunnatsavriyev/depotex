@@ -406,7 +406,8 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
         
         
     def get_ehtiyot_qismlar_detail(self, obj):
-        return [
+    
+        step_qismlar = [
             {
                 "id": item.id,
                 "ehtiyot_qism": item.ehtiyot_qism.id,
@@ -417,6 +418,23 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
             }
             for item in obj.texnikkorikehtiyotqismstep_set.all()
         ]
+
+        if obj.status == TexnikKorikStep.Status.BARTARAF_ETILDI:
+            korik_qismlar = [
+                {
+                    "id": item.id,
+                    "ehtiyot_qism": item.ehtiyot_qism.id,
+                    "ehtiyot_qism_nomi": item.ehtiyot_qism.ehtiyotqism_nomi,
+                    "birligi": item.ehtiyot_qism.birligi,
+                    "ishlatilgan_miqdor": item.miqdor,
+                    "qoldiq": item.ehtiyot_qism.jami_miqdor,
+                }
+                for item in obj.korik.texnikkorikehtiyotqism_set.all()
+            ]
+            return step_qismlar + korik_qismlar
+
+        return step_qismlar
+
 
     def validate(self, attrs):
         request = self.context.get("request")
@@ -548,7 +566,7 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
     
     
     def get_ehtiyot_qismlar_detail(self, obj):
-        return [
+        korik_qismlar = [
             {
                 "id": item.id,
                 "ehtiyot_qism": item.ehtiyot_qism.id,
@@ -559,6 +577,26 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
             }
             for item in obj.texnikkorikehtiyotqism_set.all()
         ]
+
+        step_qismlar = []
+        if obj.status != TexnikKorik.Status.YAKUNLANGAN:  
+            for step in obj.steps.all():
+                for item in step.texnikkorikehtiyotqismstep_set.all():
+                    step_qismlar.append({
+                        "id": item.id,
+                        "step_id": step.id,
+                        "ehtiyot_qism": item.ehtiyot_qism.id,
+                        "ehtiyot_qism_nomi": item.ehtiyot_qism.ehtiyotqism_nomi,
+                        "birligi": item.ehtiyot_qism.birligi,
+                        "ishlatilgan_miqdor": item.miqdor,
+                        "qoldiq": item.ehtiyot_qism.jami_miqdor,
+                    })
+
+        if obj.status == TexnikKorik.Status.YAKUNLANGAN:
+            return korik_qismlar
+
+        return step_qismlar
+
         
         
     
@@ -584,7 +622,7 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
         for item in obj.texnikkorikehtiyotqism_set.all():
             ehtiyot_qism = item.ehtiyot_qism
             ehtiyot_qismlar_detail.append({
-                "ehtiyot_qism": ehtiyot_qism.ehtiyotqism_nomi,
+                "ehtiyot_qism_nomi": ehtiyot_qism.ehtiyotqism_nomi,
                 "birligi": ehtiyot_qism.birligi,
                 "ishlatilgan_miqdor": item.miqdor,
                 "qoldiq": ehtiyot_qism.jami_miqdor
