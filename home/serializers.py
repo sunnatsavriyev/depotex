@@ -725,7 +725,7 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
             if not eq_val:
                 continue
 
-            # Agar instance bo'lsa
+            # Ehtiyot qismini olish
             if isinstance(eq_val, EhtiyotQismlari):
                 eq_obj = eq_val
             else:
@@ -741,6 +741,8 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
             )
 
             if yakunlash:
+                eq_obj.jami_miqdor -= miqdor
+                eq_obj.save()
                 EhtiyotQismHistory.objects.create(
                     ehtiyot_qism=eq_obj,
                     miqdor=-miqdor,
