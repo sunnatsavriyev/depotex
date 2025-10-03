@@ -644,7 +644,11 @@ class TexnikKorikGetViewSet(mixins.ListModelMixin,
     queryset = (
         TexnikKorik.objects
         .select_related("tarkib", "tamir_turi", "created_by")
-        .prefetch_related("ehtiyot_qismlar")
+        .prefetch_related(
+            "texnikkorikehtiyotqism_set__ehtiyot_qism",  # ✅ Asosiy ko'rik ehtiyot qismlari
+            "steps__texnikkorikehtiyotqismstep_set__ehtiyot_qism",  # ✅ Step ehtiyot qismlari
+            "steps"  # ✅ Steplarni ham prefetch qilish
+        )
         .order_by("-id")
     )
     serializer_class = TexnikKorikSerializer
@@ -661,11 +665,85 @@ class TexnikKorikGetViewSet(mixins.ListModelMixin,
     ordering_fields = ["created_at", "approved_at", "kirgan_vaqti"]
 
 
+    
+    def get_queryset(self):
+        user = self.request.user
+        qs = (
+            TexnikKorik.objects
+            .select_related("tarkib", "tamir_turi", "created_by")
+            .prefetch_related(
+                "texnikkorikehtiyotqism_set__ehtiyot_qism",
+                "steps__texnikkorikehtiyotqismstep_set__ehtiyot_qism",
+                "steps"
+            )
+            .order_by("-id")
+        )
+
+        if user.role == "texnik" and user.depo:
+            qs = qs.filter(tarkib__depo=user.depo)
+        return qs
 
 
+
+# class TexnikKorikViewSet(BaseViewSet):
+#     queryset = TexnikKorik.objects.prefetch_related("steps").all().order_by("-id")
+#     serializer_class = TexnikKorikSerializer
+#     permission_classes = [IsAuthenticated, IsTexnik]
+#     filter_backends = [filters.SearchFilter, filters.OrderingFilter, DjangoFilterBackend]
+#     search_fields = [
+#         "tarkib__tarkib_raqami",
+#         "tamir_turi__tamir_nomi",
+#         "created_by__username",
+#         "id",
+#     ]
+#     pagination_class = CustomPagination
+#     def get_queryset(self):
+#         user = self.request.user
+#         qs = TexnikKorik.objects.prefetch_related("steps").order_by("-id")
+
+#         if user.role == "texnik" and user.depo:
+#             qs = qs.filter(tarkib__depo=user.depo)
+#         return qs
+
+#     @extend_schema(
+#         parameters=[
+#             OpenApiParameter(name="page", type=int, location=OpenApiParameter.QUERY, description="Step pagination page"),
+#             OpenApiParameter(name="limit", type=int, location=OpenApiParameter.QUERY, description="Step page size"),
+#             OpenApiParameter(name="search", type=str, location=OpenApiParameter.QUERY, description="Step search"),
+#         ]
+#     )
+#     def retrieve(self, request, *args, **kwargs):
+#         """Detail with steps pagination"""
+#         return super().retrieve(request, *args, **kwargs)
+    
+#     @action(detail=True, methods=["post"], url_path="add-step")
+#     def add_step(self, request, pk=None):
+#         korik = self.get_object()
+#         if korik.status == TexnikKorik.Status.BARTARAF_ETILDI:
+#             return Response(
+#                 {"detail": "Bu korik yakunlangan, yangi step qo'shib bo'lmaydi!"},
+#                 status=status.HTTP_400_BAD_REQUEST
+#             )
+
+#         serializer = TexnikKorikStepSerializer(
+#             data=request.data,
+#             context={"request": request, "korik": korik}  # 👈 korikni contextga qo‘shdik
+#         )
+#         serializer.is_valid(raise_exception=True)
+#         step = serializer.save()  # 👈 korikni save ichida olib beradi
+#         return Response(TexnikKorikStepSerializer(step).data, status=status.HTTP_201_CREATED)
 
 class TexnikKorikViewSet(BaseViewSet):
-    queryset = TexnikKorik.objects.prefetch_related("steps").all().order_by("-id")
+    queryset = (
+        TexnikKorik.objects
+        .select_related("tarkib", "tamir_turi", "created_by")
+        .prefetch_related(
+            "texnikkorikehtiyotqism_set__ehtiyot_qism",
+            "steps__texnikkorikehtiyotqismstep_set__ehtiyot_qism",
+            "steps"
+        )
+        .order_by("-id")
+    )
     serializer_class = TexnikKorikSerializer
     permission_classes = [IsAuthenticated, IsTexnik]
     filter_backends = [filters.SearchFilter, filters.OrderingFilter, DjangoFilterBackend]
@@ -676,13 +754,46 @@ class TexnikKorikViewSet(BaseViewSet):
         "id",
     ]
     pagination_class = CustomPagination
+    
     def get_queryset(self):
         user = self.request.user
-        qs = TexnikKorik.objects.prefetch_related("steps").order_by("-id")
+        qs = (
+            TexnikKorik.objects
+            .select_related("tarkib", "tamir_turi", "created_by")
+            .prefetch_related(
+                "texnikkorikehtiyotqism_set__ehtiyot_qism",
+                "steps__texnikkorikehtiyotqismstep_set__ehtiyot_qism",
+                "steps"
+            )
+            .order_by("-id")
+        )
 
         if user.role == "texnik" and user.depo:
             qs = qs.filter(tarkib__depo=user.depo)
         return qs
+
+    def create(self, request, *args, **kwargs):
+        """CREATE so'rovidan keyin to'liq prefetch qilgan holda qaytarish"""
+        response = super().create(request, *args, **kwargs)
+        
+        # CREATE dan keyin yangi yaratilgan korikni to'liq yuklab olish
+        if response.status_code == status.HTTP_201_CREATED:
+            korik_id = response.data.get('id')
+            if korik_id:
+                korik = (
+                    TexnikKorik.objects
+                    .select_related("tarkib", "tamir_turi", "created_by")
+                    .prefetch_related(
+                        "texnikkorikehtiyotqism_set__ehtiyot_qism",
+                        "steps__texnikkorikehtiyotqismstep_set__ehtiyot_qism",
+                        "steps"
+                    )
+                    .get(id=korik_id)
+                )
+                serializer = self.get_serializer(korik)
+                response.data = serializer.data
+        
+        return response
 
     @extend_schema(
         parameters=[
@@ -706,13 +817,74 @@ class TexnikKorikViewSet(BaseViewSet):
 
         serializer = TexnikKorikStepSerializer(
             data=request.data,
-            context={"request": request, "korik": korik}  # 👈 korikni contextga qo‘shdik
+            context={"request": request, "korik": korik}
         )
         serializer.is_valid(raise_exception=True)
-        step = serializer.save()  # 👈 korikni save ichida olib beradi
-        return Response(TexnikKorikStepSerializer(step).data, status=status.HTTP_201_CREATED)
+        step = serializer.save()
+        
+        # Step yaratilgandan keyin to'liq yuklab olish
+        step_with_prefetch = (
+            TexnikKorikStep.objects
+            .select_related("korik", "tamir_turi", "created_by")
+            .prefetch_related("texnikkorikehtiyotqismstep_set__ehtiyot_qism")
+            .get(id=step.id)
+        )
+        
+        return Response(
+            TexnikKorikStepSerializer(step_with_prefetch).data, 
+            status=status.HTTP_201_CREATED
+        )
 
+# class TexnikKorikStepViewSet(BaseViewSet):
+#     serializer_class = TexnikKorikStepSerializer
+#     permission_classes = [IsAuthenticated, IsTexnik]
+#     pagination_class = CustomPagination
+#     filter_backends = [filters.SearchFilter, filters.OrderingFilter, DjangoFilterBackend]
 
+#     search_fields = [
+#         "id",
+#         "kamchiliklar_haqida",
+#         "bartaraf_etilgan_kamchiliklar",
+#         "created_by__username",
+#         "korik__tarkib__tarkib_raqami",
+#         "tamir_turi__tamir_nomi",
+#     ]
+#     filterset_fields = ["korik"]
+
+#     def get_queryset(self):
+#         user = self.request.user
+#         qs = TexnikKorikStep.objects.all().order_by("-id")
+
+#         # faqat o‘z depo uchun texnik
+#         if user.role == "texnik" and user.depo:
+#             qs = qs.filter(korik__tarkib__depo=user.depo)
+
+#         # query param orqali korik_id
+#         korik_id = self.request.query_params.get("korik")
+#         if korik_id:
+#             qs = qs.filter(korik_id=korik_id)
+
+#         return qs
+
+#     def perform_create(self, serializer):
+#         korik_id = self.request.query_params.get("korik")
+#         if not korik_id:
+#             # agar frontend yubormasa ham, context orqali olishga urinamiz
+#             korik_id = self.kwargs.get("korik_pk") or self.request.data.get("korik")
+
+#         if not korik_id:
+#             raise ValidationError({"korik": "Texnik korik ID aniqlanmadi!"})
+
+#         try:
+#             korik = TexnikKorik.objects.get(id=korik_id)
+#         except TexnikKorik.DoesNotExist:
+#             raise ValidationError({"korik": "Bunday Texnik Korik topilmadi!"})
+
+#         if korik.status != TexnikKorik.Status.JARAYONDA:
+#             raise ValidationError({"korik": "Avval Texnik Korik boshlang yoki u tugallangan."})
+
+#         serializer.context["korik"] = korik 
+#         serializer.save()
 
 class TexnikKorikStepViewSet(BaseViewSet):
     serializer_class = TexnikKorikStepSerializer
@@ -732,7 +904,12 @@ class TexnikKorikStepViewSet(BaseViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        qs = TexnikKorikStep.objects.all().order_by("-id")
+        qs = (
+            TexnikKorikStep.objects
+            .select_related("korik", "tamir_turi", "created_by")
+            .prefetch_related("texnikkorikehtiyotqismstep_set__ehtiyot_qism")
+            .order_by("-id")
+        )
 
         # faqat o‘z depo uchun texnik
         if user.role == "texnik" and user.depo:
@@ -744,6 +921,25 @@ class TexnikKorikStepViewSet(BaseViewSet):
             qs = qs.filter(korik_id=korik_id)
 
         return qs
+
+    def create(self, request, *args, **kwargs):
+        """CREATE so'rovidan keyin to'liq prefetch qilgan holda qaytarish"""
+        response = super().create(request, *args, **kwargs)
+        
+        # CREATE dan keyin yangi yaratilgan stepni to'liq yuklab olish
+        if response.status_code == status.HTTP_201_CREATED:
+            step_id = response.data.get('id')
+            if step_id:
+                step = (
+                    TexnikKorikStep.objects
+                    .select_related("korik", "tamir_turi", "created_by")
+                    .prefetch_related("texnikkorikehtiyotqismstep_set__ehtiyot_qism")
+                    .get(id=step_id)
+                )
+                serializer = self.get_serializer(step)
+                response.data = serializer.data
+        
+        return response
 
     def perform_create(self, serializer):
         korik_id = self.request.query_params.get("korik")
@@ -764,8 +960,6 @@ class TexnikKorikStepViewSet(BaseViewSet):
 
         serializer.context["korik"] = korik 
         serializer.save()
-
-
 
 
 
