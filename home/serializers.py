@@ -733,7 +733,6 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
             if not eq_id:
                 continue
 
-            # ✅ ID bo‘yicha obyektni olib kelamiz
             try:
                 eq_obj = EhtiyotQismlari.objects.get(id=eq_id)
             except EhtiyotQismlari.DoesNotExist:
@@ -790,17 +789,18 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
                 except EhtiyotQismlari.DoesNotExist:
                     continue
 
-                EhtiyotQismHistory.objects.create(
-                    ehtiyot_qism=eq_obj,
-                    miqdor=-miqdor,
-                    created_by=request.user
-                )
-
                 TexnikKorikEhtiyotQism.objects.create(
                     korik=instance,
                     ehtiyot_qism=eq_obj,
                     miqdor=miqdor
                 )
+
+                if yakunlash:
+                    EhtiyotQismHistory.objects.create(
+                        ehtiyot_qism=eq_obj,
+                        miqdor=-miqdor,
+                        created_by=request.user
+                    )
 
         return instance
 
