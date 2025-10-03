@@ -514,6 +514,7 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
 
 
 
+
 class TexnikKorikSerializer(serializers.ModelSerializer):
     created_by = serializers.CharField(source="created_by.username", read_only=True)
 
@@ -812,19 +813,16 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
         return instance
 
 
-
     
 
-class StepPagination(PageNumberPagination): 
-    page_size_query_param = "limit"
-    max_page_size = 50
+
 
 
 
 
 class StepPagination(PageNumberPagination):
     page_size_query_param = "limit"
-    max_page_size = 50
+    max_page_size = 500000000000
 
     def get_paginated_response(self, data):
         return {
