@@ -940,10 +940,6 @@ class TexnikKorikStepViewSet(BaseViewSet):
         return qs
 
     def create(self, request, *args, **kwargs):
-        """CREATE so'rovini qayta ishlash"""
-        print("🔴 STEP CREATE so'rovi keldi")
-        print(f"Request data: {request.data}")
-        print(f"Request FILES: {request.FILES}")
         
         # FormData dan ehtiyot_qismlarni JSON ga o'girish
         if 'ehtiyot_qismlar' in request.data and isinstance(request.data['ehtiyot_qismlar'], str):
