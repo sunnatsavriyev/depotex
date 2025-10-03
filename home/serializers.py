@@ -466,15 +466,18 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
         )
 
         for item in ehtiyot_qismlar:
-            eq_id = item.get("ehtiyot_qism")  
+            eq_val = item.get("ehtiyot_qism")
             miqdor = item.get("miqdor", 1)
-            if not eq_id:
+            if not eq_val:
                 continue
 
-            try:
-                eq_obj = EhtiyotQismlari.objects.get(id=eq_id)
-            except EhtiyotQismlari.DoesNotExist:
-                raise serializers.ValidationError({"ehtiyot_qism": f"ID {eq_id} topilmadi"})
+            if isinstance(eq_val, EhtiyotQismlari):
+                eq_obj = eq_val
+            else:
+                try:
+                    eq_obj = EhtiyotQismlari.objects.get(id=int(eq_val))
+                except (EhtiyotQismlari.DoesNotExist, ValueError, TypeError):
+                    raise serializers.ValidationError({"ehtiyot_qism": f"ID {eq_val} topilmadi"})
 
             TexnikKorikEhtiyotQismStep.objects.create(
                 korik_step=step,
@@ -489,17 +492,6 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
                     created_by=request.user
                 )
 
-        if step_status == TexnikKorikStep.Status.BARTARAF_ETILDI:
-            step.chiqqan_vaqti = timezone.now()
-            step.save()
-            korik.status = TexnikKorik.Status.BARTARAF_ETILDI
-            korik.tarkib.holati = "Soz_holatda"
-            korik.tarkib.save()
-            korik.save()
-        else:
-            if korik.tarkib.holati != "Texnik_korikda":
-                korik.tarkib.holati = "Texnik_korikda"
-                korik.tarkib.save()
 
         return step
 
@@ -728,15 +720,19 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
             korik.save()
 
         for item in ehtiyot_qismlar:
-            eq_id = item.get("ehtiyot_qism")
+            eq_val = item.get("ehtiyot_qism")
             miqdor = item.get("miqdor", 1)
-            if not eq_id:
+            if not eq_val:
                 continue
 
-            try:
-                eq_obj = EhtiyotQismlari.objects.get(id=eq_id)
-            except EhtiyotQismlari.DoesNotExist:
-                raise serializers.ValidationError({"ehtiyot_qism": f"ID {eq_id} topilmadi"})
+            # Agar instance bo'lsa
+            if isinstance(eq_val, EhtiyotQismlari):
+                eq_obj = eq_val
+            else:
+                try:
+                    eq_obj = EhtiyotQismlari.objects.get(id=int(eq_val))
+                except (EhtiyotQismlari.DoesNotExist, ValueError, TypeError):
+                    raise serializers.ValidationError({"ehtiyot_qism": f"ID {eq_val} topilmadi"})
 
             TexnikKorikEhtiyotQism.objects.create(
                 korik=korik,
@@ -750,6 +746,7 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
                     miqdor=-miqdor,
                     created_by=request.user
                 )
+
 
         return korik
 
@@ -783,24 +780,27 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
         for item in ehtiyot_qismlar:
             eq_id = item.get("ehtiyot_qism")
             miqdor = item.get("miqdor", 1)
-            if eq_id:
-                try:
-                    eq_obj = EhtiyotQismlari.objects.get(id=eq_id)
-                except EhtiyotQismlari.DoesNotExist:
-                    continue
+            if not eq_id:
+                continue
 
-                TexnikKorikEhtiyotQism.objects.create(
-                    korik=instance,
+            try:
+                eq_obj = EhtiyotQismlari.objects.get(id=eq_id)
+            except EhtiyotQismlari.DoesNotExist:
+                continue
+
+            # 🔹 oldin mavjud bo‘lsa update, bo‘lmasa create qiladi
+            TexnikKorikEhtiyotQism.objects.update_or_create(
+                korik=instance,
+                ehtiyot_qism=eq_obj,
+                defaults={"miqdor": miqdor}
+            )
+
+            if yakunlash:
+                EhtiyotQismHistory.objects.create(
                     ehtiyot_qism=eq_obj,
-                    miqdor=miqdor
+                    miqdor=-miqdor,
+                    created_by=request.user
                 )
-
-                if yakunlash:
-                    EhtiyotQismHistory.objects.create(
-                        ehtiyot_qism=eq_obj,
-                        miqdor=-miqdor,
-                        created_by=request.user
-                    )
 
         return instance
 
