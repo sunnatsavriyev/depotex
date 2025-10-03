@@ -386,9 +386,7 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
     ehtiyot_qismlar = TexnikKorikEhtiyotQismStepSerializer(
         many=True, write_only=True, required=False, allow_null=True, default=list
     )
-    ehtiyot_qismlar_detail = TexnikKorikEhtiyotQismStepSerializer(
-        source="texnikkorikehtiyotqismstep_set", many=True, read_only=True
-    )
+    ehtiyot_qismlar_detail = serializers.SerializerMethodField()
 
     password = serializers.CharField(write_only=True, required=True)
     yakunlash = serializers.BooleanField(required=False)
@@ -405,6 +403,20 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
             "yakunlash", "created_by", "created_at", "password", "status"
         ]
         read_only_fields = ["korik_nomi", "tamir_turi_nomi", "created_by", "created_at", "status", "chiqqan_vaqti"]
+        
+        
+    def get_ehtiyot_qismlar_detail(self, obj):
+        return [
+            {
+                "id": item.id,
+                "ehtiyot_qism": item.ehtiyot_qism.id,
+                "ehtiyot_qism_nomi": item.ehtiyot_qism.ehtiyotqism_nomi,
+                "birligi": item.ehtiyot_qism.birligi,
+                "ishlatilgan_miqdor": item.miqdor,
+                "qoldiq": item.ehtiyot_qism.jami_miqdor,
+            }
+            for item in obj.texnikkorikehtiyotqismstep_set.all()
+        ]
 
     def validate(self, attrs):
         request = self.context.get("request")
@@ -503,9 +515,8 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
     ehtiyot_qismlar = TexnikKorikEhtiyotQismSerializer(
         many=True, write_only=True,required=False
     )
-    ehtiyot_qismlar_detail = TexnikKorikEhtiyotQismSerializer(
-        source="texnikkorikehtiyotqism_set", many=True, read_only=True
-    )
+    ehtiyot_qismlar_detail = serializers.SerializerMethodField()  # 🔹 custom qilib olamiz
+
     
     
 
@@ -535,6 +546,21 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
             holati="Soz_holatda"
         )
     
+    
+    def get_ehtiyot_qismlar_detail(self, obj):
+        return [
+            {
+                "id": item.id,
+                "ehtiyot_qism": item.ehtiyot_qism.id,
+                "ehtiyot_qism_nomi": item.ehtiyot_qism.ehtiyotqism_nomi,
+                "birligi": item.ehtiyot_qism.birligi,
+                "ishlatilgan_miqdor": item.miqdor,
+                "qoldiq": item.ehtiyot_qism.jami_miqdor,
+            }
+            for item in obj.texnikkorikehtiyotqism_set.all()
+        ]
+        
+        
     
     # --- Serializer metodlari ---
     def get_pervious_version(self, obj):
