@@ -406,7 +406,7 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
         
         
     def get_ehtiyot_qismlar_detail(self, obj):
-        # Relation mavjudligini tekshirish
+    # Relation mavjudligini tekshirish
         if hasattr(obj, 'texnikkorikehtiyotqismstep_set'):
             step_qismlar = [
                 {
@@ -417,8 +417,6 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
                     "ishlatilgan_miqdor": item.miqdor,
                     "qoldiq": item.ehtiyot_qism.jami_miqdor,
                     "manba": "step",
-                    "step_status": obj.status,
-                    "korik_status": obj.korik.status if obj.korik else None
                 }
                 for item in obj.texnikkorikehtiyotqismstep_set.all()
             ]
@@ -580,7 +578,7 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
         korik_qismlar = []
         step_qismlar = []
         
-        # Asosiy ko'rik ehtiyot qismlari - prefetch bilan optimallashtirish
+        # Asosiy ko'rik ehtiyot qismlari
         if hasattr(obj, 'texnikkorikehtiyotqism_set'):
             korik_qismlar = [
                 {
@@ -590,13 +588,12 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
                     "birligi": item.ehtiyot_qism.birligi,
                     "ishlatilgan_miqdor": item.miqdor,
                     "qoldiq": item.ehtiyot_qism.jami_miqdor,
-                    "manba": "korik",
-                    "qoshilgan_vaqt": item.created_at.strftime("%Y-%m-%d %H:%M") if item.created_at else None
+                    "manba": "korik"
                 }
                 for item in obj.texnikkorikehtiyotqism_set.all()
             ]
 
-        # Step ehtiyot qismlari - prefetch bilan optimallashtirish
+        # Step ehtiyot qismlari
         if hasattr(obj, 'steps'):
             for step in obj.steps.all().prefetch_related('texnikkorikehtiyotqismstep_set__ehtiyot_qism'):
                 if hasattr(step, 'texnikkorikehtiyotqismstep_set'):
@@ -610,8 +607,6 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
                             "ishlatilgan_miqdor": item.miqdor,
                             "qoldiq": item.ehtiyot_qism.jami_miqdor,
                             "manba": "step",
-                            "qoshilgan_vaqt": item.created_at.strftime("%Y-%m-%d %H:%M") if item.created_at else None,
-                            "step_status": step.status
                         }
                         step_qismlar.append(step_data)
 
