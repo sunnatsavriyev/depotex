@@ -324,16 +324,59 @@ class TexnikKorikEhtiyotQismStepSerializer(serializers.ModelSerializer):
         return instance
 
 
+# class TexnikKorikDetailForStepSerializer(serializers.ModelSerializer):
+#     created_by = serializers.CharField(source="created_by.username", read_only=True)
+#     tarkib_nomi = serializers.CharField(source="tarkib.tarkib_raqami", read_only=True)
+#     tamir_turi_nomi = serializers.CharField(source="tamir_turi.tamir_nomi", read_only=True)
+
+#     ehtiyot_qismlar_detail = serializers.SerializerMethodField()
+
+#     class Meta:
+#         model = TexnikKorik
+#         fields = [
+#             "id",
+#             "tarkib",
+#             "tarkib_nomi",
+#             "tamir_turi",
+#             "tamir_turi_nomi",
+#             "status",
+#             "kamchiliklar_haqida",
+#             "bartaraf_etilgan_kamchiliklar",
+#             "kirgan_vaqti",
+#             "chiqqan_vaqti",
+#             "created_by",
+#             "created_at",
+#             "ehtiyot_qismlar_detail",
+#         ]
+#         read_only_fields = fields
+
+#     def to_representation(self, instance):
+#         data = super().to_representation(instance)
+
+#         if hasattr(instance, "texnikkorikehtiyotqism_set"):
+#             data["ehtiyot_qismlar_detail"] = [
+#                 {
+#                     "id": item.id,
+#                     "ehtiyot_qism": item.ehtiyot_qism.id,  
+#                     "ehtiyot_qism_nomi": item.ehtiyot_qism.ehtiyotqism_nomi,
+#                     "birligi": item.ehtiyot_qism.birligi,
+#                     "miqdor": item.miqdor
+#                 }
+#                 for item in instance.texnikkorikehtiyotqism_set.all()
+#             ]
+
+#         clean_data = {
+#             k: v for k, v in data.items()
+#             if v not in [None, False, [], {}] and not (isinstance(v, str) and v.strip() == "")
+#         }
+#         return clean_data
+
 class TexnikKorikDetailForStepSerializer(serializers.ModelSerializer):
     created_by = serializers.CharField(source="created_by.username", read_only=True)
     tarkib_nomi = serializers.CharField(source="tarkib.tarkib_raqami", read_only=True)
     tamir_turi_nomi = serializers.CharField(source="tamir_turi.tamir_nomi", read_only=True)
 
-    ehtiyot_qismlar_detail = TexnikKorikEhtiyotQismSerializer(
-        source="texnikkorikehtiyotqism_set",  
-        many=True,
-        read_only=True
-    )
+    ehtiyot_qismlar_detail = serializers.SerializerMethodField()  # ✅ SerializerMethodField ishlatamiz
 
     class Meta:
         model = TexnikKorik
@@ -354,28 +397,33 @@ class TexnikKorikDetailForStepSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = fields
 
-    def to_representation(self, instance):
-        data = super().to_representation(instance)
-
-        if hasattr(instance, "texnikkorikehtiyotqism_set"):
-            data["ehtiyot_qismlar_detail"] = [
+    def get_ehtiyot_qismlar_detail(self, obj):
+        korik_qismlar = []
+        
+        if hasattr(obj, 'texnikkorikehtiyotqism_set'):
+            korik_qismlar = [
                 {
                     "id": item.id,
                     "ehtiyot_qism": item.ehtiyot_qism.id,  
                     "ehtiyot_qism_nomi": item.ehtiyot_qism.ehtiyotqism_nomi,
                     "birligi": item.ehtiyot_qism.birligi,
-                    "miqdor": item.miqdor
+                    "ishlatilgan_miqdor": item.miqdor,
+                    "qoldiq": item.ehtiyot_qism.jami_miqdor,
+                    "manba": "korik"
                 }
-                for item in instance.texnikkorikehtiyotqism_set.all()
+                for item in obj.texnikkorikehtiyotqism_set.all()
             ]
 
+        return korik_qismlar
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        
         clean_data = {
             k: v for k, v in data.items()
             if v not in [None, False, [], {}] and not (isinstance(v, str) and v.strip() == "")
         }
         return clean_data
-
-
 
 
 class TexnikKorikStepSerializer(serializers.ModelSerializer):
@@ -633,7 +681,21 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
         request = self.context.get("request")
         parent_data = TexnikKorikDetailForStepSerializer(obj, context=self.context).data
 
-        parent_data["ehtiyot_qismlar_detail"] = self.get_ehtiyot_qismlar_detail(obj)
+        parent_data = {
+        "id": obj.id,
+        "tarkib": obj.tarkib.id,
+        "tarkib_nomi": obj.tarkib.tarkib_raqami,
+        "tamir_turi": obj.tamir_turi.id,
+        "tamir_turi_nomi": obj.tamir_turi.tamir_nomi,
+        "status": obj.status,
+        "kamchiliklar_haqida": obj.kamchiliklar_haqida,
+        "bartaraf_etilgan_kamchiliklar": obj.bartaraf_etilgan_kamchiliklar,
+        "kirgan_vaqti": obj.kirgan_vaqti,
+        "chiqqan_vaqti": obj.chiqqan_vaqti,
+        "created_by": obj.created_by.username if obj.created_by else None,
+        "created_at": obj.created_at,
+        "ehtiyot_qismlar_detail": self.get_ehtiyot_qismlar_detail(obj)  
+    }
 
         steps_qs = obj.steps.all().order_by("created_at")
         search = request.query_params.get("search")
@@ -781,6 +843,11 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
             korik.tarkib.holati = "Soz_holatda"
             korik.tarkib.save()
             korik.save()
+            
+        
+        
+        korik.refresh_from_db()
+
 
         return korik
 
