@@ -579,7 +579,7 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
         ]
 
         step_qismlar = []
-        if obj.status != TexnikKorik.Status.YAKUNLANGAN:  
+        if obj.status != TexnikKorik.Status.BARTARAF_ETILDI:  
             for step in obj.steps.all():
                 for item in step.texnikkorikehtiyotqismstep_set.all():
                     step_qismlar.append({
