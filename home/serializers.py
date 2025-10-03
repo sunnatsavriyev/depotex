@@ -406,22 +406,26 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
         
         
     def get_ehtiyot_qismlar_detail(self, obj):
-        step_qismlar = [
-            {
-                "id": item.id,
-                "ehtiyot_qism": item.ehtiyot_qism.id,
-                "ehtiyot_qism_nomi": item.ehtiyot_qism.ehtiyotqism_nomi,
-                "birligi": item.ehtiyot_qism.birligi,
-                "ishlatilgan_miqdor": item.miqdor,
-                "qoldiq": item.ehtiyot_qism.jami_miqdor,
-                "manba": "step",
-                "step_status": obj.status,  # Step statusi
-                "korik_status": obj.korik.status if obj.korik else None  # Asosiy ko'rik statusi
-            }
-            for item in obj.texnikkorikehtiyotqismstep_set.all()
-        ]
-
-        return step_qismlar
+        # Relation mavjudligini tekshirish
+        if hasattr(obj, 'texnikkorikehtiyotqismstep_set'):
+            step_qismlar = [
+                {
+                    "id": item.id,
+                    "ehtiyot_qism": item.ehtiyot_qism.id,
+                    "ehtiyot_qism_nomi": item.ehtiyot_qism.ehtiyotqism_nomi,
+                    "birligi": item.ehtiyot_qism.birligi,
+                    "ishlatilgan_miqdor": item.miqdor,
+                    "qoldiq": item.ehtiyot_qism.jami_miqdor,
+                    "manba": "step",
+                    "step_status": obj.status,
+                    "korik_status": obj.korik.status if obj.korik else None
+                }
+                for item in obj.texnikkorikehtiyotqismstep_set.all()
+            ]
+            return step_qismlar
+        
+        # Agar relation mavjud bo'lmasa, bo'sh list qaytarish
+        return []
 
 
 
@@ -470,18 +474,25 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
             **validated_data
         )
 
-        # Ehtiyot qismlarni stepga bog‘lash va yakunlash bo‘lsa chiqarish
+        # Ehtiyot qismlarni stepga bog'lash
+        ehtiyot_qism_instances = []
         for item in ehtiyot_qismlar:
             eq_val = item.get("ehtiyot_qism")
             miqdor = item.get("miqdor", 1)
             if not eq_val:
                 continue
+            
             eq_obj = eq_val if isinstance(eq_val, EhtiyotQismlari) else EhtiyotQismlari.objects.get(id=int(eq_val))
-            TexnikKorikEhtiyotQismStep.objects.create(
+            
+            # ✅ FAQAT BIR MARTA YARATISH
+            eq_instance = TexnikKorikEhtiyotQismStep.objects.create(
                 korik_step=step,
                 ehtiyot_qism=eq_obj,
                 miqdor=miqdor
             )
+            ehtiyot_qism_instances.append(eq_instance)
+            
+            # Yakunlash bo'lsa ombordan chiqarish
             if step_status == TexnikKorikStep.Status.BARTARAF_ETILDI:
                 eq_obj.jami_miqdor -= miqdor
                 eq_obj.save()
@@ -491,6 +502,8 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
                     created_by=request.user
                 )
 
+        step.refresh_from_db()
+        
         return step
 
     def to_representation(self, instance):
@@ -564,36 +577,43 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
     
     
     def get_ehtiyot_qismlar_detail(self, obj):
-        korik_qismlar = [
-            {
-                "id": item.id,
-                "ehtiyot_qism": item.ehtiyot_qism.id,
-                "ehtiyot_qism_nomi": item.ehtiyot_qism.ehtiyotqism_nomi,
-                "birligi": item.ehtiyot_qism.birligi,
-                "ishlatilgan_miqdor": item.miqdor,
-                "qoldiq": item.ehtiyot_qism.jami_miqdor,
-                "manba": "korik",
-                "qoshilgan_vaqt": item.created_at  # Qo'shilgan vaqtni qo'shing
-            }
-            for item in obj.texnikkorikehtiyotqism_set.all()
-        ]
-
+        korik_qismlar = []
         step_qismlar = []
-        for step in obj.steps.all():
-            for item in step.texnikkorikehtiyotqismstep_set.all():
-                step_data = {
+        
+        # Asosiy ko'rik ehtiyot qismlari - prefetch bilan optimallashtirish
+        if hasattr(obj, 'texnikkorikehtiyotqism_set'):
+            korik_qismlar = [
+                {
                     "id": item.id,
-                    "step_id": step.id,
                     "ehtiyot_qism": item.ehtiyot_qism.id,
                     "ehtiyot_qism_nomi": item.ehtiyot_qism.ehtiyotqism_nomi,
                     "birligi": item.ehtiyot_qism.birligi,
                     "ishlatilgan_miqdor": item.miqdor,
                     "qoldiq": item.ehtiyot_qism.jami_miqdor,
-                    "manba": "step",
-                    "qoshilgan_vaqt": item.created_at,  # Qo'shilgan vaqtni qo'shing
-                    "step_status": step.status  # Step statusini qo'shing
+                    "manba": "korik",
+                    "qoshilgan_vaqt": item.created_at.strftime("%Y-%m-%d %H:%M") if item.created_at else None
                 }
-                step_qismlar.append(step_data)
+                for item in obj.texnikkorikehtiyotqism_set.all()
+            ]
+
+        # Step ehtiyot qismlari - prefetch bilan optimallashtirish
+        if hasattr(obj, 'steps'):
+            for step in obj.steps.all().prefetch_related('texnikkorikehtiyotqismstep_set__ehtiyot_qism'):
+                if hasattr(step, 'texnikkorikehtiyotqismstep_set'):
+                    for item in step.texnikkorikehtiyotqismstep_set.all():
+                        step_data = {
+                            "id": item.id,
+                            "step_id": step.id,
+                            "ehtiyot_qism": item.ehtiyot_qism.id,
+                            "ehtiyot_qism_nomi": item.ehtiyot_qism.ehtiyotqism_nomi,
+                            "birligi": item.ehtiyot_qism.birligi,
+                            "ishlatilgan_miqdor": item.miqdor,
+                            "qoldiq": item.ehtiyot_qism.jami_miqdor,
+                            "manba": "step",
+                            "qoshilgan_vaqt": item.created_at.strftime("%Y-%m-%d %H:%M") if item.created_at else None,
+                            "step_status": step.status
+                        }
+                        step_qismlar.append(step_data)
 
         return korik_qismlar + step_qismlar
 
