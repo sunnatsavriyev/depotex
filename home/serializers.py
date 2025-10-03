@@ -406,7 +406,6 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
         
         
     def get_ehtiyot_qismlar_detail(self, obj):
-    
         step_qismlar = [
             {
                 "id": item.id,
@@ -419,21 +418,8 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
             for item in obj.texnikkorikehtiyotqismstep_set.all()
         ]
 
-        if obj.status == TexnikKorikStep.Status.BARTARAF_ETILDI:
-            korik_qismlar = [
-                {
-                    "id": item.id,
-                    "ehtiyot_qism": item.ehtiyot_qism.id,
-                    "ehtiyot_qism_nomi": item.ehtiyot_qism.ehtiyotqism_nomi,
-                    "birligi": item.ehtiyot_qism.birligi,
-                    "ishlatilgan_miqdor": item.miqdor,
-                    "qoldiq": item.ehtiyot_qism.jami_miqdor,
-                }
-                for item in obj.korik.texnikkorikehtiyotqism_set.all()
-            ]
-            return step_qismlar + korik_qismlar
-
         return step_qismlar
+
 
 
     def validate(self, attrs):
@@ -579,23 +565,24 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
         ]
 
         step_qismlar = []
-        if obj.status != TexnikKorik.Status.BARTARAF_ETILDI:  
-            for step in obj.steps.all():
-                for item in step.texnikkorikehtiyotqismstep_set.all():
-                    step_qismlar.append({
-                        "id": item.id,
-                        "step_id": step.id,
-                        "ehtiyot_qism": item.ehtiyot_qism.id,
-                        "ehtiyot_qism_nomi": item.ehtiyot_qism.ehtiyotqism_nomi,
-                        "birligi": item.ehtiyot_qism.birligi,
-                        "ishlatilgan_miqdor": item.miqdor,
-                        "qoldiq": item.ehtiyot_qism.jami_miqdor,
-                    })
+        for step in obj.steps.all():
+            for item in step.texnikkorikehtiyotqismstep_set.all():
+                step_qismlar.append({
+                    "id": item.id,
+                    "step_id": step.id,
+                    "ehtiyot_qism": item.ehtiyot_qism.id,
+                    "ehtiyot_qism_nomi": item.ehtiyot_qism.ehtiyotqism_nomi,
+                    "birligi": item.ehtiyot_qism.birligi,
+                    "ishlatilgan_miqdor": item.miqdor,
+                    "qoldiq": item.ehtiyot_qism.jami_miqdor,
+                })
 
+        # Yakuniy shart
         if obj.status == TexnikKorik.Status.BARTARAF_ETILDI:
-            return korik_qismlar
+            return korik_qismlar + step_qismlar  
 
         return step_qismlar
+
 
         
         
