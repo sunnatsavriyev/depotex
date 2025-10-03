@@ -375,55 +375,47 @@ class TexnikKorikDetailForStepSerializer(serializers.ModelSerializer):
     created_by = serializers.CharField(source="created_by.username", read_only=True)
     tarkib_nomi = serializers.CharField(source="tarkib.tarkib_raqami", read_only=True)
     tamir_turi_nomi = serializers.CharField(source="tamir_turi.tamir_nomi", read_only=True)
-
-    ehtiyot_qismlar_detail = serializers.SerializerMethodField()  # ✅ SerializerMethodField ishlatamiz
+    ehtiyot_qismlar_detail = serializers.SerializerMethodField()
 
     class Meta:
         model = TexnikKorik
         fields = [
-            "id",
-            "tarkib",
-            "tarkib_nomi",
-            "tamir_turi",
-            "tamir_turi_nomi",
-            "status",
-            "kamchiliklar_haqida",
-            "bartaraf_etilgan_kamchiliklar",
-            "kirgan_vaqti",
-            "chiqqan_vaqti",
-            "created_by",
-            "created_at",
-            "ehtiyot_qismlar_detail",
+            "id", "tarkib", "tarkib_nomi", "tamir_turi", "tamir_turi_nomi",
+            "status", "kamchiliklar_haqida", "bartaraf_etilgan_kamchiliklar",
+            "kirgan_vaqti", "chiqqan_vaqti", "created_by", "created_at",
+            "ehtiyot_qismlar_detail"
         ]
         read_only_fields = fields
 
     def get_ehtiyot_qismlar_detail(self, obj):
-        korik_qismlar = []
-        
-        if hasattr(obj, 'texnikkorikehtiyotqism_set'):
-            korik_qismlar = [
-                {
+        korik_qismlar = [
+            {
+                "id": item.id,
+                "ehtiyot_qism": item.ehtiyot_qism.id,
+                "ehtiyot_qism_nomi": item.ehtiyot_qism.ehtiyotqism_nomi,
+                "birligi": item.ehtiyot_qism.birligi,
+                "ishlatilgan_miqdor": item.miqdor,
+                "qoldiq": item.ehtiyot_qism.jami_miqdor,
+                "manba": "korik"
+            } for item in obj.texnikkorikehtiyotqism_set.all()
+        ]
+
+        step_qismlar = []
+        for step in obj.steps.all().prefetch_related("ehtiyot_qismlar_step__ehtiyot_qism"):
+            for item in step.ehtiyot_qismlar_step.all():
+                step_qismlar.append({
                     "id": item.id,
-                    "ehtiyot_qism": item.ehtiyot_qism.id,  
+                    "step_id": step.id,
+                    "ehtiyot_qism": item.ehtiyot_qism.id,
                     "ehtiyot_qism_nomi": item.ehtiyot_qism.ehtiyotqism_nomi,
                     "birligi": item.ehtiyot_qism.birligi,
                     "ishlatilgan_miqdor": item.miqdor,
                     "qoldiq": item.ehtiyot_qism.jami_miqdor,
-                    "manba": "korik"
-                }
-                for item in obj.texnikkorikehtiyotqism_set.all()
-            ]
+                    "manba": "step"
+                })
 
-        return korik_qismlar
+        return korik_qismlar + step_qismlar
 
-    def to_representation(self, instance):
-        data = super().to_representation(instance)
-        
-        clean_data = {
-            k: v for k, v in data.items()
-            if v not in [None, False, [], {}] and not (isinstance(v, str) and v.strip() == "")
-        }
-        return clean_data
 
 
 class TexnikKorikStepSerializer(serializers.ModelSerializer):
@@ -454,24 +446,17 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
         
         
     def get_ehtiyot_qismlar_detail(self, obj):
-        # Relation mavjudligini tekshirish
-        if hasattr(obj, 'texnikkorikehtiyotqismstep_set'):
-            step_qismlar = [
-                {
-                    "id": item.id,
-                    "ehtiyot_qism": item.ehtiyot_qism.id,
-                    "ehtiyot_qism_nomi": item.ehtiyot_qism.ehtiyotqism_nomi,
-                    "birligi": item.ehtiyot_qism.birligi,
-                    "ishlatilgan_miqdor": item.miqdor,
-                    "qoldiq": item.ehtiyot_qism.jami_miqdor,
-                    "manba": "step",
-                }
-                for item in obj.texnikkorikehtiyotqismstep_set.all()
-            ]
-            return step_qismlar
-        
-        # Agar relation mavjud bo'lmasa, bo'sh list qaytarish
-        return []
+        return [
+            {
+                "id": item.id,
+                "ehtiyot_qism": item.ehtiyot_qism.id,
+                "ehtiyot_qism_nomi": item.ehtiyot_qism.ehtiyotqism_nomi,
+                "birligi": item.ehtiyot_qism.birligi,
+                "ishlatilgan_miqdor": item.miqdor,
+                "qoldiq": item.ehtiyot_qism.jami_miqdor,
+                "manba": "step"
+            } for item in obj.ehtiyot_qismlar_step.all()
+        ]
 
 
 

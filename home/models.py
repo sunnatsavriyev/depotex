@@ -186,18 +186,18 @@ class TexnikKorikEhtiyotQism(models.Model):
 
     def save(self, *args, **kwargs):
         if self.ehtiyot_qism and self.miqdor > self.ehtiyot_qism.jami_miqdor:
-            raise ValueError(f"❌ Omborda yetarli miqdor yo‘q (qoldiq: {self.ehtiyot_qism.jami_miqdor})")
+            raise ValueError(f"Omborda yetarli miqdor yo‘q (qoldiq: {self.ehtiyot_qism.jami_miqdor})")
         super().save(*args, **kwargs)
 
 
 class TexnikKorikEhtiyotQismStep(models.Model):
-    korik_step = models.ForeignKey("TexnikKorikStep", on_delete=models.SET_NULL, null=True, blank=True)
+    korik_step = models.ForeignKey("TexnikKorikStep", on_delete=models.SET_NULL, null=True, blank=True, related_name="ehtiyot_qismlar_step")
     ehtiyot_qism = models.ForeignKey("EhtiyotQismlari", on_delete=models.SET_NULL, null=True, blank=True)
     miqdor = models.FloatField(default=1)
 
     def save(self, *args, **kwargs):
         if self.ehtiyot_qism and self.miqdor > self.ehtiyot_qism.jami_miqdor:
-            raise ValueError(f"❌ Omborda yetarli miqdor yo‘q (qoldiq: {self.ehtiyot_qism.jami_miqdor})")
+            raise ValueError(f"Omborda yetarli miqdor yo‘q (qoldiq: {self.ehtiyot_qism.jami_miqdor})")
         super().save(*args, **kwargs)
 
 
