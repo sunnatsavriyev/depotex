@@ -419,10 +419,24 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
             for item in obj.texnikkorikehtiyotqismstep_set.all()
         ]
 
-        if obj.status == TexnikKorikStep.Status.BARTARAF_ETILDI:
-            return step_qismlar  
+        # 🔑 Step yakunlanganda ham korik qismlarini qo‘shib ko‘rsatamiz
+        korik_qismlar = []
+        if obj.korik:
+            korik_qismlar = [
+                {
+                    "id": item.id,
+                    "ehtiyot_qism": item.ehtiyot_qism.id,
+                    "ehtiyot_qism_nomi": item.ehtiyot_qism.ehtiyotqism_nomi,
+                    "birligi": item.ehtiyot_qism.birligi,
+                    "ishlatilgan_miqdor": item.miqdor,
+                    "qoldiq": item.ehtiyot_qism.jami_miqdor,
+                    "manba": "korik"
+                }
+                for item in obj.korik.texnikkorikehtiyotqism_set.all()
+            ]
 
-        return step_qismlar
+        return korik_qismlar + step_qismlar
+
 
 
 
@@ -498,14 +512,6 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
 
 
 
-    
-
-class StepPagination(PageNumberPagination): 
-    page_size_query_param = "limit"
-    max_page_size = 50
-
-
-
 
 
 class TexnikKorikSerializer(serializers.ModelSerializer):
@@ -569,28 +575,29 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
                 "birligi": item.ehtiyot_qism.birligi,
                 "ishlatilgan_miqdor": item.miqdor,
                 "qoldiq": item.ehtiyot_qism.jami_miqdor,
+                "manba": "korik"
             }
             for item in obj.texnikkorikehtiyotqism_set.all()
         ]
 
-        step_qismlar = []
-        for step in obj.steps.all():
-            for item in step.texnikkorikehtiyotqismstep_set.all():
-                step_qismlar.append({
-                    "id": item.id,
-                    "step_id": step.id,
-                    "ehtiyot_qism": item.ehtiyot_qism.id,
-                    "ehtiyot_qism_nomi": item.ehtiyot_qism.ehtiyotqism_nomi,
-                    "birligi": item.ehtiyot_qism.birligi,
-                    "ishlatilgan_miqdor": item.miqdor,
-                    "qoldiq": item.ehtiyot_qism.jami_miqdor,
-                })
+        step_qismlar = [
+            {
+                "id": item.id,
+                "step_id": step.id,
+                "ehtiyot_qism": item.ehtiyot_qism.id,
+                "ehtiyot_qism_nomi": item.ehtiyot_qism.ehtiyotqism_nomi,
+                "birligi": item.ehtiyot_qism.birligi,
+                "ishlatilgan_miqdor": item.miqdor,
+                "qoldiq": item.ehtiyot_qism.jami_miqdor,
+                "manba": "step"
+            }
+            for step in obj.steps.all()
+            for item in step.texnikkorikehtiyotqismstep_set.all()
+        ]
 
-        # Yakuniy shart
-        if obj.status == TexnikKorik.Status.BARTARAF_ETILDI:
-            return korik_qismlar + step_qismlar  
+        # ✅ Har doim ikkisini qo‘shib qaytaramiz
+        return korik_qismlar + step_qismlar
 
-        return step_qismlar
 
 
         
@@ -803,6 +810,14 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
                 )
 
         return instance
+
+
+
+    
+
+class StepPagination(PageNumberPagination): 
+    page_size_query_param = "limit"
+    max_page_size = 50
 
 
 
