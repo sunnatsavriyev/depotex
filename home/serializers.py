@@ -7,7 +7,7 @@ from rest_framework.pagination import PageNumberPagination
 from django.db.models import Q
 from django.db.models import Sum
 from django.db import models
-
+import json
 User = get_user_model()
 class UserSerializer(serializers.ModelSerializer):
     depo_nomi = serializers.CharField(source="depo.qisqacha_nomi", read_only=True)
@@ -432,6 +432,14 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
         akt_file = attrs.get("akt_file")
         if yakunlash and not akt_file:
             raise serializers.ValidationError({"akt_file": "Yakunlash uchun akt fayl majburiy."})
+        
+        ehtiyot_qismlar = attrs.get("ehtiyot_qismlar")
+        if isinstance(ehtiyot_qismlar, str):
+            try:
+                attrs["ehtiyot_qismlar"] = json.loads(ehtiyot_qismlar)
+            except Exception:
+                raise serializers.ValidationError({"ehtiyot_qismlar": "Noto‘g‘ri format."})
+
 
         return attrs
 
@@ -666,8 +674,19 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
         akt_file = attrs.get("akt_file")
         if yakunlash and not akt_file:
             raise serializers.ValidationError({"akt_file": "Yakunlash uchun akt fayl majburiy."})
-
+        
+        
+        
+        ehtiyot_qismlar = attrs.get("ehtiyot_qismlar")
+        if isinstance(ehtiyot_qismlar, str):
+            try:
+                attrs["ehtiyot_qismlar"] = json.loads(ehtiyot_qismlar)
+            except Exception:
+                raise serializers.ValidationError({"ehtiyot_qismlar": "Noto‘g‘ri format."})
+    
         return attrs
+
+
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
