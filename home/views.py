@@ -773,25 +773,42 @@ class TexnikKorikViewSet(BaseViewSet):
         return qs
 
     def create(self, request, *args, **kwargs):
-        """CREATE so'rovidan keyin to'liq prefetch qilgan holda qaytarish"""
+        """CREATE so'rovini qayta ishlash"""
+        print("🔴 CREATE so'rovi keldi")
+        print(f"Request data: {request.data}")
+        print(f"Request FILES: {request.FILES}")
+        
+        # FormData dan ehtiyot_qismlarni JSON ga o'girish
+        if 'ehtiyot_qismlar' in request.data and isinstance(request.data['ehtiyot_qismlar'], str):
+            try:
+                request.data._mutable = True
+                request.data['ehtiyot_qismlar'] = json.loads(request.data['ehtiyot_qismlar'])
+                request.data._mutable = False
+            except Exception as e:
+                print(f"❌ JSON parse xatosi: {e}")
+        
         response = super().create(request, *args, **kwargs)
         
         # CREATE dan keyin yangi yaratilgan korikni to'liq yuklab olish
         if response.status_code == status.HTTP_201_CREATED:
             korik_id = response.data.get('id')
             if korik_id:
-                korik = (
-                    TexnikKorik.objects
-                    .select_related("tarkib", "tamir_turi", "created_by")
-                    .prefetch_related(
-                        "texnikkorikehtiyotqism_set__ehtiyot_qism",
-                        "steps__texnikkorikehtiyotqismstep_set__ehtiyot_qism",
-                        "steps"
+                try:
+                    korik = (
+                        TexnikKorik.objects
+                        .select_related("tarkib", "tamir_turi", "created_by")
+                        .prefetch_related(
+                            "texnikkorikehtiyotqism_set__ehtiyot_qism",
+                            "steps__texnikkorikehtiyotqismstep_set__ehtiyot_qism",
+                            "steps"
+                        )
+                        .get(id=korik_id)
                     )
-                    .get(id=korik_id)
-                )
-                serializer = self.get_serializer(korik)
-                response.data = serializer.data
+                    serializer = self.get_serializer(korik)
+                    response.data = serializer.data
+                    print("✅ Response yangilandi")
+                except Exception as e:
+                    print(f"❌ Korikni yuklab olishda xato: {e}")
         
         return response
 
@@ -911,7 +928,7 @@ class TexnikKorikStepViewSet(BaseViewSet):
             .order_by("-id")
         )
 
-        # faqat o‘z depo uchun texnik
+        # faqat o'z depo uchun texnik
         if user.role == "texnik" and user.depo:
             qs = qs.filter(korik__tarkib__depo=user.depo)
 
@@ -923,21 +940,38 @@ class TexnikKorikStepViewSet(BaseViewSet):
         return qs
 
     def create(self, request, *args, **kwargs):
-        """CREATE so'rovidan keyin to'liq prefetch qilgan holda qaytarish"""
+        """CREATE so'rovini qayta ishlash"""
+        print("🔴 STEP CREATE so'rovi keldi")
+        print(f"Request data: {request.data}")
+        print(f"Request FILES: {request.FILES}")
+        
+        # FormData dan ehtiyot_qismlarni JSON ga o'girish
+        if 'ehtiyot_qismlar' in request.data and isinstance(request.data['ehtiyot_qismlar'], str):
+            try:
+                request.data._mutable = True
+                request.data['ehtiyot_qismlar'] = json.loads(request.data['ehtiyot_qismlar'])
+                request.data._mutable = False
+            except Exception as e:
+                print(f"❌ STEP JSON parse xatosi: {e}")
+        
         response = super().create(request, *args, **kwargs)
         
         # CREATE dan keyin yangi yaratilgan stepni to'liq yuklab olish
         if response.status_code == status.HTTP_201_CREATED:
             step_id = response.data.get('id')
             if step_id:
-                step = (
-                    TexnikKorikStep.objects
-                    .select_related("korik", "tamir_turi", "created_by")
-                    .prefetch_related("texnikkorikehtiyotqismstep_set__ehtiyot_qism")
-                    .get(id=step_id)
-                )
-                serializer = self.get_serializer(step)
-                response.data = serializer.data
+                try:
+                    step = (
+                        TexnikKorikStep.objects
+                        .select_related("korik", "tamir_turi", "created_by")
+                        .prefetch_related("texnikkorikehtiyotqismstep_set__ehtiyot_qism")
+                        .get(id=step_id)
+                    )
+                    serializer = self.get_serializer(step)
+                    response.data = serializer.data
+                    print("✅ STEP Response yangilandi")
+                except Exception as e:
+                    print(f"❌ Stepni yuklab olishda xato: {e}")
         
         return response
 
