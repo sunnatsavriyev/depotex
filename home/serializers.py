@@ -469,19 +469,24 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
         
         
     def get_ehtiyot_qismlar_detail(self, obj):
-        return [
-            {
-                "id": item.id,
-                "ehtiyot_qism": item.ehtiyot_qism.id,
-                "ehtiyot_qism_nomi": item.ehtiyot_qism.ehtiyotqism_nomi,
-                "birligi": item.ehtiyot_qism.birligi,
-                "ishlatilgan_miqdor": item.miqdor,
-                "qoldiq": item.ehtiyot_qism.jami_miqdor,
-                "manba": "step",
-            }
-            for item in obj.texnikkorikehtiyotqismstep_set.select_related("ehtiyot_qism").all()
-        ]
-
+        
+        if hasattr(obj, 'texnikkorikehtiyotqismstep_set'):
+            step_qismlar = [
+                {
+                    "id": item.id,
+                    "ehtiyot_qism": item.ehtiyot_qism.id,
+                    "ehtiyot_qism_nomi": item.ehtiyot_qism.ehtiyotqism_nomi,
+                    "birligi": item.ehtiyot_qism.birligi,
+                    "ishlatilgan_miqdor": item.miqdor,
+                    "qoldiq": item.ehtiyot_qism.jami_miqdor,
+                    "manba": "step",
+                }
+                for item in obj.texnikkorikehtiyotqismstep_set.all()
+            ]
+            return step_qismlar
+        
+        # Agar relation mavjud bo'lmasa, bo'sh list qaytarish
+        return []
 
 
 
@@ -489,15 +494,18 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         request = self.context.get("request")
         
+        # Password tekshirish
         password = attrs.pop("password", None)
         if not password or not request.user.check_password(password):
             raise serializers.ValidationError({"password": "Parol noto'g'ri."})
 
+        # Yakunlash tekshirish
         yakunlash = attrs.get("yakunlash", False)
         akt_file = attrs.get("akt_file")
         if yakunlash and not akt_file:
             raise serializers.ValidationError({"akt_file": "Yakunlash uchun akt fayl majburiy."})
         
+        # Ehtiyot qismlarni JSON formatda qayta ishlash
         ehtiyot_qismlar = attrs.get("ehtiyot_qismlar")
         if ehtiyot_qismlar:
             if isinstance(ehtiyot_qismlar, str):
@@ -518,10 +526,10 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
         akt_file = validated_data.pop("akt_file", None)
         ehtiyot_qismlar = validated_data.pop("ehtiyot_qismlar", [])
 
-        step_status = (
-            TexnikKorikStep.Status.BARTARAF_ETILDI if (yakunlash and akt_file)
-            else TexnikKorikStep.Status.JARAYONDA
-        )
+        if yakunlash and akt_file:
+            step_status = TexnikKorikStep.Status.BARTARAF_ETILDI
+        else:
+            step_status = TexnikKorikStep.Status.JARAYONDA
 
         # Step yaratish
         step = TexnikKorikStep.objects.create(
@@ -533,7 +541,6 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
             **validated_data
         )
 
-        # Korikni yangilash
         if yakunlash and akt_file:
             korik.status = TexnikKorik.Status.BARTARAF_ETILDI
             korik.tarkib.holati = "Soz_holatda"
@@ -542,14 +549,14 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
             korik.save()
             korik.tarkib.save()
 
-        # Ehtiyot qismlar
+        # Ehtiyot qismlarni stepga bog'lash
         for item in ehtiyot_qismlar:
             eq_val = item.get("ehtiyot_qism")
             miqdor = item.get("miqdor", 1)
             if not eq_val:
                 continue
-
-            # Obyektni olish
+            
+            # Ehtiyot qismini olish
             if isinstance(eq_val, EhtiyotQismlari):
                 eq_obj = eq_val
             else:
@@ -558,12 +565,15 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
                 except (EhtiyotQismlari.DoesNotExist, ValueError, TypeError):
                     raise serializers.ValidationError({"ehtiyot_qism": f"ID {eq_val} topilmadi"})
 
+            print(f"Step ehtiyot qism yaratilmoqda: {eq_obj.id}, miqdor: {miqdor}")
+
+            # Ehtiyot qismni yaratish
             TexnikKorikEhtiyotQismStep.objects.create(
                 korik_step=step,
                 ehtiyot_qism=eq_obj,
                 miqdor=miqdor
             )
-
+            
             if yakunlash:
                 eq_obj.jami_miqdor -= miqdor
                 eq_obj.save()
@@ -574,20 +584,23 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
                     izoh=f"Texnik ko'rik step yakunlandi (Step ID: {step.id}, Korik ID: {korik.id})"
                 )
 
-        # Prefetch bilan qaytarish
-        return TexnikKorikStep.objects.prefetch_related(
-            "texnikkorikehtiyotqismstep_set__ehtiyot_qism"
-        ).get(id=step.id)
+        step.refresh_from_db()
         
+        # DEBUG: Ehtiyot qismlarni tekshirish
+        step_with_prefetch = TexnikKorikStep.objects.prefetch_related('texnikkorikehtiyotqismstep_set').get(id=step.id)
+        actual_count = step_with_prefetch.texnikkorikehtiyotqismstep_set.count()
         
+
+        return step
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
         
+        # Ehtiyot qismlar detailni qo'lda qo'shamiz
         if 'ehtiyot_qismlar_detail' not in data or not data['ehtiyot_qismlar_detail']:
             data['ehtiyot_qismlar_detail'] = self.get_ehtiyot_qismlar_detail(instance)
         
-       
+        # Bo'sh qiymatlarni olib tashlamaslik
         clean_data = {
             k: v for k, v in data.items()
             if v not in [None, False] and not (isinstance(v, str) and v.strip() == "")
@@ -915,11 +928,12 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
             instance.akt_file = akt_file
 
         if yakunlash:
-            validated_data["status"] = TexnikKorik.Status.BARTARAF_ETILDI
-            validated_data["chiqqan_vaqti"] = timezone.now()
+            instance.status = TexnikKorik.Status.BARTARAF_ETILDI
             instance.tarkib.holati = "Soz_holatda"
+            if not instance.chiqqan_vaqti:
+                instance.chiqqan_vaqti = timezone.now()
+            instance.tarkib.save()  
         else:
-            validated_data["status"] = TexnikKorik.Status.JARAYONDA
             instance.tarkib.holati = "Texnik_korikda"
 
         instance.tarkib.save()
