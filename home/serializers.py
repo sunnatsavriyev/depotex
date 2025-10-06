@@ -469,23 +469,19 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
         
         
     def get_ehtiyot_qismlar_detail(self, obj):
-        
-        if hasattr(obj, 'texnikkorikehtiyotqismstep_set'):
-            step_qismlar = [
-                {
-                    "id": item.id,
-                    "ehtiyot_qism": item.ehtiyot_qism.id,
-                    "ehtiyot_qism_nomi": item.ehtiyot_qism.ehtiyotqism_nomi,
-                    "birligi": item.ehtiyot_qism.birligi,
-                    "ishlatilgan_miqdor": item.miqdor,
-                    "qoldiq": item.ehtiyot_qism.jami_miqdor,
-                    "manba": "step",
-                }
-                for item in obj.texnikkorikehtiyotqismstep_set.all()
-            ]
-            return step_qismlar
-        
-        return []
+        return [
+            {
+                "id": item.id,
+                "ehtiyot_qism": item.ehtiyot_qism.id,
+                "ehtiyot_qism_nomi": item.ehtiyot_qism.ehtiyotqism_nomi,
+                "birligi": item.ehtiyot_qism.birligi,
+                "ishlatilgan_miqdor": item.miqdor,
+                "qoldiq": item.ehtiyot_qism.jami_miqdor,
+                "manba": "step",
+            }
+            for item in obj.texnikkorikehtiyotqismstep_set.select_related("ehtiyot_qism").all()
+        ]
+
 
 
 
@@ -522,10 +518,10 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
         akt_file = validated_data.pop("akt_file", None)
         ehtiyot_qismlar = validated_data.pop("ehtiyot_qismlar", [])
 
-        if yakunlash and akt_file:
-            step_status = TexnikKorikStep.Status.BARTARAF_ETILDI
-        else:
-            step_status = TexnikKorikStep.Status.JARAYONDA
+        step_status = (
+            TexnikKorikStep.Status.BARTARAF_ETILDI if (yakunlash and akt_file)
+            else TexnikKorikStep.Status.JARAYONDA
+        )
 
         # Step yaratish
         step = TexnikKorikStep.objects.create(
@@ -537,6 +533,7 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
             **validated_data
         )
 
+        # Korikni yangilash
         if yakunlash and akt_file:
             korik.status = TexnikKorik.Status.BARTARAF_ETILDI
             korik.tarkib.holati = "Soz_holatda"
@@ -545,14 +542,14 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
             korik.save()
             korik.tarkib.save()
 
-        # Ehtiyot qismlarni stepga bog'lash
+        # Ehtiyot qismlar
         for item in ehtiyot_qismlar:
             eq_val = item.get("ehtiyot_qism")
             miqdor = item.get("miqdor", 1)
             if not eq_val:
                 continue
-            
-            # Ehtiyot qismini olish
+
+            # Obyektni olish
             if isinstance(eq_val, EhtiyotQismlari):
                 eq_obj = eq_val
             else:
@@ -561,15 +558,12 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
                 except (EhtiyotQismlari.DoesNotExist, ValueError, TypeError):
                     raise serializers.ValidationError({"ehtiyot_qism": f"ID {eq_val} topilmadi"})
 
-            print(f"Step ehtiyot qism yaratilmoqda: {eq_obj.id}, miqdor: {miqdor}")
-
-            # Ehtiyot qismni yaratish
             TexnikKorikEhtiyotQismStep.objects.create(
                 korik_step=step,
                 ehtiyot_qism=eq_obj,
                 miqdor=miqdor
             )
-            
+
             if yakunlash:
                 eq_obj.jami_miqdor -= miqdor
                 eq_obj.save()
@@ -580,28 +574,19 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
                     izoh=f"Texnik ko'rik step yakunlandi (Step ID: {step.id}, Korik ID: {korik.id})"
                 )
 
-        step.refresh_from_db()
+        # Prefetch bilan qaytarish
+        return TexnikKorikStep.objects.prefetch_related(
+            "texnikkorikehtiyotqismstep_set__ehtiyot_qism"
+        ).get(id=step.id)
         
-        # DEBUG: Ehtiyot qismlarni tekshirish
-        step_with_prefetch = TexnikKorikStep.objects.prefetch_related('texnikkorikehtiyotqismstep_set').get(id=step.id)
-        actual_count = step_with_prefetch.texnikkorikehtiyotqismstep_set.count()
         
-
-        return step
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
-        
-        # Ehtiyot qismlar detailni qo'lda qo'shamiz
-        if 'ehtiyot_qismlar_detail' not in data or not data['ehtiyot_qismlar_detail']:
-            data['ehtiyot_qismlar_detail'] = self.get_ehtiyot_qismlar_detail(instance)
-        
-        # Bo'sh qiymatlarni olib tashlamaslik
-        clean_data = {
+        return {
             k: v for k, v in data.items()
-            if v not in [None, False] and not (isinstance(v, str) and v.strip() == "")
+            if v not in [None, False, "", [], {}]
         }
-        return clean_data
 
 
 
@@ -836,7 +821,6 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
         akt_file = validated_data.pop("akt_file", None)
         ehtiyot_qismlar = validated_data.pop("ehtiyot_qismlar", [])
 
-
         if yakunlash and akt_file:
             status = TexnikKorik.Status.BARTARAF_ETILDI
             tarkib_holati = "Soz_holatda"
@@ -844,44 +828,36 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
             status = TexnikKorik.Status.JARAYONDA
             tarkib_holati = "Texnik_korikda"
 
-        # Korik yaratish
         korik = TexnikKorik.objects.create(
             tarkib=tarkib,
             tamir_turi=tamir_turi,
             created_by=request.user,
-            status=status,  # ✅ To'g'ri status
+            status=status,
             **validated_data
         )
 
-        # Tarkib holatini yangilash
         korik.tarkib.holati = tarkib_holati
         korik.tarkib.save()
 
-        # Ehtiyot qismlarni yaratish
+        # 🔹 Ehtiyot qismlarni yozish
         for item in ehtiyot_qismlar:
             eq_val = item.get("ehtiyot_qism")
             miqdor = item.get("miqdor", 1)
             if not eq_val:
                 continue
 
-            # Ehtiyot qismini olish
-            if isinstance(eq_val, EhtiyotQismlari):
-                eq_obj = eq_val
-            else:
-                try:
-                    eq_obj = EhtiyotQismlari.objects.get(id=int(eq_val))
-                except (EhtiyotQismlari.DoesNotExist, ValueError, TypeError):
-                    raise serializers.ValidationError({"ehtiyot_qism": f"ID {eq_val} topilmadi"})
+            try:
+                eq_obj = (eq_val if isinstance(eq_val, EhtiyotQismlari)
+                        else EhtiyotQismlari.objects.get(id=int(eq_val)))
+            except (EhtiyotQismlari.DoesNotExist, ValueError, TypeError):
+                raise serializers.ValidationError({"ehtiyot_qism": f"ID {eq_val} topilmadi"})
 
-
-            # Ehtiyot qismni yaratish
             TexnikKorikEhtiyotQism.objects.create(
                 korik=korik,
                 ehtiyot_qism=eq_obj,
                 miqdor=miqdor
             )
 
-            # Yakunlash bo'lsa ombordan chiqarish
             if yakunlash:
                 eq_obj.jami_miqdor -= miqdor
                 eq_obj.save()
@@ -892,21 +868,17 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
                     izoh=f"Texnik ko'rik yakunlandi (ID: {korik.id})"
                 )
 
-        # Yakunlash bo'lsa qo'shimcha yangilashlar
         if yakunlash and akt_file:
             korik.akt_file = akt_file
             korik.chiqqan_vaqti = timezone.now()
             korik.save()
 
-        # Korikni yangilash
-        korik.refresh_from_db()
-        
-        # DEBUG: Ehtiyot qismlarni tekshirish
-        korik_with_prefetch = TexnikKorik.objects.prefetch_related('texnikkorikehtiyotqism_set').get(id=korik.id)
-        actual_count = korik_with_prefetch.texnikkorikehtiyotqism_set.count()
-        
+        # 🔹 Prefetch bilan qaytarish (korik + ehtiyot qismlar + step qismlar)
+        return TexnikKorik.objects.prefetch_related(
+            'texnikkorikehtiyotqism_set__ehtiyot_qism',
+            'steps__texnikkorikehtiyotqismstep_set__ehtiyot_qism'
+        ).get(id=korik.id)
 
-        return korik
 
 
 
@@ -970,7 +942,10 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
                         izoh=f"Texnik ko'rik yangilandi (ID: {instance.id})"
                     )
 
-        return instance
+        return TexnikKorik.objects.prefetch_related(
+        'texnikkorikehtiyotqism_set__ehtiyot_qism',
+        'steps__texnikkorikehtiyotqismstep_set__ehtiyot_qism'
+            ).get(id=instance.id)
 
 
 
