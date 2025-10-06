@@ -901,9 +901,6 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
             korik.akt_file = akt_file
             korik.chiqqan_vaqti = timezone.now()
             korik.save()
-
-        # Korikni yangilash
-        korik.refresh_from_db()
         
         # DEBUG: Ehtiyot qismlarni tekshirish
         korik_with_prefetch = TexnikKorik.objects.prefetch_related('texnikkorikehtiyotqism_set').get(id=korik.id)
