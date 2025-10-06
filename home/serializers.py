@@ -541,7 +541,6 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
             korik.status = TexnikKorik.Status.BARTARAF_ETILDI
             korik.tarkib.holati = "Soz_holatda"
             korik.akt_file = akt_file
-            korik.ehtiyot_qismlar = ehtiyot_qismlar
             korik.chiqqan_vaqti = timezone.now()
             korik.save()
             korik.tarkib.save()
@@ -896,7 +895,6 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
         # Yakunlash bo'lsa qo'shimcha yangilashlar
         if yakunlash and akt_file:
             korik.akt_file = akt_file
-            korik.ehtiyot_qismlar = ehtiyot_qismlar
             korik.chiqqan_vaqti = timezone.now()
             korik.save()
 
