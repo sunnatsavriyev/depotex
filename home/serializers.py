@@ -927,13 +927,13 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
         if akt_file:
             instance.akt_file = akt_file
 
-        if yakunlash:
+        if yakunlash and akt_file:
             instance.status = TexnikKorik.Status.BARTARAF_ETILDI
             instance.tarkib.holati = "Soz_holatda"
             if not instance.chiqqan_vaqti:
                 instance.chiqqan_vaqti = timezone.now()
-            instance.tarkib.save()  
         else:
+            # Faqat yakunlash bo‘lmasa Texnik_korikda
             instance.tarkib.holati = "Texnik_korikda"
 
         instance.tarkib.save()
