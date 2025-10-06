@@ -376,7 +376,7 @@ class TexnikKorikDetailForStepSerializer(serializers.ModelSerializer):
     tarkib_nomi = serializers.CharField(source="tarkib.tarkib_raqami", read_only=True)
     tamir_turi_nomi = serializers.CharField(source="tamir_turi.tamir_nomi", read_only=True)
 
-    ehtiyot_qismlar_detail = serializers.SerializerMethodField()  # ✅ SerializerMethodField ishlatamiz
+    ehtiyot_qismlar_detail = serializers.SerializerMethodField() 
 
     class Meta:
         model = TexnikKorik
@@ -400,7 +400,6 @@ class TexnikKorikDetailForStepSerializer(serializers.ModelSerializer):
     def get_ehtiyot_qismlar_detail(self, obj):
         korik_qismlar = []
 
-        # 1️⃣ Stepga bog'langan qismlar
         if hasattr(obj, 'texnikkorikehtiyotqismstep_set'):
             korik_qismlar.extend([
                 {
@@ -415,7 +414,6 @@ class TexnikKorikDetailForStepSerializer(serializers.ModelSerializer):
                 for item in obj.texnikkorikehtiyotqismstep_set.all()
             ])
 
-        # 2️⃣ Step bo'lmagan holatda, korikga bog'langan qismlar
         if hasattr(obj, 'texnikkorikehtiyotqism_set'):
             korik_qismlar.extend([
                 {
@@ -471,7 +469,7 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
         
         
     def get_ehtiyot_qismlar_detail(self, obj):
-        # Relation mavjudligini tekshirish
+        
         if hasattr(obj, 'texnikkorikehtiyotqismstep_set'):
             step_qismlar = [
                 {
@@ -487,7 +485,6 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
             ]
             return step_qismlar
         
-        # Agar relation mavjud bo'lmasa, bo'sh list qaytarish
         return []
 
 
@@ -496,18 +493,15 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         request = self.context.get("request")
         
-        # Password tekshirish
         password = attrs.pop("password", None)
         if not password or not request.user.check_password(password):
             raise serializers.ValidationError({"password": "Parol noto'g'ri."})
 
-        # Yakunlash tekshirish
         yakunlash = attrs.get("yakunlash", False)
         akt_file = attrs.get("akt_file")
         if yakunlash and not akt_file:
             raise serializers.ValidationError({"akt_file": "Yakunlash uchun akt fayl majburiy."})
         
-        # Ehtiyot qismlarni JSON formatda qayta ishlash
         ehtiyot_qismlar = attrs.get("ehtiyot_qismlar")
         if ehtiyot_qismlar:
             if isinstance(ehtiyot_qismlar, str):
@@ -547,6 +541,7 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
             korik.status = TexnikKorik.Status.BARTARAF_ETILDI
             korik.tarkib.holati = "Soz_holatda"
             korik.akt_file = akt_file
+            korik.ehtiyot_qismlar = ehtiyot_qismlar
             korik.chiqqan_vaqti = timezone.now()
             korik.save()
             korik.tarkib.save()
@@ -901,6 +896,7 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
         # Yakunlash bo'lsa qo'shimcha yangilashlar
         if yakunlash and akt_file:
             korik.akt_file = akt_file
+            korik.ehtiyot_qismlar = ehtiyot_qismlar
             korik.chiqqan_vaqti = timezone.now()
             korik.save()
 
