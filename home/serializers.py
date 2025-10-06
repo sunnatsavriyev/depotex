@@ -915,12 +915,11 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
             instance.akt_file = akt_file
 
         if yakunlash:
-            instance.status = TexnikKorik.Status.BARTARAF_ETILDI
+            validated_data["status"] = TexnikKorik.Status.BARTARAF_ETILDI
+            validated_data["chiqqan_vaqti"] = timezone.now()
             instance.tarkib.holati = "Soz_holatda"
-            if not instance.chiqqan_vaqti:
-                instance.chiqqan_vaqti = timezone.now()
-            instance.tarkib.save()  
         else:
+            validated_data["status"] = TexnikKorik.Status.JARAYONDA
             instance.tarkib.holati = "Texnik_korikda"
 
         instance.tarkib.save()
