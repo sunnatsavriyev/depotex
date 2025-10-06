@@ -900,6 +900,7 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
         if yakunlash and akt_file:
             korik.akt_file = akt_file
             korik.chiqqan_vaqti = timezone.now()
+            korik.status = TexnikKorik.Status.BARTARAF_ETILDI   
             korik.save()
         
         # DEBUG: Ehtiyot qismlarni tekshirish
