@@ -548,7 +548,7 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
             miqdor = item.get("miqdor", 1)
             if not eq_val:
                 continue
-            
+
             # Ehtiyot qismini olish
             if isinstance(eq_val, EhtiyotQismlari):
                 eq_obj = eq_val
@@ -558,7 +558,11 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
                 except (EhtiyotQismlari.DoesNotExist, ValueError, TypeError):
                     raise serializers.ValidationError({"ehtiyot_qism": f"ID {eq_val} topilmadi"})
 
-            print(f"Step ehtiyot qism yaratilmoqda: {eq_obj.id}, miqdor: {miqdor}")
+            # Omborda yetarli miqdor borligini tekshirish
+            if yakunlash and eq_obj.jami_miqdor < miqdor:
+                raise serializers.ValidationError({
+                    "ehtiyot_qism": f"Omborda yetarli miqdor yo‘q ({eq_obj.jami_miqdor})"
+                })
 
             # Ehtiyot qismni yaratish
             TexnikKorikEhtiyotQismStep.objects.create(
@@ -566,7 +570,7 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
                 ehtiyot_qism=eq_obj,
                 miqdor=miqdor
             )
-            
+
             if yakunlash:
                 eq_obj.jami_miqdor -= miqdor
                 eq_obj.save()
@@ -918,7 +922,6 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
             if not instance.chiqqan_vaqti:
                 instance.chiqqan_vaqti = timezone.now()
         else:
-            # Faqat yakunlash bo‘lmasa Texnik_korikda
             instance.tarkib.holati = "Texnik_korikda"
 
         instance.tarkib.save()
@@ -936,28 +939,22 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
                 continue
 
             # 🔹 oldin mavjud bo‘lsa update, bo‘lmasa create qiladi
-            TexnikKorikEhtiyotQism.objects.update_or_create(
+            obj, created = TexnikKorikEhtiyotQism.objects.update_or_create(
                 korik=instance,
                 ehtiyot_qism=eq_obj,
                 defaults={"miqdor": miqdor}
             )
 
             if yakunlash:
-            # 🔹 Yangi qism qo'shilgan bo'lsa, uni ham ombordan chiqarish
-                existing_item = TexnikKorikEhtiyotQism.objects.filter(
-                    korik=instance, 
-                    ehtiyot_qism=eq_obj
-                ).first()
-                
-                if not existing_item or existing_item.miqdor != miqdor:
-                    eq_obj.jami_miqdor -= miqdor
-                    eq_obj.save()
-                    EhtiyotQismHistory.objects.create(
-                        ehtiyot_qism=eq_obj,
-                        miqdor=-miqdor,
-                        created_by=request.user,
-                        izoh=f"Texnik ko'rik yangilandi (ID: {instance.id})"
-                    )
+                # Har doim ombordan chiqarish (miqdor farqiga qaramasdan)
+                eq_obj.jami_miqdor -= miqdor
+                eq_obj.save()
+                EhtiyotQismHistory.objects.create(
+                    ehtiyot_qism=eq_obj,
+                    miqdor=-miqdor,
+                    created_by=request.user,
+                    izoh=f"Texnik ko'rik yangilandi (ID: {instance.id})"
+                )
 
         return instance
 
