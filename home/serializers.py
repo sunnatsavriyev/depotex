@@ -530,7 +530,7 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
             korik=korik,
             tamir_turi=korik.tamir_turi,
             created_by=request.user,
-            yakunlash=yakunlash,
+            # yakunlash=yakunlash,
             akt_file=akt_file,
             status=step_status,
             **validated_data
