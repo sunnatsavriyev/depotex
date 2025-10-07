@@ -398,47 +398,44 @@ class TexnikKorikDetailForStepSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def get_ehtiyot_qismlar_detail(self, obj):
-        korik_qismlar = []
+        korik_qismlar = [
+            {
+                "id": item.id,
+                "ehtiyot_qism": item.ehtiyot_qism.id if item.ehtiyot_qism else None,
+                "ehtiyot_qism_nomi": item.ehtiyot_qism.ehtiyotqism_nomi if item.ehtiyot_qism else None,
+                "birligi": item.ehtiyot_qism.birligi if item.ehtiyot_qism else None,
+                "ishlatilgan_miqdor": item.miqdor,
+                "qoldiq": item.ehtiyot_qism.jami_miqdor if item.ehtiyot_qism else None,
+                "manba": "korik",
+            }
+            for item in obj.texnikkorikehtiyotqism_set.select_related("ehtiyot_qism").all()
+        ]
 
-        if hasattr(obj, 'texnikkorikehtiyotqismstep_set'):
-            korik_qismlar.extend([
-                {
+        step_qismlar = []
+        for step in obj.steps.all().prefetch_related("texnikkorikehtiyotqismstep_set__ehtiyot_qism"):
+            for item in step.texnikkorikehtiyotqismstep_set.all():
+                step_qismlar.append({
                     "id": item.id,
-                    "ehtiyot_qism": item.ehtiyot_qism.id,
-                    "ehtiyot_qism_nomi": item.ehtiyot_qism.ehtiyotqism_nomi,
-                    "birligi": item.ehtiyot_qism.birligi,
+                    "step_id": step.id,
+                    "ehtiyot_qism": item.ehtiyot_qism.id if item.ehtiyot_qism else None,
+                    "ehtiyot_qism_nomi": item.ehtiyot_qism.ehtiyotqism_nomi if item.ehtiyot_qism else None,
+                    "birligi": item.ehtiyot_qism.birligi if item.ehtiyot_qism else None,
                     "ishlatilgan_miqdor": item.miqdor,
-                    "qoldiq": item.ehtiyot_qism.jami_miqdor,
-                    "manba": "step"
-                }
-                for item in obj.texnikkorikehtiyotqismstep_set.all()
-            ])
+                    "qoldiq": item.ehtiyot_qism.jami_miqdor if item.ehtiyot_qism else None,
+                    "manba": "step",
+                })
 
-        if hasattr(obj, 'texnikkorikehtiyotqism_set'):
-            korik_qismlar.extend([
-                {
-                    "id": item.id,
-                    "ehtiyot_qism": item.ehtiyot_qism.id,
-                    "ehtiyot_qism_nomi": item.ehtiyot_qism.ehtiyotqism_nomi,
-                    "birligi": item.ehtiyot_qism.birligi,
-                    "ishlatilgan_miqdor": item.miqdor,
-                    "qoldiq": item.ehtiyot_qism.jami_miqdor,
-                    "manba": "korik"
-                }
-                for item in obj.texnikkorikehtiyotqism_set.all()
-            ])
-
-        return korik_qismlar
+        return korik_qismlar + step_qismlar
 
 
-    def to_representation(self, instance):
-        data = super().to_representation(instance)
+    # def to_representation(self, instance):
+    #     data = super().to_representation(instance)
         
-        clean_data = {
-            k: v for k, v in data.items()
-            if v not in [None, False, [], {}] and not (isinstance(v, str) and v.strip() == "")
-        }
-        return clean_data
+    #     clean_data = {
+    #         k: v for k, v in data.items()
+    #         if v not in [None, False, [], {}] and not (isinstance(v, str) and v.strip() == "")
+    #     }
+    #     return clean_data
 
 
 class TexnikKorikStepSerializer(serializers.ModelSerializer):
@@ -469,24 +466,20 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
         
         
     def get_ehtiyot_qismlar_detail(self, obj):
-        
-        if hasattr(obj, 'texnikkorikehtiyotqismstep_set'):
-            step_qismlar = [
-                {
-                    "id": item.id,
-                    "ehtiyot_qism": item.ehtiyot_qism.id,
-                    "ehtiyot_qism_nomi": item.ehtiyot_qism.ehtiyotqism_nomi,
-                    "birligi": item.ehtiyot_qism.birligi,
-                    "ishlatilgan_miqdor": item.miqdor,
-                    "qoldiq": item.ehtiyot_qism.jami_miqdor,
-                    "manba": "step",
-                }
-                for item in obj.texnikkorikehtiyotqismstep_set.all()
-            ]
-            return step_qismlar
-        
-        # Agar relation mavjud bo'lmasa, bo'sh list qaytarish
-        return []
+        step_qismlar = [
+            {
+                "id": item.id,
+                "ehtiyot_qism": item.ehtiyot_qism.id if item.ehtiyot_qism else None,
+                "ehtiyot_qism_nomi": item.ehtiyot_qism.ehtiyotqism_nomi if item.ehtiyot_qism else None,
+                "birligi": item.ehtiyot_qism.birligi if item.ehtiyot_qism else None,
+                "ishlatilgan_miqdor": item.miqdor,
+                "qoldiq": item.ehtiyot_qism.jami_miqdor if item.ehtiyot_qism else None,
+                "manba": "step",
+            }
+            for item in obj.texnikkorikehtiyotqismstep_set.select_related("ehtiyot_qism").all()
+        ]
+        return step_qismlar
+
 
 
 
@@ -593,19 +586,19 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
 
         return step
 
-    def to_representation(self, instance):
-        data = super().to_representation(instance)
+    # def to_representation(self, instance):
+    #     data = super().to_representation(instance)
         
-        # Ehtiyot qismlar detailni qo'lda qo'shamiz
-        if 'ehtiyot_qismlar_detail' not in data or not data['ehtiyot_qismlar_detail']:
-            data['ehtiyot_qismlar_detail'] = self.get_ehtiyot_qismlar_detail(instance)
+    #     # Ehtiyot qismlar detailni qo'lda qo'shamiz
+    #     if 'ehtiyot_qismlar_detail' not in data or not data['ehtiyot_qismlar_detail']:
+    #         data['ehtiyot_qismlar_detail'] = self.get_ehtiyot_qismlar_detail(instance)
         
-        # Bo'sh qiymatlarni olib tashlamaslik
-        clean_data = {
-            k: v for k, v in data.items()
-            if v not in [None, False] and not (isinstance(v, str) and v.strip() == "")
-        }
-        return clean_data
+    #     # Bo'sh qiymatlarni olib tashlamaslik
+    #     clean_data = {
+    #         k: v for k, v in data.items()
+    #         if v not in [None, False] and not (isinstance(v, str) and v.strip() == "")
+    #     }
+    #     return clean_data
 
 
 
@@ -615,7 +608,7 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
 class TexnikKorikSerializer(serializers.ModelSerializer):
     created_by = serializers.CharField(source="created_by.username", read_only=True)
 
-    # Tarkib va tamir turi
+ 
     tarkib = serializers.PrimaryKeyRelatedField(queryset=HarakatTarkibi.objects.none())
 
     is_active = serializers.BooleanField(source="tarkib.is_active", read_only=True)
@@ -664,42 +657,35 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
     
     
     def get_ehtiyot_qismlar_detail(self, obj):
-        korik_qismlar = []
-        step_qismlar = []
-        
-        # Asosiy ko'rik ehtiyot qismlari
-        if hasattr(obj, 'texnikkorikehtiyotqism_set'):
-            korik_qismlar = [
-                {
-                    "id": item.id,
-                    "ehtiyot_qism": item.ehtiyot_qism.id,
-                    "ehtiyot_qism_nomi": item.ehtiyot_qism.ehtiyotqism_nomi,
-                    "birligi": item.ehtiyot_qism.birligi,
-                    "ishlatilgan_miqdor": item.miqdor,
-                    "qoldiq": item.ehtiyot_qism.jami_miqdor,
-                    "manba": "korik"
-                }
-                for item in obj.texnikkorikehtiyotqism_set.all()
-            ]
+        korik_qismlar = [
+            {
+                "id": item.id,
+                "ehtiyot_qism": item.ehtiyot_qism.id if item.ehtiyot_qism else None,
+                "ehtiyot_qism_nomi": item.ehtiyot_qism.ehtiyotqism_nomi if item.ehtiyot_qism else None,
+                "birligi": item.ehtiyot_qism.birligi if item.ehtiyot_qism else None,
+                "ishlatilgan_miqdor": item.miqdor,
+                "qoldiq": item.ehtiyot_qism.jami_miqdor if item.ehtiyot_qism else None,
+                "manba": "korik",
+            }
+            for item in obj.texnikkorikehtiyotqism_set.select_related("ehtiyot_qism").all()
+        ]
 
-        # Step ehtiyot qismlari
-        if hasattr(obj, 'steps'):
-            for step in obj.steps.all().prefetch_related('texnikkorikehtiyotqismstep_set__ehtiyot_qism'):
-                if hasattr(step, 'texnikkorikehtiyotqismstep_set'):
-                    for item in step.texnikkorikehtiyotqismstep_set.all():
-                        step_data = {
-                            "id": item.id,
-                            "step_id": step.id,
-                            "ehtiyot_qism": item.ehtiyot_qism.id,
-                            "ehtiyot_qism_nomi": item.ehtiyot_qism.ehtiyotqism_nomi,
-                            "birligi": item.ehtiyot_qism.birligi,
-                            "ishlatilgan_miqdor": item.miqdor,
-                            "qoldiq": item.ehtiyot_qism.jami_miqdor,
-                            "manba": "step",
-                        }
-                        step_qismlar.append(step_data)
+        step_qismlar = []
+        for step in obj.steps.all().prefetch_related("texnikkorikehtiyotqismstep_set__ehtiyot_qism"):
+            for item in step.texnikkorikehtiyotqismstep_set.all():
+                step_qismlar.append({
+                    "id": item.id,
+                    "step_id": step.id,
+                    "ehtiyot_qism": item.ehtiyot_qism.id if item.ehtiyot_qism else None,
+                    "ehtiyot_qism_nomi": item.ehtiyot_qism.ehtiyotqism_nomi if item.ehtiyot_qism else None,
+                    "birligi": item.ehtiyot_qism.birligi if item.ehtiyot_qism else None,
+                    "ishlatilgan_miqdor": item.miqdor,
+                    "qoldiq": item.ehtiyot_qism.jami_miqdor if item.ehtiyot_qism else None,
+                    "manba": "step",
+                })
 
         return korik_qismlar + step_qismlar
+
 
 
 
@@ -811,23 +797,23 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
     #     return {k: v for k, v in data.items() if v not in [None, False, [], {}]}
 
     
-    def to_representation(self, instance):
-        data = super().to_representation(instance)
+    # def to_representation(self, instance):
+    #     data = super().to_representation(instance)
         
-        # Ehtiyot qismlar detailni qayta hisoblash
-        if 'ehtiyot_qismlar_detail' in data:
-            data['ehtiyot_qismlar_detail'] = self.get_ehtiyot_qismlar_detail(instance)
+    #     # Ehtiyot qismlar detailni qayta hisoblash
+    #     if 'ehtiyot_qismlar_detail' in data:
+    #         data['ehtiyot_qismlar_detail'] = self.get_ehtiyot_qismlar_detail(instance)
         
-        # Steps ma'lumotlarini qayta hisoblash
-        if 'steps' in data:
-            data['steps'] = self.get_steps(instance)
+    #     # Steps ma'lumotlarini qayta hisoblash
+    #     if 'steps' in data:
+    #         data['steps'] = self.get_steps(instance)
         
-        # Faqat None va False qiymatlarni o'chirish
-        clean_data = {
-            k: v for k, v in data.items()
-            if v not in [None, False] and not (isinstance(v, str) and v.strip() == "")
-        }
-        return clean_data
+    #     # Faqat None va False qiymatlarni o'chirish
+    #     clean_data = {
+    #         k: v for k, v in data.items()
+    #         if v not in [None, False] and not (isinstance(v, str) and v.strip() == "")
+    #     }
+    #     return clean_data
     
     
     # --- CREATE ---
