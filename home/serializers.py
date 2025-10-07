@@ -504,13 +504,8 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
 
         yakunlash = validated_data.pop("yakunlash", False)
         akt_file = validated_data.pop("akt_file", None)
-        ehtiyot_qismlar = self.initial_data.get("ehtiyot_qismlar", [])
-        if isinstance(ehtiyot_qismlar, str):
-            try:
-                ehtiyot_qismlar = json.loads(ehtiyot_qismlar)
-            except Exception:
-                ehtiyot_qismlar = []
-        print("Ehtiyot qismlar:", ehtiyot_qismlar) 
+        ehtiyot_qismlar = validated_data.pop("ehtiyot_qismlar", [])
+        print("Ehtiyot qismlar:", ehtiyot_qismlar)  
 
         if yakunlash and akt_file:
             step_status = TexnikKorikStep.Status.BARTARAF_ETILDI
@@ -822,12 +817,7 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
         tamir_turi = validated_data.pop("tamir_turi")
         yakunlash = validated_data.pop("yakunlash", False)
         akt_file = validated_data.pop("akt_file", None)
-        ehtiyot_qismlar = self.initial_data.get("ehtiyot_qismlar", [])
-        if isinstance(ehtiyot_qismlar, str):
-            try:
-                ehtiyot_qismlar = json.loads(ehtiyot_qismlar)
-            except Exception:
-                ehtiyot_qismlar = []
+        ehtiyot_qismlar = validated_data.pop("ehtiyot_qismlar", [])
         print("Ehtiyot qismlar:", ehtiyot_qismlar)
 
 
@@ -879,11 +869,13 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
 
             # Yakunlash bo'lsa ombordan chiqarish
             if yakunlash:
+                eq_obj.jami_miqdor -= miqdor
+                eq_obj.save()
                 EhtiyotQismHistory.objects.create(
                     ehtiyot_qism=eq_obj,
                     miqdor=-miqdor,
                     created_by=request.user,
-                    # izoh=f"Texnik ko'rik yakunlandi (ID: {korik.id})"
+                    izoh=f"Texnik ko'rik yakunlandi (ID: {korik.id})"
                 )
 
         # Yakunlash bo'lsa qo'shimcha yangilashlar
