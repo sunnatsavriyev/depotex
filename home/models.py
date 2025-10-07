@@ -180,7 +180,7 @@ class EhtiyotQismHistory(models.Model):
 
 
 class TexnikKorikEhtiyotQism(models.Model):
-    korik = models.ForeignKey("TexnikKorik", on_delete=models.SET_NULL, null=True, blank=True)
+    korik = models.ForeignKey("TexnikKorik", on_delete=models.CASCADE, null=True, blank=True)
     ehtiyot_qism = models.ForeignKey("EhtiyotQismlari", on_delete=models.SET_NULL, null=True, blank=True)
     miqdor = models.FloatField(default=1)
 
@@ -191,7 +191,7 @@ class TexnikKorikEhtiyotQism(models.Model):
 
 
 class TexnikKorikEhtiyotQismStep(models.Model):
-    korik_step = models.ForeignKey("TexnikKorikStep", on_delete=models.SET_NULL, null=True, blank=True)
+    korik_step = models.ForeignKey("TexnikKorikStep", on_delete=models.CASCADE, null=True, blank=True)
     ehtiyot_qism = models.ForeignKey("EhtiyotQismlari", on_delete=models.SET_NULL, null=True, blank=True)
     miqdor = models.FloatField(default=1)
 

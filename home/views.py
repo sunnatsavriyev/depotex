@@ -697,6 +697,42 @@ class TexnikKorikViewSet(BaseViewSet):
         "id",
     ]
     pagination_class = CustomPagination
+    
+    
+    def create(self, request, *args, **kwargs):
+        # FormData dan ehtiyot_qismlarni JSON ga o'girish
+        if 'ehtiyot_qismlar' in request.data and isinstance(request.data['ehtiyot_qismlar'], str):
+            try:
+                request.data._mutable = True
+                request.data['ehtiyot_qismlar'] = json.loads(request.data['ehtiyot_qismlar'])
+                request.data._mutable = False
+            except Exception as e:
+                print(f"❌ JSON parse xatosi: {e}")
+
+        response = super().create(request, *args, **kwargs)
+
+        # CREATE dan keyin yangi yaratilgan korikni to'liq yuklab olish
+        if response.status_code == status.HTTP_201_CREATED:
+            korik_id = response.data.get('id')
+            if korik_id:
+                try:
+                    korik = (
+                        TexnikKorik.objects
+                        .select_related("tarkib", "tamir_turi", "created_by")
+                        .prefetch_related(
+                            "texnikkorikehtiyotqism_set__ehtiyot_qism",
+                            "steps__texnikkorikehtiyotqismstep_set__ehtiyot_qism",
+                            "steps"
+                        )
+                        .get(id=korik_id)
+                    )
+                    serializer = self.get_serializer(korik)
+                    response.data = serializer.data
+                except Exception as e:
+                    print(f"❌ Korikni yuklab olishda xato: {e}")
+
+        return response
+    
     def get_queryset(self):
         user = self.request.user
         qs = TexnikKorik.objects.prefetch_related("steps").order_by("-id")
