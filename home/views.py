@@ -708,6 +708,8 @@ class TexnikKorikViewSet(BaseViewSet):
                 request.data._mutable = False
             except Exception as e:
                 print(f"❌ JSON parse xatosi: {e}")
+                
+        print("YUBORILGAN EHTIYOT QISMLAR:", request.data.get("ehtiyot_qismlar"))
 
         response = super().create(request, *args, **kwargs)
 
