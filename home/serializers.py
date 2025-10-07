@@ -677,7 +677,7 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
                     "manba": "step",
                 })
 
-        return korik_qismlar + step_qismlar
+        return korik_qismlar 
 
 
 
