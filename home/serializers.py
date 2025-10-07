@@ -817,7 +817,7 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
         tamir_turi = validated_data.pop("tamir_turi")
         yakunlash = validated_data.pop("yakunlash", False)
         akt_file = validated_data.pop("akt_file", None)
-        ehtiyot_qismlar = validated_data.pop("ehtiyot_qismlar", [])
+        ehtiyot_qismlar = self.initial_data.get("ehtiyot_qismlar", [])
         print("Ehtiyot qismlar:", ehtiyot_qismlar)
 
 
