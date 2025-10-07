@@ -411,21 +411,8 @@ class TexnikKorikDetailForStepSerializer(serializers.ModelSerializer):
             for item in obj.texnikkorikehtiyotqism_set.select_related("ehtiyot_qism").all()
         ]
 
-        step_qismlar = []
-        for step in obj.steps.all().prefetch_related("texnikkorikehtiyotqismstep_set__ehtiyot_qism"):
-            for item in step.texnikkorikehtiyotqismstep_set.all():
-                step_qismlar.append({
-                    "id": item.id,
-                    "step_id": step.id,
-                    "ehtiyot_qism": item.ehtiyot_qism.id if item.ehtiyot_qism else None,
-                    "ehtiyot_qism_nomi": item.ehtiyot_qism.ehtiyotqism_nomi if item.ehtiyot_qism else None,
-                    "birligi": item.ehtiyot_qism.birligi if item.ehtiyot_qism else None,
-                    "ishlatilgan_miqdor": item.miqdor,
-                    "qoldiq": item.ehtiyot_qism.jami_miqdor if item.ehtiyot_qism else None,
-                    "manba": "step",
-                })
 
-        return korik_qismlar + step_qismlar
+        return korik_qismlar
 
 
     # def to_representation(self, instance):
