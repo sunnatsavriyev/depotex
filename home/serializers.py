@@ -529,6 +529,7 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
             korik=korik,
             tamir_turi=korik.tamir_turi,
             created_by=request.user,
+            yakunlash=yakunlash,
             akt_file=akt_file,
             status=step_status,
             **validated_data
@@ -843,7 +844,9 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
             tarkib=tarkib,
             tamir_turi=tamir_turi,
             created_by=request.user,
-            status=status,  # ✅ To'g'ri status
+            status=status,  
+            yakunlash=yakunlash,
+            akt_file=akt_file if akt_file else None,
             **validated_data
         )
 
@@ -915,6 +918,8 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
 
         if akt_file:
             instance.akt_file = akt_file
+            
+        instance.yakunlash = yakunlash
 
         if yakunlash and akt_file:
             instance.status = TexnikKorik.Status.BARTARAF_ETILDI
