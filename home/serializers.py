@@ -504,8 +504,13 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
 
         yakunlash = validated_data.pop("yakunlash", False)
         akt_file = validated_data.pop("akt_file", None)
-        ehtiyot_qismlar = validated_data.pop("ehtiyot_qismlar", [])
-        print("Ehtiyot qismlar:", ehtiyot_qismlar)  
+        ehtiyot_qismlar = self.initial_data.get("ehtiyot_qismlar", [])
+        if isinstance(ehtiyot_qismlar, str):
+            try:
+                ehtiyot_qismlar = json.loads(ehtiyot_qismlar)
+            except Exception:
+                ehtiyot_qismlar = []
+        print("Ehtiyot qismlar:", ehtiyot_qismlar) 
 
         if yakunlash and akt_file:
             step_status = TexnikKorikStep.Status.BARTARAF_ETILDI
@@ -818,6 +823,11 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
         yakunlash = validated_data.pop("yakunlash", False)
         akt_file = validated_data.pop("akt_file", None)
         ehtiyot_qismlar = self.initial_data.get("ehtiyot_qismlar", [])
+        if isinstance(ehtiyot_qismlar, str):
+            try:
+                ehtiyot_qismlar = json.loads(ehtiyot_qismlar)
+            except Exception:
+                ehtiyot_qismlar = []
         print("Ehtiyot qismlar:", ehtiyot_qismlar)
 
 
