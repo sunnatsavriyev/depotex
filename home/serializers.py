@@ -580,11 +580,11 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
         step.refresh_from_db()
         
         # DEBUG: Ehtiyot qismlarni tekshirish
-        step_with_prefetch = TexnikKorikStep.objects.prefetch_related('texnikkorikehtiyotqismstep_set').get(id=step.id)
-        actual_count = step_with_prefetch.texnikkorikehtiyotqismstep_set.count()
-        
-
+        step = TexnikKorikStep.objects.prefetch_related(
+            'texnikkorikehtiyotqismstep_set__ehtiyot_qism'
+        ).get(id=step.id)
         return step
+
 
     # def to_representation(self, instance):
     #     data = super().to_representation(instance)
@@ -890,11 +890,12 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
             korik.save()
         
         # DEBUG: Ehtiyot qismlarni tekshirish
-        korik_with_prefetch = TexnikKorik.objects.prefetch_related('texnikkorikehtiyotqism_set').get(id=korik.id)
-        actual_count = korik_with_prefetch.texnikkorikehtiyotqism_set.count()
-        
-
+        korik = TexnikKorik.objects.prefetch_related(
+            'texnikkorikehtiyotqism_set__ehtiyot_qism',
+            'steps__texnikkorikehtiyotqismstep_set__ehtiyot_qism'
+        ).get(id=korik.id)
         return korik
+
 
 
 
