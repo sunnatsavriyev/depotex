@@ -905,17 +905,6 @@ class TexnikKorikStepViewSet(BaseViewSet):
     filterset_fields = ["korik"]
     
     
-    def create(self, request, *args, **kwargs):
-        # FormData dan ehtiyot_qismlarni JSON ga o'girish
-        if 'ehtiyot_qismlar' in request.data and isinstance(request.data['ehtiyot_qismlar'], str):
-            try:
-                request.data._mutable = True
-                request.data['ehtiyot_qismlar'] = json.loads(request.data['ehtiyot_qismlar'])
-                request.data._mutable = False
-            except Exception as e:
-                print(f"❌ STEP JSON parse xatosi: {e}")
-
-        return super().create(request, *args, **kwargs)
 
     def get_queryset(self):
         user = self.request.user
