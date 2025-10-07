@@ -518,6 +518,7 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
         yakunlash = validated_data.pop("yakunlash", False)
         akt_file = validated_data.pop("akt_file", None)
         ehtiyot_qismlar = validated_data.pop("ehtiyot_qismlar", [])
+        print("Ehtiyot qismlar:", ehtiyot_qismlar)  
 
         if yakunlash and akt_file:
             step_status = TexnikKorikStep.Status.BARTARAF_ETILDI
@@ -830,6 +831,7 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
         yakunlash = validated_data.pop("yakunlash", False)
         akt_file = validated_data.pop("akt_file", None)
         ehtiyot_qismlar = validated_data.pop("ehtiyot_qismlar", [])
+        print("Ehtiyot qismlar:", ehtiyot_qismlar)
 
 
         if yakunlash and akt_file:
