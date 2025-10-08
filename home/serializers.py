@@ -618,8 +618,10 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
     ehtiyot_qismlar = TexnikKorikEhtiyotQismSerializer(
         many=True, write_only=True,required=False
     )
-    ehtiyot_qismlar_detail = serializers.SerializerMethodField()  
-
+    # ehtiyot_qismlar_detail = serializers.SerializerMethodField()  
+    ehtiyot_qismlar_detail = EhtiyotQismHistorySerializer(
+    many=True, read_only=True, source='ehtiyotqism_hist'
+    )
     
     
 
@@ -817,8 +819,15 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
         tamir_turi = validated_data.pop("tamir_turi")
         yakunlash = validated_data.pop("yakunlash", False)
         akt_file = validated_data.pop("akt_file", None)
-        ehtiyot_qismlar = validated_data.pop("ehtiyot_qismlar", [])
-        print("Ehtiyot qismlar:", ehtiyot_qismlar)
+        ehtiyot_qismlar = request.data.get("ehtiyot_qismlar", [])
+        if isinstance(ehtiyot_qismlar, str):
+            try:
+                ehtiyot_qismlar = json.loads(ehtiyot_qismlar)
+            except Exception:
+                    ehtiyot_qismlar = []
+        else:
+            ehtiyot_qismlar = validated_data.pop("ehtiyot_qismlar", [])
+        print(" Ehtiyot qismlar:", ehtiyot_qismlar)
 
 
         if yakunlash and akt_file:
