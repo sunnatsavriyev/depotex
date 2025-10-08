@@ -898,7 +898,7 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
                     ehtiyot_qism=eq_obj,
                     miqdor=-miqdor,
                     created_by=request.user,
-                    izoh=f"Texnik ko'rik yakunlandi (ID: {korik.id})"
+                    # izoh=f"Texnik ko'rik yakunlandi (ID: {korik.id})"
                 )
 
         # Yakunlash bo'lsa qo'shimcha yangilashlar
@@ -970,7 +970,7 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
                     ehtiyot_qism=eq_obj,
                     miqdor=-miqdor,
                     created_by=request.user,
-                    izoh=f"Texnik ko'rik yangilandi (ID: {instance.id})"
+                    # izoh=f"Texnik ko'rik yangilandi (ID: {instance.id})"
                 )
 
         return instance
