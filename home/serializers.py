@@ -561,8 +561,8 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
             )
 
             if yakunlash:
-                eq_obj.jami_miqdor -= miqdor
-                eq_obj.save()
+                # eq_obj.jami_miqdor -= miqdor
+                # eq_obj.save()
                 EhtiyotQismHistory.objects.create(
                     ehtiyot_qism=eq_obj,
                     miqdor=-miqdor,
@@ -869,8 +869,8 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
 
             # Yakunlash bo'lsa ombordan chiqarish
             if yakunlash:
-                eq_obj.jami_miqdor -= miqdor
-                eq_obj.save()
+                # eq_obj.jami_miqdor -= miqdor
+                # eq_obj.save()
                 EhtiyotQismHistory.objects.create(
                     ehtiyot_qism=eq_obj,
                     miqdor=-miqdor,
@@ -941,8 +941,8 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
 
             if yakunlash:
                 # Har doim ombordan chiqarish (miqdor farqiga qaramasdan)
-                eq_obj.jami_miqdor -= miqdor
-                eq_obj.save()
+                # eq_obj.jami_miqdor -= miqdor
+                # eq_obj.save()
                 EhtiyotQismHistory.objects.create(
                     ehtiyot_qism=eq_obj,
                     miqdor=-miqdor,
