@@ -584,15 +584,15 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
                 miqdor=miqdor
             )
 
-            if yakunlash:
-                # eq_obj.jami_miqdor -= miqdor
-                # eq_obj.save()
-                EhtiyotQismHistory.objects.create(
-                    ehtiyot_qism=eq_obj,
-                    miqdor=-miqdor,
-                    created_by=request.user,
-                    # izoh=f"Texnik ko'rik step yakunlandi (Step ID: {step.id}, Korik ID: {korik.id})"
-                )
+            # if yakunlash:
+            #     # eq_obj.jami_miqdor -= miqdor
+            #     # eq_obj.save()
+            #     EhtiyotQismHistory.objects.create(
+            #         ehtiyot_qism=eq_obj,
+            #         miqdor=-miqdor,
+            #         created_by=request.user,
+            #         # izoh=f"Texnik ko'rik step yakunlandi (Step ID: {step.id}, Korik ID: {korik.id})"
+            #     )
 
         step.refresh_from_db()
         
