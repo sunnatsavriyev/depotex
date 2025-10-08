@@ -616,7 +616,7 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
 
     # Ehtiyot qismlar
     ehtiyot_qismlar = TexnikKorikEhtiyotQismSerializer(
-        many=True, write_only=True,required=False
+        many=True,required=False
     )
     ehtiyot_qismlar_detail = serializers.SerializerMethodField()  
     
