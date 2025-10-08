@@ -771,16 +771,16 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({"akt_file": "Yakunlash uchun akt fayl majburiy."})
 
         # ✅ Ehtiyot qismlar (faqat get ishlatiladi, pop emas!)
-        ehtiyot_qismlar = attrs.get("ehtiyot_qismlar")
-        if ehtiyot_qismlar:
-            if isinstance(ehtiyot_qismlar, str):
-                try:
-                    # JSON formatdagi stringni parse qilish
-                    attrs["ehtiyot_qismlar"] = json.loads(ehtiyot_qismlar)
-                except Exception:
-                    raise serializers.ValidationError({"ehtiyot_qismlar": "Noto‘g‘ri format."})
-            elif not isinstance(ehtiyot_qismlar, list):
-                raise serializers.ValidationError({"ehtiyot_qismlar": "List formatida bo‘lishi kerak."})
+        ehtiyot_qismlar = attrs.get("ehtiyot_qismlar", [])
+        if isinstance(ehtiyot_qismlar, str):
+            try:
+                ehtiyot_qismlar = json.loads(ehtiyot_qismlar)
+            except Exception:
+                raise serializers.ValidationError({"ehtiyot_qismlar": "Noto‘g‘ri format."})
+            attrs["ehtiyot_qismlar"] = ehtiyot_qismlar
+
+        elif ehtiyot_qismlar and not isinstance(ehtiyot_qismlar, list):
+            raise serializers.ValidationError({"ehtiyot_qismlar": "List formatida bo‘lishi kerak."})
 
         return attrs
 
@@ -811,6 +811,9 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
     
     # --- CREATE ---
     def create(self, validated_data):
+        print("\n [CREATE BOSHLANDI]")
+        print(" VALIDATED DATA KEYLAR:", list(validated_data.keys()))
+        print(" VALIDATED EHTIYOT QISMLAR:", validated_data.get("ehtiyot_qismlar"))
         request = self.context["request"]
 
         tarkib = validated_data.pop("tarkib")
