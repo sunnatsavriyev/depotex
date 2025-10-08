@@ -486,15 +486,24 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({"akt_file": "Yakunlash uchun akt fayl majburiy."})
         
         # Ehtiyot qismlarni JSON formatda qayta ishlash
-        ehtiyot_qismlar = attrs.get("ehtiyot_qismlar")
-        if ehtiyot_qismlar:
-            if isinstance(ehtiyot_qismlar, str):
-                try:
-                    attrs["ehtiyot_qismlar"] = json.loads(ehtiyot_qismlar)
-                except Exception:
-                    raise serializers.ValidationError({"ehtiyot_qismlar": "Noto'g'ri format."})
-            elif not isinstance(ehtiyot_qismlar, list):
-                raise serializers.ValidationError({"ehtiyot_qismlar": "List formatida bo'lishi kerak."})
+        ehtiyot_qismlar = attrs.get("ehtiyot_qismlar", None)
+        if ehtiyot_qismlar is None:
+            # agar DRF bu fieldni o‘qimagan bo‘lsa (masalan, FormData’da string kelsa)
+            ehtiyot_qismlar = request.data.get("ehtiyot_qismlar", [])
+
+        # 🔹 String holatda kelsa — JSON qilib ochamiz
+        if isinstance(ehtiyot_qismlar, str):
+            try:
+                ehtiyot_qismlar = json.loads(ehtiyot_qismlar)
+            except Exception:
+                raise serializers.ValidationError({"ehtiyot_qismlar": "Noto‘g‘ri format."})
+
+        # 🔹 Agar hali ham list bo‘lmasa — xato
+        elif ehtiyot_qismlar and not isinstance(ehtiyot_qismlar, list):
+            raise serializers.ValidationError({"ehtiyot_qismlar": "List formatida bo‘lishi kerak."})
+
+        # ✅ Yakuniy qiymatni to‘g‘rilab yozamiz
+        attrs["ehtiyot_qismlar"] = ehtiyot_qismlar or []
 
         return attrs
 
@@ -567,7 +576,7 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
                     ehtiyot_qism=eq_obj,
                     miqdor=-miqdor,
                     created_by=request.user,
-                    izoh=f"Texnik ko'rik step yakunlandi (Step ID: {step.id}, Korik ID: {korik.id})"
+                    # izoh=f"Texnik ko'rik step yakunlandi (Step ID: {step.id}, Korik ID: {korik.id})"
                 )
 
         step.refresh_from_db()
@@ -579,19 +588,19 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
         return step
 
 
-    # def to_representation(self, instance):
-    #     data = super().to_representation(instance)
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
         
-    #     # Ehtiyot qismlar detailni qo'lda qo'shamiz
-    #     if 'ehtiyot_qismlar_detail' not in data or not data['ehtiyot_qismlar_detail']:
-    #         data['ehtiyot_qismlar_detail'] = self.get_ehtiyot_qismlar_detail(instance)
+        # Ehtiyot qismlar detailni qo'lda qo'shamiz
+        if 'ehtiyot_qismlar_detail' not in data or not data['ehtiyot_qismlar_detail']:
+            data['ehtiyot_qismlar_detail'] = self.get_ehtiyot_qismlar_detail(instance)
         
-    #     # Bo'sh qiymatlarni olib tashlamaslik
-    #     clean_data = {
-    #         k: v for k, v in data.items()
-    #         if v not in [None, False] and not (isinstance(v, str) and v.strip() == "")
-    #     }
-    #     return clean_data
+        # Bo'sh qiymatlarni olib tashlamaslik
+        clean_data = {
+            k: v for k, v in data.items()
+            if v not in [None, False] and not (isinstance(v, str) and v.strip() == "")
+        }
+        return clean_data
 
 
 
@@ -794,27 +803,27 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
 
 
 
-    # def to_representation(self, instance):
-    #     data = super().to_representation(instance)
-    #     return {k: v for k, v in data.items() if v not in [None, False, [], {}]}
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        return {k: v for k, v in data.items() if v not in [None, False, [], {}]}
 
     
-    # def to_representation(self, instance):
-    #     data = super().to_representation(instance)
-    #     # Ehtiyot qismlar detailni qayta hisoblash
-    #     if 'ehtiyot_qismlar_detail' in data:
-    #         data['ehtiyot_qismlar_detail'] = self.get_ehtiyot_qismlar_detail(instance)
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        # Ehtiyot qismlar detailni qayta hisoblash
+        if 'ehtiyot_qismlar_detail' in data:
+            data['ehtiyot_qismlar_detail'] = self.get_ehtiyot_qismlar_detail(instance)
         
-    #     # Steps ma'lumotlarini qayta hisoblash
-    #     if 'steps' in data:
-    #         data['steps'] = self.get_steps(instance)
+        # Steps ma'lumotlarini qayta hisoblash
+        if 'steps' in data:
+            data['steps'] = self.get_steps(instance)
         
-    #     # Faqat None va False qiymatlarni o'chirish
-    #     clean_data = {
-    #         k: v for k, v in data.items()
-    #         if v not in [None, False] and not (isinstance(v, str) and v.strip() == "")
-    #     }
-    #     return clean_data
+        # Faqat None va False qiymatlarni o'chirish
+        clean_data = {
+            k: v for k, v in data.items()
+            if v not in [None, False] and not (isinstance(v, str) and v.strip() == "")
+        }
+        return clean_data
     
     
     # --- CREATE ---
