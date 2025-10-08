@@ -8,7 +8,7 @@ from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from .models import (
     TamirTuri, ElektroDepo, EhtiyotQismlari,
     HarakatTarkibi, TexnikKorik, CustomUser, Nosozliklar, NosozlikEhtiyotQism, TexnikKorikStep,KunlikYurish,
-    Vagon,EhtiyotQismHistory
+    Vagon,EhtiyotQismHistory, TexnikKorikEhtiyotQism,
 )
 from .serializers import (
     TamirTuriSerializer, ElektroDepoSerializer,
@@ -1261,7 +1261,6 @@ class NosozlikStepViewSet(BaseViewSet):
 
    
    
-    
 class KorikNosozlikStatisticsView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -1283,13 +1282,19 @@ class KorikNosozlikStatisticsView(APIView):
             created_at__date__lte=last_day_last_month
         ).count()
 
-        # 4) Oxirgi oydagi nosozliklar soni
-        last_month_nosozlik = Nosozliklar.objects.filter(
-            created_at__date__gte=first_day_last_month,
-            created_at__date__lte=last_day_last_month
-        ).count()
+        # ✅ 4) Oxirgi 10 ta nosozlik (eng so‘nggilari)
+        last_10_nosozlik = list(
+            Nosozliklar.objects.select_related("tarkib")
+            .order_by("-created_at")[:10]
+            .values(
+                "id",
+                "tarkib__tarkib_raqami",
+                "tarkib__turi",
+                "bartaraf_etilgan_nosozliklar",
+                "created_at"
+            )
+        )
 
-        # 5) Eng ko‘p texnik ko‘rik va nosozlik qayd etilgan 5 ta tarkib
         korik_counts = (
             TexnikKorik.objects.values("tarkib__id", "tarkib__tarkib_raqami", "tarkib__turi")
             .annotate(total=Count("id"))
@@ -1300,8 +1305,6 @@ class KorikNosozlikStatisticsView(APIView):
         )
 
         combined = {}
-
-        # Texnik ko‘riklardan yig‘ish
         for item in korik_counts:
             tid = item["tarkib__id"]
             combined[tid] = {
@@ -1311,7 +1314,6 @@ class KorikNosozlikStatisticsView(APIView):
                 "total": combined.get(tid, {}).get("total", 0) + item["total"],
             }
 
-        # Nosozliklardan yig‘ish
         for item in nosozlik_counts:
             tid = item["tarkib__id"]
             if tid in combined:
@@ -1324,18 +1326,24 @@ class KorikNosozlikStatisticsView(APIView):
                     "total": item["total"],
                 }
 
-        # eng ko‘pdan eng kamgacha saralash
         top_5_tarkib = sorted(combined.values(), key=lambda x: x["total"], reverse=True)[:5]
+
+        # ✅ 6) Eng ko‘p ishlatilgan 10 ta ehtiyot qism
+        top_10_ehtiyot_qism = list(
+            TexnikKorikEhtiyotQism.objects
+            .values("ehtiyot_qism__id", "ehtiyot_qism__ehtiyotqism_nomi")
+            .annotate(total=Count("id"))
+            .order_by("-total")[:10]
+        )
 
         return Response({
             "total_korik": total_korik,
             "total_nosozlik": total_nosozlik,
             "last_month_korik": last_month_korik,
-            "last_month_nosozlik": last_month_nosozlik,
+            "last_10_nosozlik": last_10_nosozlik,
             "top_5_tarkib": top_5_tarkib,
+            "top_10_ehtiyot_qism": top_10_ehtiyot_qism,
         })
-
-
 
 class TarkibDetailViewSet(BaseViewSet):
     permission_classes = [IsAuthenticated, IsTexnik, IsMonitoringReadOnly]
