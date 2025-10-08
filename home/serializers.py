@@ -829,6 +829,18 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
         yakunlash = validated_data.pop("yakunlash", False)
         akt_file = validated_data.pop("akt_file", None)
         ehtiyot_qismlar = validated_data.pop("ehtiyot_qismlar", [])
+        if not ehtiyot_qismlar:
+            raw_data = request.data.get("ehtiyot_qismlar")
+            if isinstance(raw_data, str):
+                try:
+                    ehtiyot_qismlar = json.loads(raw_data)
+                except Exception:
+                    ehtiyot_qismlar = []
+            elif isinstance(raw_data, list):
+                ehtiyot_qismlar = raw_data
+            else:
+                ehtiyot_qismlar = []
+
         print("✅ YUBORILGAN EHTIYOT QISMLAR:", ehtiyot_qismlar)
 
 
