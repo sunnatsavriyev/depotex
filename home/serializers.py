@@ -758,34 +758,34 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
 
             
 
-    # --- Validation ---
-
     def validate(self, attrs):
         request = self.context.get("request")
         
-        # Password tekshirish
+        # ✅ Parolni tekshirish (pop to‘g‘ri)
         password = attrs.pop("password", None)
         if not password or not request.user.check_password(password):
             raise serializers.ValidationError({"password": "Parol noto‘g‘ri."})
 
-        # Yakunlash tekshirish
+        # ✅ Yakunlash holatini tekshirish
         yakunlash = attrs.get("yakunlash", False)
         akt_file = attrs.get("akt_file")
         if yakunlash and not akt_file:
             raise serializers.ValidationError({"akt_file": "Yakunlash uchun akt fayl majburiy."})
-        
-        # Ehtiyot qismlarni JSON formatda qayta ishlash
+
+        # ✅ Ehtiyot qismlar (faqat get ishlatiladi, pop emas!)
         ehtiyot_qismlar = attrs.get("ehtiyot_qismlar")
         if ehtiyot_qismlar:
             if isinstance(ehtiyot_qismlar, str):
                 try:
+                    # JSON formatdagi stringni parse qilish
                     attrs["ehtiyot_qismlar"] = json.loads(ehtiyot_qismlar)
                 except Exception:
                     raise serializers.ValidationError({"ehtiyot_qismlar": "Noto‘g‘ri format."})
             elif not isinstance(ehtiyot_qismlar, list):
                 raise serializers.ValidationError({"ehtiyot_qismlar": "List formatida bo‘lishi kerak."})
-    
+
         return attrs
+
 
 
     # def to_representation(self, instance):
@@ -795,7 +795,6 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
     
     # def to_representation(self, instance):
     #     data = super().to_representation(instance)
-        
     #     # Ehtiyot qismlar detailni qayta hisoblash
     #     if 'ehtiyot_qismlar_detail' in data:
     #         data['ehtiyot_qismlar_detail'] = self.get_ehtiyot_qismlar_detail(instance)
