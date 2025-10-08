@@ -645,9 +645,9 @@ class TexnikKorikGetViewSet(mixins.ListModelMixin,
         TexnikKorik.objects
         .select_related("tarkib", "tamir_turi", "created_by")
         .prefetch_related(
-            "texnikkorikehtiyotqism_set__ehtiyot_qism",  # ✅ Asosiy ko'rik ehtiyot qismlari
-            "steps__texnikkorikehtiyotqismstep_set__ehtiyot_qism",  # ✅ Step ehtiyot qismlari
-            "steps"  # ✅ Steplarni ham prefetch qilish
+            "texnikkorikehtiyotqism_set__ehtiyot_qism",  
+            "steps__texnikkorikehtiyotqismstep_set__ehtiyot_qism",  
+            "steps" 
         )
         .order_by("-id")
     )
@@ -825,215 +825,6 @@ class TexnikKorikStepViewSet(BaseViewSet):
         serializer.save()
 
 
-# class TexnikKorikViewSet(BaseViewSet):
-#     queryset = (
-#         TexnikKorik.objects
-#         .select_related("tarkib", "tamir_turi", "created_by")
-#         .prefetch_related(
-#             "texnikkorikehtiyotqism_set__ehtiyot_qism",
-#             "steps__texnikkorikehtiyotqismstep_set__ehtiyot_qism",
-#             "steps"
-#         )
-#         .order_by("-id")
-#     )
-#     serializer_class = TexnikKorikSerializer
-#     permission_classes = [IsAuthenticated, IsTexnik]
-#     filter_backends = [filters.SearchFilter, filters.OrderingFilter, DjangoFilterBackend]
-#     search_fields = [
-#         "tarkib__tarkib_raqami",
-#         "tamir_turi__tamir_nomi",
-#         "created_by__username",
-#         "id",
-#     ]
-#     pagination_class = CustomPagination
-    
-#     def get_queryset(self):
-#         user = self.request.user
-#         qs = (
-#             TexnikKorik.objects
-#             .select_related("tarkib", "tamir_turi", "created_by")
-#             .prefetch_related(
-#                 "texnikkorikehtiyotqism_set__ehtiyot_qism",
-#                 "steps__texnikkorikehtiyotqismstep_set__ehtiyot_qism",
-#                 "steps"
-#             )
-#             .order_by("-id")
-#         )
-
-#         if user.role == "texnik" and user.depo:
-#             qs = qs.filter(tarkib__depo=user.depo)
-#         return qs
-
-#     def create(self, request, *args, **kwargs):
-#         """CREATE so'rovini qayta ishlash"""
-#         print("🔴 CREATE so'rovi keldi")
-#         print(f"Request data: {request.data}")
-#         print(f"Request FILES: {request.FILES}")
-        
-#         # FormData dan ehtiyot_qismlarni JSON ga o'girish
-#         if 'ehtiyot_qismlar' in request.data and isinstance(request.data['ehtiyot_qismlar'], str):
-#             try:
-#                 request.data._mutable = True
-#                 request.data['ehtiyot_qismlar'] = json.loads(request.data['ehtiyot_qismlar'])
-#                 request.data._mutable = False
-#             except Exception as e:
-#                 print(f"❌ JSON parse xatosi: {e}")
-        
-#         response = super().create(request, *args, **kwargs)
-        
-#         # CREATE dan keyin yangi yaratilgan korikni to'liq yuklab olish
-#         if response.status_code == status.HTTP_201_CREATED:
-#             korik_id = response.data.get('id')
-#             if korik_id:
-#                 try:
-#                     korik = (
-#                         TexnikKorik.objects
-#                         .select_related("tarkib", "tamir_turi", "created_by")
-#                         .prefetch_related(
-#                             "texnikkorikehtiyotqism_set__ehtiyot_qism",
-#                             "steps__texnikkorikehtiyotqismstep_set__ehtiyot_qism",
-#                             "steps"
-#                         )
-#                         .get(id=korik_id)
-#                     )
-#                     serializer = self.get_serializer(korik)
-#                     response.data = serializer.data
-#                     print("✅ Response yangilandi")
-#                 except Exception as e:
-#                     print(f"❌ Korikni yuklab olishda xato: {e}")
-        
-#         return response
-
-#     @extend_schema(
-#         parameters=[
-#             OpenApiParameter(name="page", type=int, location=OpenApiParameter.QUERY, description="Step pagination page"),
-#             OpenApiParameter(name="limit", type=int, location=OpenApiParameter.QUERY, description="Step page size"),
-#             OpenApiParameter(name="search", type=str, location=OpenApiParameter.QUERY, description="Step search"),
-#         ]
-#     )
-#     def retrieve(self, request, *args, **kwargs):
-#         """Detail with steps pagination"""
-#         return super().retrieve(request, *args, **kwargs)
-    
-#     @action(detail=True, methods=["post"], url_path="add-step")
-#     def add_step(self, request, pk=None):
-#         korik = self.get_object()
-#         if korik.status == TexnikKorik.Status.BARTARAF_ETILDI:
-#             return Response(
-#                 {"detail": "Bu korik yakunlangan, yangi step qo'shib bo'lmaydi!"},
-#                 status=status.HTTP_400_BAD_REQUEST
-#             )
-
-#         serializer = TexnikKorikStepSerializer(
-#             data=request.data,
-#             context={"request": request, "korik": korik}
-#         )
-#         serializer.is_valid(raise_exception=True)
-#         step = serializer.save()
-        
-#         # Step yaratilgandan keyin to'liq yuklab olish
-#         step_with_prefetch = (
-#             TexnikKorikStep.objects
-#             .select_related("korik", "tamir_turi", "created_by")
-#             .prefetch_related("texnikkorikehtiyotqismstep_set__ehtiyot_qism")
-#             .get(id=step.id)
-#         )
-        
-#         return Response(
-#             TexnikKorikStepSerializer(step_with_prefetch).data, 
-#             status=status.HTTP_201_CREATED
-#         )
-
-
-# class TexnikKorikStepViewSet(BaseViewSet):
-#     serializer_class = TexnikKorikStepSerializer
-#     permission_classes = [IsAuthenticated, IsTexnik]
-#     pagination_class = CustomPagination
-#     filter_backends = [filters.SearchFilter, filters.OrderingFilter, DjangoFilterBackend]
-
-#     search_fields = [
-#         "id",
-#         "kamchiliklar_haqida",
-#         "bartaraf_etilgan_kamchiliklar",
-#         "created_by__username",
-#         "korik__tarkib__tarkib_raqami",
-#         "tamir_turi__tamir_nomi",
-#     ]
-#     filterset_fields = ["korik"]
-
-#     def get_queryset(self):
-#         user = self.request.user
-#         qs = (
-#             TexnikKorikStep.objects
-#             .select_related("korik", "tamir_turi", "created_by")
-#             .prefetch_related("texnikkorikehtiyotqismstep_set__ehtiyot_qism")
-#             .order_by("-id")
-#         )
-
-#         # faqat o'z depo uchun texnik
-#         if user.role == "texnik" and user.depo:
-#             qs = qs.filter(korik__tarkib__depo=user.depo)
-
-#         # query param orqali korik_id
-#         korik_id = self.request.query_params.get("korik")
-#         if korik_id:
-#             qs = qs.filter(korik_id=korik_id)
-
-#         return qs
-
-#     def create(self, request, *args, **kwargs):
-        
-#         # FormData dan ehtiyot_qismlarni JSON ga o'girish
-#         if 'ehtiyot_qismlar' in request.data and isinstance(request.data['ehtiyot_qismlar'], str):
-#             try:
-#                 request.data._mutable = True
-#                 request.data['ehtiyot_qismlar'] = json.loads(request.data['ehtiyot_qismlar'])
-#                 request.data._mutable = False
-#             except Exception as e:
-#                 print(f"❌ STEP JSON parse xatosi: {e}")
-        
-#         response = super().create(request, *args, **kwargs)
-        
-#         # CREATE dan keyin yangi yaratilgan stepni to'liq yuklab olish
-#         if response.status_code == status.HTTP_201_CREATED:
-#             step_id = response.data.get('id')
-#             if step_id:
-#                 try:
-#                     step = (
-#                         TexnikKorikStep.objects
-#                         .select_related("korik", "tamir_turi", "created_by")
-#                         .prefetch_related("texnikkorikehtiyotqismstep_set__ehtiyot_qism")
-#                         .get(id=step_id)
-#                     )
-#                     serializer = self.get_serializer(step)
-#                     response.data = serializer.data
-#                     print("✅ STEP Response yangilandi")
-#                 except Exception as e:
-#                     print(f"❌ Stepni yuklab olishda xato: {e}")
-        
-#         return response
-
-#     def perform_create(self, serializer):
-#         korik_id = self.request.query_params.get("korik")
-#         if not korik_id:
-#             # agar frontend yubormasa ham, context orqali olishga urinamiz
-#             korik_id = self.kwargs.get("korik_pk") or self.request.data.get("korik")
-
-#         if not korik_id:
-#             raise ValidationError({"korik": "Texnik korik ID aniqlanmadi!"})
-
-#         try:
-#             korik = TexnikKorik.objects.get(id=korik_id)
-#         except TexnikKorik.DoesNotExist:
-#             raise ValidationError({"korik": "Bunday Texnik Korik topilmadi!"})
-
-#         if korik.status != TexnikKorik.Status.JARAYONDA:
-#             raise ValidationError({"korik": "Avval Texnik Korik boshlang yoki u tugallangan."})
-
-#         serializer.context["korik"] = korik 
-#         serializer.save()
-
-
 
 
 
@@ -1086,102 +877,103 @@ class NosozliklarGetViewSet(mixins.ListModelMixin,
     pagination_class = CustomPagination
     ordering_fields = ["created_at", "approved_at", "aniqlangan_vaqti"]
 
-
-# --- Nosozliklar ViewSet (Texnik Korikga o'xshash) ---
-
 class NosozliklarViewSet(BaseViewSet):
     queryset = (
         Nosozliklar.objects
         .select_related("tarkib", "created_by")
-        .prefetch_related("ehtiyot_qismlar")
+        .prefetch_related("steps")
         .order_by("-id")
     )
     serializer_class = NosozliklarSerializer
     permission_classes = [IsAuthenticated, IsTexnik]
     filter_backends = [filters.SearchFilter, filters.OrderingFilter, DjangoFilterBackend]
-    filterset_class = NosozliklarFilter
     search_fields = [
         "nosozliklar_haqida",
         "bartaraf_etilgan_nosozliklar",
         "tarkib__tarkib_raqami",
         "created_by__username",
+        "id",
     ]
-    ordering_fields = ["created_at", "approved_at", "aniqlangan_vaqti"]
     pagination_class = CustomPagination
+
+    def create(self, request, *args, **kwargs):
+        # FormData dan ehtiyot qismlarni JSON formatga o‘girish
+        if 'ehtiyot_qismlar' in request.data and isinstance(request.data['ehtiyot_qismlar'], str):
+            try:
+                request.data._mutable = True
+                request.data['ehtiyot_qismlar'] = json.loads(request.data['ehtiyot_qismlar'])
+                request.data._mutable = False
+            except Exception as e:
+                print(f"❌ JSON parse xatosi: {e}")
+
+        print("YUBORILGAN NOSOZLIK EHTIYOT QISMLAR:", request.data.get("ehtiyot_qismlar"))
+
+        response = super().create(request, *args, **kwargs)
+
+        # CREATE dan keyin yangilangan obyektni to‘liq qaytarish
+        if response.status_code == status.HTTP_201_CREATED:
+            nosozlik_id = response.data.get("id")
+            if nosozlik_id:
+                try:
+                    nosozlik = (
+                        Nosozliklar.objects
+                        .select_related("tarkib", "created_by")
+                        .prefetch_related(
+                            "nosozlikehtiyotqism_set__ehtiyot_qism",
+                            "steps__nosozlikehtiyotqismstep_set__ehtiyot_qism",
+                            "steps"
+                        )
+                        .get(id=nosozlik_id)
+                    )
+                    serializer = self.get_serializer(nosozlik)
+                    response.data = serializer.data
+                except Exception as e:
+                    print(f"❌ Nosozlikni yuklashda xato: {e}")
+
+        return response
 
     def get_queryset(self):
         user = self.request.user
-        qs = super().get_queryset()
+        qs = Nosozliklar.objects.prefetch_related("steps").order_by("-id")
         if user.role == "texnik" and user.depo:
             qs = qs.filter(tarkib__depo=user.depo)
         return qs
-    
-    
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(name="page", type=int, location=OpenApiParameter.QUERY, description="Step pagination page"),
+            OpenApiParameter(name="limit", type=int, location=OpenApiParameter.QUERY, description="Step page size"),
+            OpenApiParameter(name="search", type=str, location=OpenApiParameter.QUERY, description="Step search"),
+        ]
+    )
+    def retrieve(self, request, *args, **kwargs):
+        """Detail with steps pagination"""
+        return super().retrieve(request, *args, **kwargs)
+
     @action(detail=True, methods=["post"], url_path="add-step")
     def add_step(self, request, pk=None):
         nosozlik = self.get_object()
         if nosozlik.status == Nosozliklar.Status.BARTARAF_ETILDI:
-            return Response({"detail": "Bu nosozlik yakunlangan, yangi step qo‘shib bo‘lmaydi!"},
-                            status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"detail": "Bu nosozlik yakunlangan, yangi step qo‘shib bo‘lmaydi!"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
         serializer = NosozlikStepSerializer(
             data=request.data,
-            context={"request": request, "nosozlik": nosozlik}  # 👈 avtomatik context
+            context={"request": request, "nosozlik": nosozlik}
         )
         serializer.is_valid(raise_exception=True)
         step = serializer.save()
         return Response(NosozlikStepSerializer(step).data, status=status.HTTP_201_CREATED)
 
-    def perform_create(self, serializer):
-        request = self.request
-        password = request.data.get("password")
-        if not password or not request.user.check_password(password):
-            raise ValidationError({"password": "Parol noto‘g‘ri."})
-
-        yakunlash = serializer.validated_data.pop("yakunlash", False)
-        akt_file = serializer.validated_data.pop("akt_file", None)
-        ehtiyot_qismlar = serializer.validated_data.pop("ehtiyot_qismlar", [])
-
-        nosozlik = serializer.save(
-            created_by=request.user,
-            akt_file=akt_file,
-            status=Nosozliklar.Status.BARTARAF_ETILDI if yakunlash else Nosozliklar.Status.JARAYONDA
-        )
-
-        # 🔹 Ehtiyot qismlarni ishlatish
-        for item in ehtiyot_qismlar:
-            eq_obj = item.get("ehtiyot_qism")
-            miqdor = item.get("miqdor", 1)
-            if eq_obj:
-                NosozlikEhtiyotQism.objects.create(
-                    nosozlik=nosozlik, ehtiyot_qism=eq_obj, miqdor=miqdor
-                )
-                EhtiyotQismHistory.objects.create(
-                    ehtiyot_qism=eq_obj,
-                    miqdor=-miqdor,
-                    created_by=request.user
-                )
-
-        # 🔹 Agar yakunlansa → tarkibni ham yangilash
-        if yakunlash:
-            nosozlik.status = Nosozliklar.Status.BARTARAF_ETILDI
-            nosozlik.bartarafqilingan_vaqti = timezone.now()
-            nosozlik.save(update_fields=["status", "bartarafqilingan_vaqti"])
-
-            nosozlik.tarkib.holati = "Soz_holatda"
-            nosozlik.tarkib.save(update_fields=["holati"])
 
 
-
-
-# --- Nosozlik Step ViewSet ---
 class NosozlikStepViewSet(BaseViewSet):
     serializer_class = NosozlikStepSerializer
     permission_classes = [IsAuthenticated, IsTexnik]
     pagination_class = CustomPagination
     filter_backends = [filters.SearchFilter, filters.OrderingFilter, DjangoFilterBackend]
-    filterset_class = NosozlikStepFilter
-
     search_fields = [
         "id",
         "nosozliklar_haqida",
@@ -1189,75 +981,38 @@ class NosozlikStepViewSet(BaseViewSet):
         "created_by__username",
         "nosozlik__tarkib__tarkib_raqami",
     ]
+    filterset_fields = ["nosozlik"]
 
     def get_queryset(self):
         user = self.request.user
         qs = NosozlikStep.objects.all().order_by("-id")
+
         if user.role == "texnik" and user.depo:
             qs = qs.filter(nosozlik__tarkib__depo=user.depo)
 
-        # frontend → /api/nosozlik-steps/?nosozlik=5
         nosozlik_id = self.request.query_params.get("nosozlik")
         if nosozlik_id:
             qs = qs.filter(nosozlik_id=nosozlik_id)
         return qs
 
     def perform_create(self, serializer):
-        request = self.request
-        password = request.data.get("password")
-        if not password or not request.user.check_password(password):
-            raise ValidationError({"password": "Parol noto‘g‘ri."})
-
         nosozlik_id = self.request.query_params.get("nosozlik")
         if not nosozlik_id:
-            raise ValidationError({"nosozlik": "nosozlik_id yuborilmagan!"})
+            nosozlik_id = self.kwargs.get("nosozlik_pk") or self.request.data.get("nosozlik")
+
+        if not nosozlik_id:
+            raise ValidationError({"nosozlik": "Nosozlik ID aniqlanmadi!"})
 
         try:
             nosozlik = Nosozliklar.objects.get(id=nosozlik_id)
         except Nosozliklar.DoesNotExist:
-            raise ValidationError({"nosozlik": "Bunday nosozlik topilmadi!"})
+            raise ValidationError({"nosozlik": "Bunday Nosozlik topilmadi!"})
 
         if nosozlik.status != Nosozliklar.Status.JARAYONDA:
-            raise ValidationError({"nosozlik": "Avval nosozlik boshlang yoki u tugallanmagan."})
+            raise ValidationError({"nosozlik": "Avval Nosozlik boshlang yoki u yakunlangan."})
 
-        # --- Step yaratish ---
-        yakunlash = serializer.validated_data.pop("yakunlash", False)
-        ehtiyot_qismlar = serializer.validated_data.pop("ehtiyot_qismlar", [])
-
-        step = serializer.save(
-            nosozlik=nosozlik,
-            created_by=request.user,
-            yakunlash=yakunlash
-        )
-
-        # --- Step ehtiyot qismlari ---
-        for item in ehtiyot_qismlar:
-            eq_obj = item.get("ehtiyot_qism")
-            miqdor = item.get("miqdor", 1)
-            if eq_obj:
-                NosozlikEhtiyotQism.objects.create(
-                    nosozlik=nosozlik,
-                    ehtiyot_qism=eq_obj,
-                    miqdor=miqdor,
-                    step=step,  # step bilan bog‘lash
-                )
-                EhtiyotQismHistory.objects.create(
-                    ehtiyot_qism=eq_obj,
-                    miqdor=-miqdor,
-                    created_by=request.user,
-                    step=step
-                )
-
-        # --- Agar step yakunlansa → asosiy nosozlikni ham yakunlash ---
-        if yakunlash:
-            nosozlik.status = Nosozliklar.Status.BARTARAF_ETILDI
-            nosozlik.bartaraf_qilingan_vaqti = timezone.now()
-            nosozlik.save(update_fields=["status", "bartaraf_qilingan_vaqti"])
-
-            nosozlik.tarkib.holati = "Soz_holatda"
-            nosozlik.tarkib.save(update_fields=["holati"])
-
-
+        serializer.context["nosozlik"] = nosozlik
+        serializer.save()
 
    
    

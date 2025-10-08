@@ -1128,28 +1128,28 @@ class NosozlikDetailForStepSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = fields
 
-    def to_representation(self, instance):
-        data = super().to_representation(instance)
+    # def to_representation(self, instance):
+    #     data = super().to_representation(instance)
 
-        # Parent-level ehtiyot qismlarni id bilan obyekt sifatida chiqarish
-        if hasattr(instance, "nosozlikehtiyotqism_set"):
-            data["ehtiyot_qismlar_detail"] = [
-                {
-                    "id": item.id,
-                    "ehtiyot_qism": item.ehtiyot_qism.id,  # id bilan
-                    "ehtiyot_qism_nomi": item.ehtiyot_qism.ehtiyotqism_nomi,
-                    "birligi": item.ehtiyot_qism.birligi,
-                    "miqdor": item.miqdor
-                }
-                for item in instance.nosozlikehtiyotqism_set.all()
-            ]
+    #     # Parent-level ehtiyot qismlarni id bilan obyekt sifatida chiqarish
+    #     if hasattr(instance, "nosozlikehtiyotqism_set"):
+    #         data["ehtiyot_qismlar_detail"] = [
+    #             {
+    #                 "id": item.id,
+    #                 "ehtiyot_qism": item.ehtiyot_qism.id,  # id bilan
+    #                 "ehtiyot_qism_nomi": item.ehtiyot_qism.ehtiyotqism_nomi,
+    #                 "birligi": item.ehtiyot_qism.birligi,
+    #                 "miqdor": item.miqdor
+    #             }
+    #             for item in instance.nosozlikehtiyotqism_set.all()
+    #         ]
 
-        # Bo‘sh yoki None qiymatlarni olib tashlash
-        clean_data = {
-            k: v for k, v in data.items()
-            if v not in [None, False, [], {}] and not (isinstance(v, str) and v.strip() == "")
-        }
-        return clean_data
+    #     # Bo‘sh yoki None qiymatlarni olib tashlash
+    #     clean_data = {
+    #         k: v for k, v in data.items()
+    #         if v not in [None, False, [], {}] and not (isinstance(v, str) and v.strip() == "")
+    #     }
+    #     return clean_data
 
 
 
@@ -1162,10 +1162,8 @@ class NosozlikStepSerializer(serializers.ModelSerializer):
     )
     nosozlik_nomi = serializers.CharField(source="nosozlik.tarkib.tarkib_raqami", read_only=True)
 
-    ehtiyot_qismlar = NosozlikEhtiyotQismStepSerializer(many=True, write_only=True, required=False)
-    ehtiyot_qismlar_detail = NosozlikEhtiyotQismStepSerializer(
-        source="ehtiyot_qismlar_step", many=True, read_only=True
-    )
+    ehtiyot_qismlar = NosozlikEhtiyotQismStepSerializer(many=True, write_only=True, required=False, allow_null=True, default=list)
+    ehtiyot_qismlar_detail = serializers.SerializerMethodField()
 
     status = serializers.CharField(read_only=True)
     akt_file = serializers.FileField(write_only=True, required=False)
@@ -1183,17 +1181,37 @@ class NosozlikStepSerializer(serializers.ModelSerializer):
             "created_by", "created_at", "password", "status"
         ]
         read_only_fields = ["created_by", "created_at", "status"]
+        
+        
+        
+    def get_ehtiyot_qismlar_detail(self, obj):
+        step_qismlar = [
+            {
+                "id": item.id,
+                "ehtiyot_qism": item.ehtiyot_qism.id if item.ehtiyot_qism else None,
+                "ehtiyot_qism_nomi": item.ehtiyot_qism.ehtiyotqism_nomi if item.ehtiyot_qism else None,
+                "birligi": item.ehtiyot_qism.birligi if item.ehtiyot_qism else None,
+                "ishlatilgan_miqdor": item.miqdor,
+                "qoldiq": item.ehtiyot_qism.jami_miqdor if item.ehtiyot_qism else None,
+                "manba": "step",
+            }
+            for item in obj.ehtiyot_qismlar_step.select_related("ehtiyot_qism").all()
+        ]
+        return step_qismlar
 
     def validate(self, attrs):
         request = self.context.get("request")
+
         password = attrs.pop("password", None)
         if not request.user.is_authenticated or not password or not request.user.check_password(password):
             raise serializers.ValidationError({"password": "Parol noto‘g‘ri."})
 
         yakunlash = attrs.get("yakunlash", False)
         akt_file = attrs.get("akt_file")
-        vaqt = attrs.get("bartaraf_qilingan_vaqti")
+        if yakunlash and not akt_file:
+            raise serializers.ValidationError({"akt_file": "Yakunlash uchun akt fayl majburiy."})
 
+        vaqt = attrs.get("bartaraf_qilingan_vaqti")
         if vaqt:
             if not yakunlash:
                 raise serializers.ValidationError({"yakunlash": "Vaqt belgilash uchun yakunlash majburiy."})
@@ -1203,21 +1221,61 @@ class NosozlikStepSerializer(serializers.ModelSerializer):
         if yakunlash and akt_file and not vaqt:
             attrs["bartaraf_qilingan_vaqti"] = timezone.now()
 
+        ehtiyot_qismlar = attrs.get("ehtiyot_qismlar", None)
+        if ehtiyot_qismlar is None:
+            ehtiyot_qismlar = request.data.get("ehtiyot_qismlar", [])
+
+        if isinstance(ehtiyot_qismlar, str):
+            try:
+                ehtiyot_qismlar = json.loads(ehtiyot_qismlar)
+            except Exception:
+                raise serializers.ValidationError({"ehtiyot_qismlar": "Noto‘g‘ri format."})
+        elif ehtiyot_qismlar and not isinstance(ehtiyot_qismlar, list):
+            raise serializers.ValidationError({"ehtiyot_qismlar": "List formatida bo‘lishi kerak."})
+
+        attrs["ehtiyot_qismlar"] = ehtiyot_qismlar or []
+
         return attrs
 
+
     def create(self, validated_data):
-        request = self.context.get("request")
-        nosozlik = self.context.get("nosozlik")
+        print("\n [CREATE BOSHLANDI - NOSOZLIK STEP]")
+        print(" VALIDATED DATA KEYLAR:", list(validated_data.keys()))
+        print(" VALIDATED EHTIYOT QISMLAR:", validated_data.get("ehtiyot_qismlar"))
+
+        request = self.context["request"]
+
+        # validated_data ichidan nosozlikni olib qo'yamiz (ikki marta kirmasin)
+        nosozlik = validated_data.pop("nosozlik", None)
         if not nosozlik:
-            raise serializers.ValidationError("Nosozlik konteksti yo‘q")
+            raise serializers.ValidationError({"nosozlik": "Nosozlik tanlanmagan."})
 
         yakunlash = validated_data.pop("yakunlash", False)
         akt_file = validated_data.pop("akt_file", None)
         ehtiyot_qismlar = validated_data.pop("ehtiyot_qismlar", [])
 
-        step_status = NosozlikStep.Status.BARTARAF_ETILDI if yakunlash and akt_file else NosozlikStep.Status.JARAYONDA
+        # FormData yoki string bo‘lsa – JSON qilib ochish
+        if not ehtiyot_qismlar:
+            raw_data = request.data.get("ehtiyot_qismlar")
+            if isinstance(raw_data, str):
+                try:
+                    ehtiyot_qismlar = json.loads(raw_data)
+                except Exception:
+                    ehtiyot_qismlar = []
+            elif isinstance(raw_data, list):
+                ehtiyot_qismlar = raw_data
+            else:
+                ehtiyot_qismlar = []
 
-        # Step yaratish
+        print("✅ YUBORILGAN EHTIYOT QISMLAR:", ehtiyot_qismlar)
+
+        # Step statusini aniqlash
+        if yakunlash and akt_file:
+            step_status = NosozlikStep.Status.BARTARAF_ETILDI
+        else:
+            step_status = NosozlikStep.Status.JARAYONDA
+
+        # 🔹 Step yaratish — endi faqat 1 ta nosozlik qiymati bilan
         step = NosozlikStep.objects.create(
             nosozlik=nosozlik,
             created_by=request.user,
@@ -1226,31 +1284,37 @@ class NosozlikStepSerializer(serializers.ModelSerializer):
             **validated_data
         )
 
-        # Ehtiyot qismlar (ID + miqdor)
+        # Ehtiyot qismlarni stepga bog‘lash
         for item in ehtiyot_qismlar:
-            eq_id = item.get("ehtiyot_qism")
+            eq_val = item.get("ehtiyot_qism")
             miqdor = item.get("miqdor", 1)
-            if not eq_id:
+            if not eq_val:
                 continue
 
-            eq_obj = EhtiyotQismlari.objects.get(id=eq_id)
+            # Ehtiyot qismini olish
+            if isinstance(eq_val, EhtiyotQismlari):
+                eq_obj = eq_val
+            else:
+                try:
+                    eq_obj = EhtiyotQismlari.objects.get(id=int(eq_val))
+                except (EhtiyotQismlari.DoesNotExist, ValueError, TypeError):
+                    raise serializers.ValidationError({"ehtiyot_qism": f"ID {eq_val} topilmadi"})
 
+            # Omborda yetarli miqdor borligini tekshirish
+            if yakunlash and eq_obj.jami_miqdor < miqdor:
+                raise serializers.ValidationError({
+                    "ehtiyot_qism": f"Omborda yetarli miqdor yo‘q ({eq_obj.jami_miqdor})"
+                })
+
+            # Stepga ehtiyot qism yozish
             NosozlikEhtiyotQismStep.objects.create(
                 step=step,
                 ehtiyot_qism=eq_obj,
                 miqdor=miqdor
             )
 
-            # Step yakunlangan bo‘lsa History yozish
-            if step_status == NosozlikStep.Status.BARTARAF_ETILDI:
-                EhtiyotQismHistory.objects.create(
-                    ehtiyot_qism=eq_obj,
-                    miqdor=-miqdor,
-                    created_by=request.user
-                )
-
-        # Yakunlash bo‘lsa nosozlikni ham yangilash
-        if step_status == NosozlikStep.Status.BARTARAF_ETILDI:
+        # Nosozlik holatini yangilash
+        if yakunlash and akt_file:
             step.bartaraf_qilingan_vaqti = timezone.now()
             step.save()
             nosozlik.status = Nosozliklar.Status.BARTARAF_ETILDI
@@ -1262,11 +1326,31 @@ class NosozlikStepSerializer(serializers.ModelSerializer):
                 nosozlik.tarkib.holati = "Nosozlikda"
                 nosozlik.tarkib.save()
 
+        step.refresh_from_db()
+
+        step = NosozlikStep.objects.prefetch_related(
+            "ehtiyot_qismlar_step__ehtiyot_qism"
+        ).get(id=step.id)
+
         return step
 
 
 
-# --- Nosozliklar Serializer (frontend mos) ---
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+
+        # Ehtiyot qismlar detailni qo‘lda qo‘shish
+        if "ehtiyot_qismlar_detail" not in data or not data["ehtiyot_qismlar_detail"]:
+            data["ehtiyot_qismlar_detail"] = self.get_ehtiyot_qismlar_detail(instance)
+
+        clean_data = {
+            k: v for k, v in data.items()
+            if v not in [None, False] and not (isinstance(v, str) and v.strip() == "")
+        }
+        return clean_data
+
+
+
 class NosozliklarSerializer(serializers.ModelSerializer):
     created_by = serializers.CharField(source="created_by.username", read_only=True)
     tarkib = serializers.PrimaryKeyRelatedField(
@@ -1276,11 +1360,9 @@ class NosozliklarSerializer(serializers.ModelSerializer):
     is_active = serializers.BooleanField(source="tarkib.is_active", read_only=True)
 
     ehtiyot_qismlar = NosozlikEhtiyotQismSerializer(
-        many=True, write_only=True, required=False, allow_null=True, default=list
+        many=True, write_only=True, required=False
     )
-    ehtiyot_qismlar_detail = NosozlikEhtiyotQismSerializer(
-        source="ehtiyot_qism_aloqalari", many=True, read_only=True
-    )
+    ehtiyot_qismlar_detail = serializers.SerializerMethodField()
 
     akt_file = serializers.FileField(write_only=True, required=False)
     password = serializers.CharField(write_only=True, required=True)
@@ -1288,7 +1370,6 @@ class NosozliklarSerializer(serializers.ModelSerializer):
     bartarafqilingan_vaqti = serializers.DateTimeField(read_only=True)
 
     steps = serializers.SerializerMethodField()
-    status = serializers.CharField(read_only=True)
 
     class Meta:
         model = Nosozliklar
@@ -1302,130 +1383,233 @@ class NosozliklarSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["status", "created_by", "created_at", "steps"]
 
-    # --- Stepsni olish ---
-    def get_steps(self, obj):
-        ishlatilgan_qismlar = []
 
-        # 🔹 1) Agar nosozlik yakunlangan bo‘lsa → NosozlikEhtiyotQism (asosiy)
-        for item in obj.ehtiyot_qism_aloqalari.all():
-            if not item.ehtiyot_qism:
-                continue
-            ishlatilgan_qismlar.append({
-                "ehtiyot_qism": item.ehtiyot_qism.ehtiyotqism_nomi,
-                "birligi": item.ehtiyot_qism.birligi,
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["tarkib"].queryset = HarakatTarkibi.objects.filter(
+            is_active=True,
+            holati="Soz_holatda"
+        )
+
+
+    
+    # --- DETAIL uchun ehtiyot qismlar ---
+    def get_ehtiyot_qismlar_detail(self, obj):
+        nosozlik_qismlar = [
+            {
+                "id": item.id,
+                "ehtiyot_qism": item.ehtiyot_qism.id if item.ehtiyot_qism else None,
+                "ehtiyot_qism_nomi": item.ehtiyot_qism.ehtiyotqism_nomi if item.ehtiyot_qism else None,
+                "birligi": item.ehtiyot_qism.birligi if item.ehtiyot_qism else None,
                 "ishlatilgan_miqdor": item.miqdor,
-                "qoldiq": item.ehtiyot_qism.jami_miqdor
-            })
+                "qoldiq": item.ehtiyot_qism.jami_miqdor if item.ehtiyot_qism else None,
+                "manba": "nosozlik",
+            }
+            for item in obj.ehtiyot_qism_aloqalari.select_related("ehtiyot_qism").all()
+        ]
 
-        # 🔹 2) Agar step bo‘lsa → steplarni NosozlikStepSerializer orqali chiqaramiz
-        steps_qs = obj.steps.all().order_by("created_at")
-        steps_data = NosozlikStepSerializer(steps_qs, many=True).data
+        if getattr(obj, "yakunlash", False):
+            for step in obj.steps.all().prefetch_related("nosozlikehtiyotqismstep_set__ehtiyot_qism"):
+                for item in step.nosozlikehtiyotqismstep_set.all():
+                    nosozlik_qismlar.append({
+                        "id": item.id,
+                        "step_id": step.id,
+                        "ehtiyot_qism": item.ehtiyot_qism.id if item.ehtiyot_qism else None,
+                        "ehtiyot_qism_nomi": item.ehtiyot_qism.ehtiyotqism_nomi if item.ehtiyot_qism else None,
+                        "birligi": item.ehtiyot_qism.birligi if item.ehtiyot_qism else None,
+                        "ishlatilgan_miqdor": item.miqdor,
+                        "qoldiq": item.ehtiyot_qism.jami_miqdor if item.ehtiyot_qism else None,
+                        "manba": "step",
+                    })
+        return nosozlik_qismlar
 
+    
+    def get_pervious_version(self, obj):
+        return obj.tarkib.pervious_version.id if obj.tarkib and obj.tarkib.pervious_version else None
+
+
+    def get_tarkib_detail(self, obj):
         return {
-            "ishlatilgan_qismlar": ishlatilgan_qismlar,
-            "steps": steps_data
+            "id": obj.tarkib.id,
+            "tarkib_raqami": obj.tarkib.tarkib_raqami,
+            "holati": obj.tarkib.holati,
+            "is_active": obj.tarkib.is_active,
         }
 
-    # --- Validatsiya ---
+    
+    
+    # --- STEPS ---
+    def get_steps(self, obj):
+        request = self.context.get("request")
+        parent_data = {
+            "id": obj.id,
+            "tarkib": obj.tarkib.id,
+            "tarkib_nomi": obj.tarkib.tarkib_raqami,
+            "status": obj.status,
+            "nosozliklar_haqida": obj.nosozliklar_haqida,
+            "bartaraf_etilgan_nosozliklar": obj.bartaraf_etilgan_nosozliklar,
+            "aniqlangan_vaqti": obj.aniqlangan_vaqti,
+            "bartarafqilingan_vaqti": obj.bartarafqilingan_vaqti,
+            "created_by": obj.created_by.username if obj.created_by else None,
+            "created_at": obj.created_at,
+            "ehtiyot_qismlar_detail": self.get_ehtiyot_qismlar_detail(obj)
+        }
+
+        steps_qs = obj.steps.all().order_by("created_at")
+        search = request.query_params.get("search")
+        if search:
+            steps_qs = steps_qs.filter(
+                Q(nosozliklar_haqida__icontains=search) |
+                Q(bartaraf_etilgan_nosozliklar__icontains=search)
+            )
+
+        paginator = StepPagination()
+        page = paginator.paginate_queryset(steps_qs, request)
+
+        steps_data = NosozlikStepSerializer(
+            page if page is not None else steps_qs,
+            many=True, context=self.context
+        ).data
+
+        if page is not None:
+            return {
+                "count": paginator.page.paginator.count + 1,
+                "num_pages": paginator.page.paginator.num_pages,
+                "current_page": paginator.page.number,
+                "next": paginator.get_next_link(),
+                "previous": paginator.get_previous_link(),
+                "results": [parent_data] + steps_data,
+            }
+        else:
+            return {
+                "count": steps_qs.count() + 1,
+                "num_pages": 1,
+                "current_page": 1,
+                "next": None,
+                "previous": None,
+                "results": [parent_data] + steps_data,
+            }
+
+    # --- VALIDATE ---
     def validate(self, attrs):
         request = self.context.get("request")
         password = attrs.pop("password", None)
         if not password or not request.user.check_password(password):
             raise serializers.ValidationError({"password": "Parol noto‘g‘ri."})
 
-        yakunlash = attrs.get("yakunlash", False)
+        yakunlash = attrs.get("yakunlash")
         akt_file = attrs.get("akt_file")
         if yakunlash and not akt_file:
             raise serializers.ValidationError({"akt_file": "Yakunlash uchun akt fayl majburiy."})
 
+        ehtiyot_qismlar = attrs.get("ehtiyot_qismlar", None)
+        if ehtiyot_qismlar is None:
+            ehtiyot_qismlar = request.data.get("ehtiyot_qismlar", [])
+
+        if isinstance(ehtiyot_qismlar, str):
+            try:
+                ehtiyot_qismlar = json.loads(ehtiyot_qismlar)
+            except Exception:
+                raise serializers.ValidationError({"ehtiyot_qismlar": "Noto‘g‘ri format."})
+
+        elif ehtiyot_qismlar and not isinstance(ehtiyot_qismlar, list):
+            raise serializers.ValidationError({"ehtiyot_qismlar": "List formatida bo‘lishi kerak."})
+
+        attrs["ehtiyot_qismlar"] = ehtiyot_qismlar or []
         return attrs
 
     # --- CREATE ---
     def create(self, validated_data):
+        print("\n [CREATE NOSOZLIK BOSHLANDI]")
+        print(" VALIDATED DATA:", list(validated_data.keys()))
         request = self.context["request"]
-
-        # dublikat bo‘lishi mumkin bo‘lgan fieldlarni olib tashlaymiz
-        validated_data.pop("created_by", None)
-        validated_data.pop("status", None)
 
         tarkib = validated_data.pop("tarkib")
         yakunlash = validated_data.pop("yakunlash", False)
         akt_file = validated_data.pop("akt_file", None)
-        ehtiyot_qismlar = validated_data.pop("ehtiyot_qismlar", []) or []
+        ehtiyot_qismlar = validated_data.pop("ehtiyot_qismlar", [])
 
-        # asosiy nosozlikni yaratamiz
+        if not ehtiyot_qismlar:
+            raw_data = request.data.get("ehtiyot_qismlar")
+            if isinstance(raw_data, str):
+                try:
+                    ehtiyot_qismlar = json.loads(raw_data)
+                except Exception:
+                    ehtiyot_qismlar = []
+            elif isinstance(raw_data, list):
+                ehtiyot_qismlar = raw_data
+            else:
+                ehtiyot_qismlar = []
+
+        print("✅ YUBORILGAN EHTIYOT QISMLAR:", ehtiyot_qismlar)
+
+        if yakunlash and akt_file:
+            status = Nosozliklar.Status.BARTARAF_ETILDI
+            tarkib_holati = "Soz_holatda"
+        else:
+            status = Nosozliklar.Status.JARAYONDA
+            tarkib_holati = "Nosozlikda"
+
         nosozlik = Nosozliklar.objects.create(
             tarkib=tarkib,
             created_by=request.user,
-            status=Nosozliklar.Status.BARTARAF_ETILDI if yakunlash else Nosozliklar.Status.JARAYONDA,
-            akt_file=akt_file,
+            status=status,
+            yakunlash=yakunlash,
+            akt_file=akt_file if akt_file else None,
             **validated_data
         )
 
-        # yakunlash bo‘lsa vaqt va holatlarni belgilaymiz
-        if yakunlash:
-            nosozlik.bartarafqilingan_vaqti = timezone.now()
-            nosozlik.tarkib.holati = "Soz_holatda"
-            nosozlik.tarkib.save()
-            nosozlik.save()
+        nosozlik.tarkib.holati = tarkib_holati
+        nosozlik.tarkib.save()
 
-        # Ehtiyot qismlarni yaratish + History
         for item in ehtiyot_qismlar:
-            eq_id = item.get("ehtiyot_qism")
+            eq_val = item.get("ehtiyot_qism")
             miqdor = item.get("miqdor", 1)
-            if not eq_id:
+            if not eq_val:
                 continue
-            eq_obj = EhtiyotQismlari.objects.get(id=eq_id)
+            try:
+                eq_obj = EhtiyotQismlari.objects.get(id=int(eq_val))
+            except (EhtiyotQismlari.DoesNotExist, ValueError, TypeError):
+                raise serializers.ValidationError({"ehtiyot_qism": f"ID {eq_val} topilmadi"})
 
-            # Parent-level NosozlikEhtiyotQism
             NosozlikEhtiyotQism.objects.create(
                 nosozlik=nosozlik,
                 ehtiyot_qism=eq_obj,
                 miqdor=miqdor
             )
 
-            # History har doim yoziladi
-            EhtiyotQismHistory.objects.create(
-                ehtiyot_qism=eq_obj,
-                miqdor=-miqdor,
-                created_by=request.user
-            )
+        if yakunlash and akt_file:
+            nosozlik.bartarafqilingan_vaqti = timezone.now()
+            nosozlik.save()
 
+        nosozlik = Nosozliklar.objects.prefetch_related(
+            'ehtiyot_qism_aloqalari__ehtiyot_qism',
+            'steps__ehtiyot_qismlar_step__ehtiyot_qism'
+        ).get(id=nosozlik.id)
         return nosozlik
 
-
+    # --- UPDATE ---
     def update(self, instance, validated_data):
         request = self.context["request"]
-        ehtiyot_qismlar = validated_data.pop("ehtiyot_qismlar", []) or []
+        ehtiyot_qismlar = validated_data.pop("ehtiyot_qismlar", [])
         akt_file = validated_data.pop("akt_file", None)
         yakunlash = validated_data.pop("yakunlash", False)
 
         if akt_file:
             instance.akt_file = akt_file
+        instance.yakunlash = yakunlash
 
-        if yakunlash:
+        if yakunlash and akt_file:
             instance.status = Nosozliklar.Status.BARTARAF_ETILDI
-            instance.bartarafqilingan_vaqti = timezone.now()
             instance.tarkib.holati = "Soz_holatda"
-            instance.tarkib.save()
-            step = NosozlikStep.objects.create(
-                nosozlik=instance,
-                created_by=request.user,
-                akt_file=akt_file,
-                status=NosozlikStep.Status.BARTARAF_ETILDI
-            )
+            if not instance.bartarafqilingan_vaqti:
+                instance.bartarafqilingan_vaqti = timezone.now()
         else:
             instance.tarkib.holati = "Nosozlikda"
-            step = NosozlikStep.objects.create(
-                nosozlik=instance,
-                created_by=request.user,
-                akt_file=akt_file,
-                status=NosozlikStep.Status.JARAYONDA
-            )
 
+        instance.tarkib.save()
         instance = super().update(instance, validated_data)
 
-        # ✅ yakunlash bo‘lsa ham ehtiyot qismlar ishlanadi
         for item in ehtiyot_qismlar:
             eq_id = item.get("ehtiyot_qism")
             miqdor = item.get("miqdor", 1)
@@ -1436,16 +1620,26 @@ class NosozliklarSerializer(serializers.ModelSerializer):
             except EhtiyotQismlari.DoesNotExist:
                 continue
 
-            EhtiyotQismHistory.objects.create(
-                ehtiyot_qism=eq_obj, miqdor=-miqdor, created_by=request.user
-            )
-            NosozlikEhtiyotQismStep.objects.create(
-                step=step, ehtiyot_qism=eq_obj, miqdor=miqdor
+            obj, created = NosozlikEhtiyotQism.objects.update_or_create(
+                nosozlik=instance,
+                ehtiyot_qism=eq_obj,
+                defaults={"miqdor": miqdor}
             )
 
         return instance
 
-
+    # --- REPRESENTATION ---
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        if 'ehtiyot_qismlar_detail' in data:
+            data['ehtiyot_qismlar_detail'] = self.get_ehtiyot_qismlar_detail(instance)
+        if 'steps' in data:
+            data['steps'] = self.get_steps(instance)
+        clean_data = {
+            k: v for k, v in data.items()
+            if v not in [None, False] and not (isinstance(v, str) and v.strip() == "")
+        }
+        return clean_data
 
 
 

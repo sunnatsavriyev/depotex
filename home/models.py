@@ -408,7 +408,6 @@ class TexnikKorikStep(models.Model):
 
 
 
-
 class Nosozliklar(models.Model):
     class Status(models.TextChoices):
         JARAYONDA = "Nosozlikda", "Nosozlikda"
@@ -420,43 +419,54 @@ class Nosozliklar(models.Model):
         related_name="nosozliklar",
         blank=True
     )
-    tarkib = models.ForeignKey('HarakatTarkibi', on_delete=models.SET_NULL,limit_choices_to={"is_active": True},null=True, blank=True, related_name="nosozliklar")
+    tarkib = models.ForeignKey(
+        "HarakatTarkibi",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        limit_choices_to={"is_active": True},
+        related_name="nosozliklar"
+    )
     nosozliklar_haqida = models.TextField(null=True, blank=True)
+    bartaraf_etilgan_nosozliklar = models.TextField(blank=True)
     status = models.CharField(max_length=32, choices=Status.choices, default=Status.JARAYONDA, editable=False)
-
-    aniqlangan_vaqti = models.DateTimeField(default=timezone.now)         
+    aniqlangan_vaqti = models.DateTimeField(default=timezone.now)
     bartarafqilingan_vaqti = models.DateTimeField(null=True, blank=True)
-
-    bartaraf_etilgan_nosozliklar = models.TextField(blank=True, help_text="Bartaraf etilish jarayonida bajarilgan ishlar")
+    akt_file = models.FileField(upload_to="nosozlik_aktlar/", null=True, blank=True)
     image = models.ImageField(upload_to="nosozlik_images/", blank=True)
-    akt_file = models.FileField(upload_to="nosozlik_aktlar/", null=True, blank=True) 
-
-    created_by = models.ForeignKey("CustomUser", on_delete=models.SET_NULL, null=True, blank=True)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
     yakunlash = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def save(self, *args, **kwargs):
-        
+        """TexnikKorik save() mantiqiga moslashtirilgan"""
+        # Yangi nosozlik
         if not self.id:
-            self.aniqlangan_vaqti = timezone.now()
             self.status = Nosozliklar.Status.JARAYONDA
+            self.aniqlangan_vaqti = timezone.now()
+
+            # Tarkib holatini "Nosozlikda" ga o‘zgartirish
             if self.tarkib and self.tarkib.holati != "Nosozlikda":
                 self.tarkib.holati = "Nosozlikda"
                 self.tarkib.save()
+        else:
+            # Eski yozuv — chiqish vaqtini saqlab qolamiz
+            old = Nosozliklar.objects.filter(id=self.id).first()
+            if old:
+                self.bartarafqilingan_vaqti = old.bartarafqilingan_vaqti
 
-        if self.id and self.yakunlash and self.akt_file:
+        # Yakunlash shartlari bajarilganda
+        if self.akt_file and self.yakunlash:
             self.status = Nosozliklar.Status.BARTARAF_ETILDI
             self.bartarafqilingan_vaqti = timezone.now()
-            if self.tarkib and self.tarkib.holati != "Soz_holatda":
+            if self.tarkib:
                 self.tarkib.holati = "Soz_holatda"
                 self.tarkib.save()
 
         super().save(*args, **kwargs)
 
-
-
-        def __str__(self):
-            return f"{self.tarkib} - {self.status} ({self.created_by})"
+    def __str__(self):
+        return f"{self.tarkib} - {self.status} ({self.created_by})"
 
     @property
     def ehtiyot_qismlar_miqdor(self):
@@ -467,14 +477,18 @@ class Nosozliklar(models.Model):
         return result
 
 
-
-
 class NosozlikStep(models.Model):
     class Status(models.TextChoices):
         JARAYONDA = "Jarayonda", "Jarayonda"
         BARTARAF_ETILDI = "Yakunlandi", "Yakunlandi"
 
-    nosozlik = models.ForeignKey(Nosozliklar, on_delete=models.SET_NULL,null=True, blank=True, related_name="steps")
+    nosozlik = models.ForeignKey(
+        Nosozliklar,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="steps"
+    )
     tamir_turi = models.ForeignKey('TamirTuri', on_delete=models.SET_NULL, null=True, blank=True)
     ehtiyot_qismlar = models.ManyToManyField(
         'EhtiyotQismlari',
@@ -482,37 +496,40 @@ class NosozlikStep(models.Model):
         blank=True
     )
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.JARAYONDA)
-    nosozliklar_haqida = models.TextField(blank=True)
+    nosozliklar_haqida = models.TextField(null=True, blank=True)
     bartaraf_etilgan_nosozliklar = models.TextField(blank=True)
     akt_file = models.FileField(upload_to='nosozlik_step_aktlar/', null=True, blank=True)
     bartaraf_qilingan_vaqti = models.DateTimeField(null=True, blank=True)
-    created_by = models.ForeignKey('CustomUser', on_delete=models.SET_NULL, null=True, blank=True)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def save(self, *args, **kwargs):
-        # Step faqat yakunlanmagan nosozliklarga qo‘shiladi
-        if self.nosozlik and self.nosozlik.status == Nosozliklar.Status.BARTARAF_ETILDI:
-            raise ValueError("Bu nosozlik yakunlangan, yangi step qo'shib bo'lmaydi!")
+        """TexnikKorikStep mantiqiga to‘liq moslashtirilgan"""
+        # Akt_file yuklangan bo‘lsa → stepni yakunlangan deb belgila
+        if self.akt_file:
+            self.status = self.Status.BARTARAF_ETILDI
+            self.bartaraf_qilingan_vaqti = timezone.now()
 
-        # Yangi step qo‘shilganda default Jarayonda
-        if not self.id:
+            # Step yakunlanganda asosiy nosozlikni ham yakunlash
+            if self.nosozlik:
+                self.nosozlik.status = Nosozliklar.Status.BARTARAF_ETILDI
+                self.nosozlik.bartarafqilingan_vaqti = timezone.now()
+                if self.nosozlik.tarkib:
+                    self.nosozlik.tarkib.holati = "Soz_holatda"
+                    self.nosozlik.tarkib.save()
+                self.nosozlik.save()
+        else:
+            # Aks holda – jarayonda
             self.status = self.Status.JARAYONDA
             if self.nosozlik and self.nosozlik.tarkib.holati != "Nosozlikda":
                 self.nosozlik.tarkib.holati = "Nosozlikda"
                 self.nosozlik.tarkib.save()
 
-        # Agar akt_file yuklangan va step yakunlansa
-        if self.akt_file and self.status != self.Status.BARTARAF_ETILDI:
-            self.status = self.Status.BARTARAF_ETILDI
-            self.bartaraf_qilingan_vaqti = timezone.now()
-            if self.nosozlik:
-                self.nosozlik.status = Nosozliklar.Status.BARTARAF_ETILDI
-                self.nosozlik.bartarafqilingan_vaqti = timezone.now()
-                self.nosozlik.tarkib.holati = "Soz_holatda"
-                self.nosozlik.tarkib.save()
-                self.nosozlik.save()
-
         super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.nosozlik.tarkib} — Step ({self.status})"
+
+    
+    
+    
