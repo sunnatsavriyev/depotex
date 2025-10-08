@@ -133,12 +133,22 @@ class BaseViewSet(viewsets.ModelViewSet):
             elements.append(Paragraph(f"Obyekt #{idx}", header_style))
             elements.append(Spacer(1, 10))
 
-            # Asosiy jadval (steps va ichki narsalarsiz)
+            # Asosiy jadval
             table_data = [[Paragraph("<b>Maydon</b>", field_style), Paragraph("<b>Qiymat</b>", field_style)]]
             for key, value in item.items():
-                if key in ["image", "steps", "vagonlar"]:  # ichki obyektlarni asosiydan chiqarib turamiz
+                if key in ["image", "steps", "vagonlar", "ehtiyot_qismlar_detail"]:
                     continue
                 table_data.append([Paragraph(str(key), field_style), Paragraph(str(value), field_style)])
+
+            # Ehtiyot qismlarni birlashtirib yozish
+            if "ehtiyot_qismlar_detail" in item and isinstance(item["ehtiyot_qismlar_detail"], list):
+                qismlar_list = []
+                for part in item["ehtiyot_qismlar_detail"]:
+                    nomi = part.get("ehtiyot_qism_nomi", "")
+                    miqdor = part.get("ishlatilgan_miqdor", 0)
+                    birligi = part.get("birligi", "")
+                    qismlar_list.append(f"{nomi}: {miqdor} {birligi}")
+                table_data.append([Paragraph("Ehtiyot qismlar", field_style), Paragraph(", ".join(qismlar_list), field_style)])
 
             table = Table(table_data, colWidths=[150, 350])
             table.setStyle(TableStyle([
@@ -152,7 +162,7 @@ class BaseViewSet(viewsets.ModelViewSet):
             elements.append(table)
             elements.append(Spacer(1, 15))
 
-            # Agar steps bo‘lsa
+            # Steps jadvali (alohida)
             if "steps" in item and isinstance(item["steps"], dict):
                 steps = item["steps"].get("results", [])
                 if steps:
@@ -193,6 +203,8 @@ class BaseViewSet(viewsets.ModelViewSet):
         response = HttpResponse(buffer, content_type="application/pdf")
         response["Content-Disposition"] = f'attachment; filename="{filename}.pdf"'
         return response
+
+
 
     # 🔹 PDF eksport
     @action(detail=False, methods=["get"], url_path="export-pdf")
