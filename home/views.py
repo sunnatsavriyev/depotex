@@ -771,6 +771,60 @@ class TexnikKorikViewSet(BaseViewSet):
         step = serializer.save()  # 👈 korikni save ichida olib beradi
         return Response(TexnikKorikStepSerializer(step).data, status=status.HTTP_201_CREATED)
 
+class TexnikKorikStepViewSet(BaseViewSet):
+    serializer_class = TexnikKorikStepSerializer
+    permission_classes = [IsAuthenticated, IsTexnik]
+    pagination_class = CustomPagination
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter, DjangoFilterBackend]
+
+    search_fields = [
+        "id",
+        "kamchiliklar_haqida",
+        "bartaraf_etilgan_kamchiliklar",
+        "created_by__username",
+        "korik__tarkib__tarkib_raqami",
+        "tamir_turi__tamir_nomi",
+    ]
+    filterset_fields = ["korik"]
+    
+    
+
+    def get_queryset(self):
+        user = self.request.user
+        qs = TexnikKorikStep.objects.all().order_by("-id")
+
+        # faqat o‘z depo uchun texnik
+        if user.role == "texnik" and user.depo:
+            qs = qs.filter(korik__tarkib__depo=user.depo)
+
+        # query param orqali korik_id
+        korik_id = self.request.query_params.get("korik")
+        if korik_id:
+            qs = qs.filter(korik_id=korik_id)
+
+        return qs
+
+    def perform_create(self, serializer):
+        korik_id = self.request.query_params.get("korik")
+        if not korik_id:
+            # agar frontend yubormasa ham, context orqali olishga urinamiz
+            korik_id = self.kwargs.get("korik_pk") or self.request.data.get("korik")
+
+        if not korik_id:
+            raise ValidationError({"korik": "Texnik korik ID aniqlanmadi!"})
+
+        try:
+            korik = TexnikKorik.objects.get(id=korik_id)
+        except TexnikKorik.DoesNotExist:
+            raise ValidationError({"korik": "Bunday Texnik Korik topilmadi!"})
+
+        if korik.status != TexnikKorik.Status.JARAYONDA:
+            raise ValidationError({"korik": "Avval Texnik Korik boshlang yoki u tugallangan."})
+
+        serializer.context["korik"] = korik 
+        serializer.save()
+
+
 # class TexnikKorikViewSet(BaseViewSet):
 #     queryset = (
 #         TexnikKorik.objects
@@ -889,60 +943,6 @@ class TexnikKorikViewSet(BaseViewSet):
 #             TexnikKorikStepSerializer(step_with_prefetch).data, 
 #             status=status.HTTP_201_CREATED
 #         )
-
-class TexnikKorikStepViewSet(BaseViewSet):
-    serializer_class = TexnikKorikStepSerializer
-    permission_classes = [IsAuthenticated, IsTexnik]
-    pagination_class = CustomPagination
-    filter_backends = [filters.SearchFilter, filters.OrderingFilter, DjangoFilterBackend]
-
-    search_fields = [
-        "id",
-        "kamchiliklar_haqida",
-        "bartaraf_etilgan_kamchiliklar",
-        "created_by__username",
-        "korik__tarkib__tarkib_raqami",
-        "tamir_turi__tamir_nomi",
-    ]
-    filterset_fields = ["korik"]
-    
-    
-
-    def get_queryset(self):
-        user = self.request.user
-        qs = TexnikKorikStep.objects.all().order_by("-id")
-
-        # faqat o‘z depo uchun texnik
-        if user.role == "texnik" and user.depo:
-            qs = qs.filter(korik__tarkib__depo=user.depo)
-
-        # query param orqali korik_id
-        korik_id = self.request.query_params.get("korik")
-        if korik_id:
-            qs = qs.filter(korik_id=korik_id)
-
-        return qs
-
-    def perform_create(self, serializer):
-        korik_id = self.request.query_params.get("korik")
-        if not korik_id:
-            # agar frontend yubormasa ham, context orqali olishga urinamiz
-            korik_id = self.kwargs.get("korik_pk") or self.request.data.get("korik")
-
-        if not korik_id:
-            raise ValidationError({"korik": "Texnik korik ID aniqlanmadi!"})
-
-        try:
-            korik = TexnikKorik.objects.get(id=korik_id)
-        except TexnikKorik.DoesNotExist:
-            raise ValidationError({"korik": "Bunday Texnik Korik topilmadi!"})
-
-        if korik.status != TexnikKorik.Status.JARAYONDA:
-            raise ValidationError({"korik": "Avval Texnik Korik boshlang yoki u tugallangan."})
-
-        serializer.context["korik"] = korik 
-        serializer.save()
-
 
 
 # class TexnikKorikStepViewSet(BaseViewSet):

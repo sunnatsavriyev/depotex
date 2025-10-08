@@ -480,7 +480,7 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({"password": "Parol noto'g'ri."})
 
         # Yakunlash tekshirish
-        yakunlash = attrs.get("yakunlash", False)
+        yakunlash = attrs.get("yakunlash")
         akt_file = attrs.get("akt_file")
         if yakunlash and not akt_file:
             raise serializers.ValidationError({"akt_file": "Yakunlash uchun akt fayl majburiy."})
@@ -618,10 +618,8 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
     ehtiyot_qismlar = TexnikKorikEhtiyotQismSerializer(
         many=True, write_only=True,required=False
     )
-    # ehtiyot_qismlar_detail = serializers.SerializerMethodField()  
-    ehtiyot_qismlar_detail = EhtiyotQismHistorySerializer(
-    many=True, read_only=True, source='ehtiyotqism_hist'
-    )
+    ehtiyot_qismlar_detail = serializers.SerializerMethodField()  
+    
     
     
 
@@ -767,7 +765,7 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({"password": "Parol noto‘g‘ri."})
 
         # ✅ Yakunlash holatini tekshirish
-        yakunlash = attrs.get("yakunlash", False)
+        yakunlash = attrs.get("yakunlash")
         akt_file = attrs.get("akt_file")
         if yakunlash and not akt_file:
             raise serializers.ValidationError({"akt_file": "Yakunlash uchun akt fayl majburiy."})
