@@ -508,13 +508,28 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
         return attrs
 
     def create(self, validated_data):
+        print("\n [CREATE BOSHLANDI]")
+        print(" VALIDATED DATA KEYLAR:", list(validated_data.keys()))
+        print(" VALIDATED EHTIYOT QISMLAR:", validated_data.get("ehtiyot_qismlar"))
         request = self.context["request"]
         korik = self.context.get("korik")
 
         yakunlash = validated_data.pop("yakunlash", False)
         akt_file = validated_data.pop("akt_file", None)
         ehtiyot_qismlar = validated_data.pop("ehtiyot_qismlar", [])
-        print("Ehtiyot qismlar:", ehtiyot_qismlar)  
+        if not ehtiyot_qismlar:
+            raw_data = request.data.get("ehtiyot_qismlar")
+            if isinstance(raw_data, str):
+                try:
+                    ehtiyot_qismlar = json.loads(raw_data)
+                except Exception:
+                    ehtiyot_qismlar = []
+            elif isinstance(raw_data, list):
+                ehtiyot_qismlar = raw_data
+            else:
+                ehtiyot_qismlar = []
+
+        print("✅ YUBORILGAN EHTIYOT QISMLAR:", ehtiyot_qismlar) 
 
         if yakunlash and akt_file:
             step_status = TexnikKorikStep.Status.BARTARAF_ETILDI
@@ -768,24 +783,19 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         request = self.context.get("request")
         
-        # ✅ Parolni tekshirish (pop to‘g‘ri)
         password = attrs.pop("password", None)
         if not password or not request.user.check_password(password):
             raise serializers.ValidationError({"password": "Parol noto‘g‘ri."})
 
-        # ✅ Yakunlash holatini tekshirish
         yakunlash = attrs.get("yakunlash")
         akt_file = attrs.get("akt_file")
         if yakunlash and not akt_file:
             raise serializers.ValidationError({"akt_file": "Yakunlash uchun akt fayl majburiy."})
 
-        # ✅ Ehtiyot qismlar (faqat get ishlatiladi, pop emas!)
         ehtiyot_qismlar = attrs.get("ehtiyot_qismlar", None)
         if ehtiyot_qismlar is None:
-            # agar DRF serializer bu fieldni o‘qimagan bo‘lsa (masalan FormData’da string kelsa)
             ehtiyot_qismlar = request.data.get("ehtiyot_qismlar", [])
 
-        # 🔹 Agar string ko‘rinishida bo‘lsa — JSON sifatida ochamiz
         if isinstance(ehtiyot_qismlar, str):
             try:
                 ehtiyot_qismlar = json.loads(ehtiyot_qismlar)
