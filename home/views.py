@@ -17,7 +17,7 @@ from .serializers import (
     NosozlikStep,KunlikYurishSerializer,VagonSerializer,
     HarakatTarkibiActiveSerializer, EhtiyotQismWithMiqdorSerializer,EhtiyotQismHistorySerializer, TarkibFullDetailSerializer,TexnikKorikDetailForStepSerializer,NosozlikDetailForStepSerializer)
 from django.utils import timezone
-from django.db.models import Sum
+from django.db.models import Sum, F
 from django.contrib.auth import authenticate
 from .pagination import CustomPagination
 from django_filters.rest_framework import DjangoFilterBackend
@@ -1328,13 +1328,22 @@ class KorikNosozlikStatisticsView(APIView):
 
         top_5_tarkib = sorted(combined.values(), key=lambda x: x["total"], reverse=True)[:5]
 
-        # ✅ 6) Eng ko‘p ishlatilgan 10 ta ehtiyot qism
         top_10_ehtiyot_qism = list(
-            TexnikKorikEhtiyotQism.objects
-            .values("ehtiyot_qism__id", "ehtiyot_qism__ehtiyotqism_nomi")
-            .annotate(total=Count("id"))
-            .order_by("-total")[:10]
+        EhtiyotQismlari.objects.annotate(
+            qoshilgan=Sum("ehtiyotqism_hist__miqdor"),
+            ishlatilgan=(
+                Sum("texnikkorikehtiyotqism__miqdor") +
+                Sum("texnikkorikehtiyotqismstep__miqdor") +
+                Sum("nosozlikehtiyotqism__miqdor") +
+                Sum("nosozlikehtiyotqismstep__miqdor")
+            )
         )
+        .annotate(
+            jami_miqdor=F("qoshilgan") - F("ishlatilgan")
+        )
+        .values("id", "ehtiyotqism_nomi", "birligi", "jami_miqdor")
+        .order_by("jami_miqdor")[:10]
+    )
 
         return Response({
             "total_korik": total_korik,
