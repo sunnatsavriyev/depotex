@@ -813,10 +813,7 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
 
 
 
-    def to_representation(self, instance):
-        data = super().to_representation(instance)
-        return {k: v for k, v in data.items() if v not in [None, False, [], {}]}
-
+    
     
     def to_representation(self, instance):
         data = super().to_representation(instance)
@@ -911,14 +908,14 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
 
             # Yakunlash bo'lsa ombordan chiqarish
             if yakunlash:
-                # eq_obj.jami_miqdor -= miqdor
-                # eq_obj.save()
-                EhtiyotQismHistory.objects.create(
-                    ehtiyot_qism=eq_obj,
-                    miqdor=-miqdor,
-                    created_by=request.user,
-                    # izoh=f"Texnik ko'rik yakunlandi (ID: {korik.id})"
-                )
+                eq_obj.jami_miqdor -= miqdor
+                eq_obj.save()
+            #     EhtiyotQismHistory.objects.create(
+            #         ehtiyot_qism=eq_obj,
+            #         miqdor=-miqdor,
+            #         created_by=request.user,
+            #         # izoh=f"Texnik ko'rik yakunlandi (ID: {korik.id})"
+            #     )
 
         # Yakunlash bo'lsa qo'shimcha yangilashlar
         if yakunlash and akt_file:
@@ -983,14 +980,14 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
 
             if yakunlash:
                 # Har doim ombordan chiqarish (miqdor farqiga qaramasdan)
-                # eq_obj.jami_miqdor -= miqdor
-                # eq_obj.save()
-                EhtiyotQismHistory.objects.create(
-                    ehtiyot_qism=eq_obj,
-                    miqdor=-miqdor,
-                    created_by=request.user,
-                    # izoh=f"Texnik ko'rik yangilandi (ID: {instance.id})"
-                )
+                eq_obj.jami_miqdor -= miqdor
+                eq_obj.save()
+            #     EhtiyotQismHistory.objects.create(
+            #         ehtiyot_qism=eq_obj,
+            #         miqdor=-miqdor,
+            #         created_by=request.user,
+            #         # izoh=f"Texnik ko'rik yangilandi (ID: {instance.id})"
+            #     )
 
         return instance
 
