@@ -616,7 +616,7 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
 
     # Ehtiyot qismlar
     ehtiyot_qismlar = TexnikKorikEhtiyotQismSerializer(
-        many=True,required=False
+        many=True,required=False,write_only=True,
     )
     ehtiyot_qismlar_detail = serializers.SerializerMethodField()  
     
@@ -771,16 +771,24 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({"akt_file": "Yakunlash uchun akt fayl majburiy."})
 
         # ✅ Ehtiyot qismlar (faqat get ishlatiladi, pop emas!)
-        ehtiyot_qismlar = attrs.get("ehtiyot_qismlar", [])
+        ehtiyot_qismlar = attrs.get("ehtiyot_qismlar", None)
+        if ehtiyot_qismlar is None:
+            # agar DRF serializer bu fieldni o‘qimagan bo‘lsa (masalan FormData’da string kelsa)
+            ehtiyot_qismlar = request.data.get("ehtiyot_qismlar", [])
+
+        # 🔹 Agar string ko‘rinishida bo‘lsa — JSON sifatida ochamiz
         if isinstance(ehtiyot_qismlar, str):
             try:
                 ehtiyot_qismlar = json.loads(ehtiyot_qismlar)
             except Exception:
                 raise serializers.ValidationError({"ehtiyot_qismlar": "Noto‘g‘ri format."})
-            attrs["ehtiyot_qismlar"] = ehtiyot_qismlar
 
+        # 🔹 Agar hali ham list bo‘lmasa — xato
         elif ehtiyot_qismlar and not isinstance(ehtiyot_qismlar, list):
             raise serializers.ValidationError({"ehtiyot_qismlar": "List formatida bo‘lishi kerak."})
+
+        # 🔹 Yakuniy qiymatni qayta yozamiz
+        attrs["ehtiyot_qismlar"] = ehtiyot_qismlar or []
 
         return attrs
 
