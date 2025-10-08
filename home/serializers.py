@@ -901,7 +901,7 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
     # --- UPDATE ---
     def update(self, instance, validated_data):
         request = self.context["request"]
-        ehtiyot_qismlar = validated_data.get("ehtiyot_qismlar", [])
+        ehtiyot_qismlar = validated_data.pop("ehtiyot_qismlar", [])
         akt_file = validated_data.pop("akt_file", None)
         yakunlash = validated_data.pop("yakunlash", False)
 
