@@ -1312,6 +1312,19 @@ class NosozlikStepSerializer(serializers.ModelSerializer):
                 ehtiyot_qism=eq_obj,
                 miqdor=miqdor
             )
+            
+            
+            if yakunlash:  
+                eq_obj.jami_miqdor -= miqdor
+                if eq_obj.jami_miqdor < 0:
+                    eq_obj.jami_miqdor = 0
+                eq_obj.save()
+
+                EhtiyotQismHistory.objects.create(
+                    ehtiyot_qism=eq_obj,
+                    miqdor=miqdor,
+                    created_by=request.user
+                )
 
         # Nosozlik holatini yangilash
         if yakunlash and akt_file:
