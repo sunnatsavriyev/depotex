@@ -817,7 +817,7 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
         tamir_turi = validated_data.pop("tamir_turi")
         yakunlash = validated_data.pop("yakunlash", False)
         akt_file = validated_data.pop("akt_file", None)
-        ehtiyot_qismlar = validated_data.get("ehtiyot_qismlar", [])
+        ehtiyot_qismlar = validated_data.pop("ehtiyot_qismlar", [])
         print("✅ YUBORILGAN EHTIYOT QISMLAR:", ehtiyot_qismlar)
 
 
@@ -971,7 +971,7 @@ class StepPagination(PageNumberPagination):
         }
 
 
-
+       
 
 
 # --- Nosozlik Ehtiyot Qism (parent level) ---
