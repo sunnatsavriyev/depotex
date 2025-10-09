@@ -319,7 +319,7 @@ class TamirTuriViewSet(BaseViewSet):
     queryset = TamirTuri.objects.all()
     serializer_class = TamirTuriSerializer
     basename = "Tamir Turi"
-    permission_classes = [IsAuthenticated,IsTexnik]
+    permission_classes = [IsAuthenticated,IsTexnik, IsMonitoringReadOnly]
     require_login_fields = False
     filter_backends = [filters.SearchFilter, filters.OrderingFilter, DjangoFilterBackend]
     search_fields = ['tamir_nomi', 'tamirlash_davri', 'tamirlanish_vaqti']   
@@ -332,7 +332,7 @@ class ElektroDepoViewSet(BaseViewSet):
     queryset = ElektroDepo.objects.all()
     serializer_class = ElektroDepoSerializer
     basename = "Elektro Depo"
-    permission_classes = [IsAuthenticated, IsTexnik]
+    permission_classes = [IsAuthenticated, IsTexnik, IsMonitoringReadOnly]
     require_login_fields = False
     filter_backends = [filters.SearchFilter, filters.OrderingFilter, DjangoFilterBackend]
     search_fields = ['depo_nomi', 'qisqacha_nomi', 'joylashuvi']   
@@ -342,7 +342,7 @@ class ElektroDepoViewSet(BaseViewSet):
 class EhtiyotQismlariViewSet(viewsets.ModelViewSet):
     queryset = EhtiyotQismlari.objects.all().order_by('-id')
     serializer_class = EhtiyotQismlariSerializer
-    permission_classes = [IsAuthenticated, IsSkladchiOrReadOnly]
+    permission_classes = [IsAuthenticated, IsSkladchiOrReadOnly, IsMonitoringReadOnly]
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['ehtiyotqism_nomi', 'nomenklatura_raqami']
     ordering_fields = ['id', 'nomenklatura_raqami']
@@ -350,7 +350,7 @@ class EhtiyotQismlariViewSet(viewsets.ModelViewSet):
     
     
 class EhtiyotQismMiqdorListAPIView(APIView):
-        permission_classes = [IsAuthenticated]
+        permission_classes = [IsAuthenticated, IsMonitoringReadOnly]
 
         def get(self, request, ehtiyotqism_pk):
             try:
@@ -376,7 +376,7 @@ class EhtiyotQismMiqdorListAPIView(APIView):
 
 class EhtiyotQismMiqdorCreateAPIView(generics.CreateAPIView):
     serializer_class = EhtiyotQismHistorySerializer
-    permission_classes = [IsAuthenticated, IsSkladchiOrReadOnly]
+    permission_classes = [IsAuthenticated, IsSkladchiOrReadOnly, IsMonitoringReadOnly]
 
     def perform_create(self, serializer):
         ehtiyotqism_pk = self.kwargs.get("ehtiyotqism_pk")
@@ -416,7 +416,7 @@ class HarakatTarkibiViewSet(BaseViewSet):
     )
     serializer_class = HarakatTarkibiSerializer
     basename = "Harakat Tarkibi"
-    permission_classes = [IsAuthenticated, IsTexnik]
+    permission_classes = [IsAuthenticated, IsTexnik, IsMonitoringReadOnly]
     require_login_fields = False
     def get_queryset(self):
         user = self.request.user
@@ -450,7 +450,7 @@ class HarakatTarkibiGetViewSet(BaseViewSet):
     )
     serializer_class = HarakatTarkibiSerializer
     basename = "Harakat Tarkibi"
-    permission_classes = [IsAuthenticated, IsTexnik]
+    permission_classes = [IsAuthenticated, IsTexnik, IsMonitoringReadOnly]
     require_login_fields = False
     pagination_class = CustomPagination
     filter_backends = [filters.SearchFilter, filters.OrderingFilter, DjangoFilterBackend]
@@ -529,7 +529,7 @@ class HarakatTarkibiActiveViewSet(BaseViewSet):
     )
     serializer_class = HarakatTarkibiActiveSerializer
     basename = "Harakat Tarkibi Active"
-    permission_classes = [IsAuthenticated, IsTexnik]
+    permission_classes = [IsAuthenticated, IsTexnik, IsMonitoringReadOnly]
     require_login_fields = False
     pagination_class = CustomPagination
     filter_backends = [filters.SearchFilter, filters.OrderingFilter, DjangoFilterBackend]
@@ -542,7 +542,7 @@ class HarakatTarkibiActiveViewSet(BaseViewSet):
 
 class KunlikYurishViewSet(BaseViewSet):
     serializer_class = KunlikYurishSerializer
-    permission_classes = [IsAuthenticated, IsTexnik]
+    permission_classes = [IsAuthenticated, IsTexnik, IsMonitoringReadOnly]
     pagination_class = CustomPagination
 
     def get_queryset(self):
@@ -599,7 +599,7 @@ class KunlikYurishViewSet(BaseViewSet):
         })
 
 class KunlikYurishHistoryAPIView(APIView):
-    permission_classes = [IsAuthenticated, IsTexnik]
+    permission_classes = [IsAuthenticated, IsTexnik, IsMonitoringReadOnly]
     pagination_class = CustomPagination
 
     def get(self, request, tarkib_id, *args, **kwargs):
@@ -666,7 +666,7 @@ class TexnikKorikGetViewSet(mixins.ListModelMixin,
         .order_by("-id")
     )
     serializer_class = TexnikKorikSerializer
-    permission_classes = [IsAuthenticated, IsTexnik]
+    permission_classes = [IsAuthenticated, IsTexnik, IsMonitoringReadOnly]
     filter_backends = [filters.SearchFilter, filters.OrderingFilter, DjangoFilterBackend]
     filterset_class = TexnikKorikFilter
     search_fields = [
@@ -702,7 +702,7 @@ class TexnikKorikGetViewSet(mixins.ListModelMixin,
 class TexnikKorikViewSet(BaseViewSet):
     queryset = TexnikKorik.objects.prefetch_related("steps").all().order_by("-id")
     serializer_class = TexnikKorikSerializer
-    permission_classes = [IsAuthenticated, IsTexnik]
+    permission_classes = [IsAuthenticated, IsTexnik, IsMonitoringReadOnly]
     filter_backends = [filters.SearchFilter, filters.OrderingFilter, DjangoFilterBackend]
     search_fields = [
         "tarkib__tarkib_raqami",
@@ -787,7 +787,7 @@ class TexnikKorikViewSet(BaseViewSet):
 
 class TexnikKorikStepViewSet(BaseViewSet):
     serializer_class = TexnikKorikStepSerializer
-    permission_classes = [IsAuthenticated, IsTexnik]
+    permission_classes = [IsAuthenticated, IsTexnik, IsMonitoringReadOnly]
     pagination_class = CustomPagination
     filter_backends = [filters.SearchFilter, filters.OrderingFilter, DjangoFilterBackend]
 
@@ -879,7 +879,7 @@ class NosozliklarGetViewSet(mixins.ListModelMixin,
         .order_by("-id")
     )
     serializer_class = NosozliklarSerializer
-    permission_classes = [IsAuthenticated, IsTexnik]
+    permission_classes = [IsAuthenticated, IsTexnik, IsMonitoringReadOnly]
     filter_backends = [filters.SearchFilter, filters.OrderingFilter, DjangoFilterBackend]
     filterset_class = NosozliklarFilter
     search_fields = [
@@ -899,7 +899,7 @@ class NosozliklarViewSet(BaseViewSet):
         .order_by("-id")
     )
     serializer_class = NosozliklarSerializer
-    permission_classes = [IsAuthenticated, IsTexnik]
+    permission_classes = [IsAuthenticated, IsTexnik, IsMonitoringReadOnly]
     filter_backends = [filters.SearchFilter, filters.OrderingFilter, DjangoFilterBackend]
     search_fields = [
         "nosozliklar_haqida",
@@ -985,7 +985,7 @@ class NosozliklarViewSet(BaseViewSet):
 
 class NosozlikStepViewSet(BaseViewSet):
     serializer_class = NosozlikStepSerializer
-    permission_classes = [IsAuthenticated, IsTexnik]
+    permission_classes = [IsAuthenticated, IsTexnik, IsMonitoringReadOnly]
     pagination_class = CustomPagination
     filter_backends = [filters.SearchFilter, filters.OrderingFilter, DjangoFilterBackend]
     search_fields = [
