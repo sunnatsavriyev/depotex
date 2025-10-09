@@ -38,7 +38,7 @@ from django.utils.timezone import now
 from datetime import timedelta, datetime
 from rest_framework.views import APIView
 from drf_spectacular.utils import extend_schema, OpenApiParameter
-from .permissions import IsMonitoringReadOnly, IsTexnik, IsSkladchi
+from .permissions import IsMonitoringReadOnly, IsTexnik, IsSkladchiOrReadOnly
 import json
 from reportlab.lib.units import cm
 from drf_yasg.utils import swagger_auto_schema
@@ -73,7 +73,7 @@ def get_me(request):
 
 
 class BaseViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAuthenticated, IsSkladchi,IsMonitoringReadOnly,IsTexnik]
+    permission_classes = [IsAuthenticated, IsSkladchiOrReadOnly,IsMonitoringReadOnly,IsTexnik]
     require_login_fields = False
     filter_backends = [filters.SearchFilter, filters.OrderingFilter, DjangoFilterBackend]
     search_fields = []  
@@ -342,7 +342,7 @@ class ElektroDepoViewSet(BaseViewSet):
 class EhtiyotQismlariViewSet(viewsets.ModelViewSet):
     queryset = EhtiyotQismlari.objects.all().order_by('-id')
     serializer_class = EhtiyotQismlariSerializer
-    permission_classes = [IsAuthenticated, IsSkladchi,IsTexnik]
+    permission_classes = [IsAuthenticated, IsSkladchiOrReadOnly]
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['ehtiyotqism_nomi', 'nomenklatura_raqami']
     ordering_fields = ['id', 'nomenklatura_raqami']
@@ -350,7 +350,7 @@ class EhtiyotQismlariViewSet(viewsets.ModelViewSet):
     
     
 class EhtiyotQismMiqdorListAPIView(APIView):
-        permission_classes = [IsAuthenticated, IsSkladchi,IsTexnik]
+        permission_classes = [IsAuthenticated]
 
         def get(self, request, ehtiyotqism_pk):
             try:
@@ -376,7 +376,7 @@ class EhtiyotQismMiqdorListAPIView(APIView):
 
 class EhtiyotQismMiqdorCreateAPIView(generics.CreateAPIView):
     serializer_class = EhtiyotQismHistorySerializer
-    permission_classes = [IsAuthenticated, IsSkladchi,IsTexnik]
+    permission_classes = [IsAuthenticated, IsSkladchiOrReadOnly]
 
     def perform_create(self, serializer):
         ehtiyotqism_pk = self.kwargs.get("ehtiyotqism_pk")

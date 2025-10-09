@@ -12,13 +12,20 @@ class IsTexnik(BasePermission):
         )
 
 
-class IsSkladchi(BasePermission):
+class IsSkladchiOrReadOnly(BasePermission):
     """
-    Faqat Skladchi foydalanuvchilar CRUD qila oladi.
+    Faqat skladchi yoki superuser yozuv yaratish/tahrirlash/o‘chirish huquqiga ega.
+    Boshqalar faqat o‘qiy oladi (GET, HEAD, OPTIONS).
     """
     def has_permission(self, request, view):
-        user = request.user
-        return user and user.is_authenticated and (user.is_superuser or user.role == "skladchi") 
+        # Har kim ko‘ra oladi
+        if request.method in SAFE_METHODS:
+            return request.user.is_authenticated
+        # CRUD faqat skladchi yoki superuserga ruxsat
+        return (
+            request.user.is_authenticated and
+            (request.user.is_superuser or request.user.role == "skladchi")
+        ) 
 
 
 class IsMonitoringReadOnly(BasePermission):
