@@ -45,6 +45,7 @@ from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 from io import BytesIO
 import qrcode
+from collections import defaultdict
 
 class UserViewSet(viewsets.ModelViewSet):
     queryset = CustomUser.objects.all()
@@ -1171,109 +1172,214 @@ class TarkibDetailViewSet(BaseViewSet):
     
     @action(detail=True, methods=["get"], url_path="export-pdf")
     def export_pdf(self, request, pk=None):
+        from reportlab.pdfgen import canvas
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.units import cm
+        from reportlab.platypus import (
+            SimpleDocTemplate, Paragraph, Table, TableStyle, Spacer, Image
+        )
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib import colors
+        from io import BytesIO
+        import qrcode
+        from datetime import datetime
+
         tarkib = self.get_queryset().filter(pk=pk).first()
         if not tarkib:
             return Response({"detail": "Tarkib topilmadi."}, status=404)
 
-        # --- Texnik koriklar ---
         texnik_koriklar = TexnikKorik.objects.filter(tarkib=tarkib)
-        tamir_turi_count = texnik_koriklar.values('tamir_turi__tamir_nomi').annotate(count=Count('id'))
-        texnik_korik_summary = [[t["tamir_turi__tamir_nomi"], t["count"]] for t in tamir_turi_count]
-
-        # --- Oxirgi 5 ta nosozliklar ---
         nosozliklar = Nosozliklar.objects.filter(tarkib=tarkib).order_by('-id')[:5]
-        nosozlik_data = [[n.id, n.nosozliklar_haqida, n.bartaraf_etilgan_nosozliklar, n.status] for n in nosozliklar]
 
-        # --- PDF yaratish ---
         response = HttpResponse(content_type='application/pdf')
-        response['Content-Disposition'] = f'attachment; filename="Tarkib_{tarkib.id}.pdf"'
-        doc = SimpleDocTemplate(response, pagesize=A4)
-        elements = []
+        response['Content-Disposition'] = f'attachment; filename="Tarkib_{tarkib.tarkib_raqami}.pdf"'
+
+        buffer = BytesIO()
+
+        doc = SimpleDocTemplate(
+            buffer,
+            pagesize=A4,
+            topMargin=1 * cm,
+            bottomMargin=1 * cm,
+            leftMargin=1 * cm,
+            rightMargin=1 * cm,
+        )
         styles = getSampleStyleSheet()
+        elements = []
 
         # --- Sarlavha ---
-        title_style = ParagraphStyle('title', parent=styles['Title'], alignment=1, fontSize=18, textColor=colors.darkblue)
-        elements.append(Paragraph(f"Tarkib #{tarkib.id} ({tarkib.tarkib_raqami})", title_style))
+        title = Paragraph(
+            f"<b>{tarkib.tarkib_raqami}</b><br/>"
+            f"<b>Harakat tarkibining texnik ko‘rsatkichlari bo‘yicha to‘liq ma’lumot</b>",
+            ParagraphStyle('title', parent=styles['Title'], alignment=1, leading=18, textColor=colors.darkblue),
+        )
+        elements.append(title)
+        elements.append(Spacer(1, 10))
 
-        # --- Rasm (kichikroq) ---
+        # --- Rasm ---
         if getattr(tarkib, 'image', None):
             try:
-                img_path = tarkib.image.path
-                img = Image(img_path, width=8*cm, height=5*cm)  # kichikroq rasm
+                img = Image(tarkib.image.path, width=18.5 * cm, height=9.5 * cm)
                 img.hAlign = 'CENTER'
                 elements.append(img)
+                elements.append(Spacer(1, 10))
             except:
                 pass
 
-        # --- Tarkib ma’lumotlari jadval ---
-        info_list = [
-            ('Depo', tarkib.depo.qisqacha_nomi if tarkib.depo else ''),
-            ('Guruhi', tarkib.guruhi),
-            ('Turi', tarkib.turi),
-            ('Holati', tarkib.holati),
-            ('Ishga tushgan vaqti', tarkib.ishga_tushgan_vaqti),
-            ('Eksplutatsiya vaqti', tarkib.eksplutatsiya_vaqti),
-            ('Created by', tarkib.created_by.username if tarkib.created_by else '')
+        # --- Ekspluatatsiya ma’lumotlari ---
+        ekspl_data = [
+            [
+                Paragraph(f"<font color='red'><b>{h}</b></font>", styles['Normal'])
+                for h in ["Ekspluatatsiyaga qo‘yilgan sana", "Turi", "Nomeri", "Masofa", "Hozirgi holati"]
+            ],
+            [
+                Paragraph(f"<b>{str(tarkib.eksplutatsiya_vaqti or '-') }</b>", styles['Normal']),
+                Paragraph(f"<b>{tarkib.turi or '-'}</b>", styles['Normal']),
+                Paragraph(f"<b>{tarkib.tarkib_raqami or '-'}</b>", styles['Normal']),
+                Paragraph(f"<b>{str(getattr(tarkib, 'masofa', '–'))}</b>", styles['Normal']),
+                Paragraph(f"<b>{tarkib.holati or '-'}</b>", styles['Normal']),
+            ],
         ]
-        table_data = [[name, value] for name, value in info_list]
-        info_table = Table(table_data, colWidths=[5*cm, 11*cm], hAlign='CENTER')  # kengroq table
-        info_table.setStyle(TableStyle([
-            ('FONTNAME', (0,0), (-1,-1), 'Helvetica-Bold'),
-            ('FONTSIZE', (0,0), (-1,-1), 11),
-            ('TEXTCOLOR', (0,0), (0,-1), colors.darkblue),
-            ('ALIGN', (0,0), (-1,-1), 'LEFT'),
-            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-            ('BOTTOMPADDING', (0,0), (-1,-1), 4),
-            ('BACKGROUND', (0,0), (-1,0), colors.lightgrey),
-            ('GRID', (0,0), (-1,-1), 1, colors.black),
+
+        # Jadval eni sahifa eni bo‘ylab teng bo‘lishi uchun
+        full_width = A4[0] - 2 * cm
+
+        # Ustun kengliklarini belgilash (Nomeri ustunini biroz kengroq qilamiz)
+        col_widths = [
+            full_width * 0.18,  # Ekspluatatsiya sana
+            full_width * 0.18,  # Turi
+            full_width * 0.26,  # Nomeri (kattaroq)
+            full_width * 0.18,  # Masofa
+            full_width * 0.20,  # Hozirgi holati
+        ]
+
+        ekspl_table = Table(ekspl_data, hAlign='CENTER', colWidths=col_widths)
+        ekspl_table.setStyle(TableStyle([
+            ('GRID', (0, 0), (-1, -1), 0.6, colors.black),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('BACKGROUND', (0, 0), (-1, 0), colors.whitesmoke),
+            ('BOX', (0, 0), (-1, -1), 1, colors.black),
+            ('FONTSIZE', (0, 0), (-1, -1), 9),
         ]))
-        elements.append(info_table)
 
-        # --- Texnik koriklar jadvali ---
-        if texnik_korik_summary:
-            elements.append(Paragraph("Texnik ko'riklar soni har bir tamir turida", styles['Heading3']))
-            table_data = [["Texnik ko'rik turi"] + [t[0] for t in texnik_korik_summary],
-                        ["Soni"] + [t[1] for t in texnik_korik_summary]]
-            t = Table(table_data, hAlign='CENTER', colWidths=[3*cm] + [2*cm]*len(texnik_korik_summary))
-            t.setStyle(TableStyle([
-                ('BACKGROUND', (0,0), (-1,0), colors.lightblue),
-                ('BACKGROUND', (0,1), (-1,1), colors.whitesmoke),
-                ('GRID', (0,0), (-1,-1), 1, colors.black),
-                ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-                ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-            ]))
-            elements.append(t)
+        elements.append(ekspl_table)
+        elements.append(Spacer(1, 12))
 
-        # --- Nosozliklar jadvali ---
-        if nosozlik_data:
-            elements.append(Paragraph("Oxirgi 5 ta nosozliklar", styles['Heading3']))
-            table_data = [["ID", "Nosozliklar", "Bartaf etilgan", "Holati"]] + nosozlik_data
-            t = Table(table_data, hAlign='CENTER', colWidths=[2*cm, 7*cm, 5*cm, 3*cm])
-            t.setStyle(TableStyle([
-                ('BACKGROUND', (0,0), (-1,0), colors.lightgrey),
-                ('GRID', (0,0), (-1,-1), 1, colors.black),
-                ('ALIGN', (0,0), (-1,-1), 'LEFT'),
-                ('VALIGN', (0,0), (-1,-1), 'TOP'),
-            ]))
-            elements.append(t)
-            elements.append(Spacer(1, 12))  # nosozliklar jadvalidan keyin kichik bo‘sh joy
+        # --- Texnik ko‘riklar tarixi ---
+        elements.append(Paragraph("<b><font color='red' size=12>Texnik ko‘riklar tarixi</font></b>",
+                                ParagraphStyle('h3', alignment=1)))
+        elements.append(Spacer(1, 6))
 
-        # --- QR code (pastda, o‘ng burchakda) ---
-        qr_url = f"https://depo-main.vercel.app/"
-        qr = qrcode.QRCode(version=1, error_correction=qrcode.constants.ERROR_CORRECT_H, box_size=3, border=1)
+        all_types = ["TO-1", "TO-2", "TO-3", "TR-1", "TR-2", "TR-3", "KR-1", "KR-2"]
+        korik_counts = {t: 0 for t in all_types}
+        for tk in texnik_koriklar:
+            if tk.tamir_turi and tk.tamir_turi.tamir_nomi in korik_counts:
+                korik_counts[tk.tamir_turi.tamir_nomi] += 1
+
+        korik_data = [[Paragraph("<b><font color='black'>Ta’mir turi</font></b>", styles['Normal'])] +
+                    [Paragraph(f"<font color='red'><b>{t}</b></font>", styles['Normal']) for t in all_types]]
+        korik_values = [
+            Paragraph(f"<b><font color='blue'>{korik_counts[t]}</font></b>", styles['Normal'])
+            if korik_counts[t] > 0 else Paragraph("<b>-</b>", styles['Normal'])
+            for t in all_types
+        ]
+        korik_data.append([Paragraph("<b>Soni</b>", styles['Normal'])] + korik_values)
+        korik_table = Table(korik_data, hAlign='CENTER', colWidths=[full_width / 9] * 9)
+        korik_table.setStyle(TableStyle([
+            ('GRID', (0, 0), (-1, -1), 0.6, colors.black),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('BACKGROUND', (0, 0), (-1, 0), colors.whitesmoke),
+            ('BOX', (0, 0), (-1, -1), 1, colors.black),
+            ('FONTSIZE', (0, 0), (-1, -1), 9),
+        ]))
+        elements.append(korik_table)
+        elements.append(Spacer(1, 12))
+
+        # --- Nosozliklar tarixi ---
+        elements.append(Paragraph("<b><font color='red' size=12>Nosozliklar tarixi</font></b>",
+                                ParagraphStyle('h3', alignment=1)))
+        elements.append(Spacer(1, 6))
+
+        nosoz_data = [[
+            Paragraph(f"<font color='darkblue'><b>{h}</b></font>", styles['Normal'])
+            for h in ["No", "Nosozlik sababi", "Aniqlangan sana", "Bartarf etilgan sana"]
+        ]]
+
+        for i, n in enumerate(nosozliklar, 1):
+            aniqlangan = getattr(n, 'aniqlangan_vaqti', None)
+            bartaraf = getattr(n, 'bartaraf_etilgan_vaqti', None)
+            aniqlangan_str = aniqlangan.strftime("%Y-%m-%d") if isinstance(aniqlangan, datetime) else "-"
+            bartaraf_str = bartaraf.strftime("%Y-%m-%d") if isinstance(bartaraf, datetime) else "-"
+
+            nosoz_data.append([
+                Paragraph(f"<b>{str(i)}</b>", styles['Normal']),
+                Paragraph(f"<b>{n.nosozliklar_haqida or '-'}</b>", styles['Normal']),
+                Paragraph(f"<b>{aniqlangan_str}</b>", styles['Normal']),
+                Paragraph(f"<b>{bartaraf_str}</b>", styles['Normal']),
+            ])
+
+        nosoz_table = Table(nosoz_data, hAlign='CENTER', colWidths=[1.5 * cm, 10 * cm, 3.5 * cm, 3.5 * cm])
+        nosoz_table.setStyle(TableStyle([
+            ('GRID', (0, 0), (-1, -1), 0.6, colors.black),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('BACKGROUND', (0, 0), (-1, 0), colors.whitesmoke),
+            ('BOX', (0, 0), (-1, -1), 1, colors.black),
+            ('FONTSIZE', (0, 0), (-1, -1), 9),
+        ]))
+        elements.append(nosoz_table)
+        elements.append(Spacer(1, 15))
+
+        # --- QR kod va pastki fon ---
+        qr_url = "https://depo-main.vercel.app/"
+        qr = qrcode.QRCode(error_correction=qrcode.constants.ERROR_CORRECT_H, box_size=3, border=1)
         qr.add_data(qr_url)
         qr.make(fit=True)
-        img_qr = qr.make_image(fill_color="black", back_color="white")
-        buffer = BytesIO()
-        img_qr.save(buffer, format='PNG')
-        buffer.seek(0)
-        qr_image = Image(buffer, width=2*cm, height=2*cm)
-        qr_image.hAlign = 'RIGHT'
-        elements.append(qr_image)
+        qr_buffer = BytesIO()
+        qr.make_image(fill_color="black", back_color="white").save(qr_buffer, format='PNG')
+        qr_buffer.seek(0)
+        qr_img = Image(qr_buffer, width=2.5 * cm, height=2.5 * cm)
+        qr_img.hAlign = 'RIGHT'
 
-        # PDF yaratish
-        doc.build(elements)
+        footer_text = Paragraph(
+            """<font size=9><b>
+            Hujjatning haqiqiyligini tekshirish uchun QR kodni skanerlang.<br/>
+            <font color='blue'><b>depo.tm1.uz</b></font> sayti orqali tasdiqlangan.<br/>
+            Ushbu hisobotdagi barcha ma’lumotlar uchun xodim mas’uldir.
+            </b></font>""",
+            ParagraphStyle('footer', parent=styles['Normal'], alignment=0, leading=12),
+        )
+
+        footer_table = Table([[footer_text, qr_img]], colWidths=[14 * cm, 3 * cm])
+        footer_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, -1), colors.lightblue),
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ('BOX', (0, 0), (-1, -1), 0.8, colors.black),
+        ]))
+        elements.append(footer_table)
+
+        # --- Sahifa border ---
+        def draw_border(canvas, doc):
+            canvas.saveState()
+            canvas.setStrokeColor(colors.black)
+            canvas.setLineWidth(1)
+            canvas.rect(0.8 * cm, 0.8 * cm, A4[0] - 1.6 * cm, A4[1] - 1.6 * cm)
+            canvas.restoreState()
+
+        doc.build(elements, onFirstPage=draw_border, onLaterPages=draw_border)
+
+        buffer.seek(0)
+        response.write(buffer.getvalue())
+        buffer.close()
         return response
+
+
+
+
+
+
 
     @action(detail=True, methods=["get"], url_path="export-excel")
     def export_excel(self, request, pk=None):
