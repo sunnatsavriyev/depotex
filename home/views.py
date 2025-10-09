@@ -342,7 +342,7 @@ class ElektroDepoViewSet(BaseViewSet):
 class EhtiyotQismlariViewSet(viewsets.ModelViewSet):
     queryset = EhtiyotQismlari.objects.all().order_by('-id')
     serializer_class = EhtiyotQismlariSerializer
-    permission_classes = [IsAuthenticated, IsSkladchi]
+    permission_classes = [IsAuthenticated, IsSkladchi,IsTexnik]
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['ehtiyotqism_nomi', 'nomenklatura_raqami']
     ordering_fields = ['id', 'nomenklatura_raqami']
@@ -350,7 +350,7 @@ class EhtiyotQismlariViewSet(viewsets.ModelViewSet):
     
     
 class EhtiyotQismMiqdorListAPIView(APIView):
-        permission_classes = [IsAuthenticated, IsSkladchi]
+        permission_classes = [IsAuthenticated, IsSkladchi,IsTexnik]
 
         def get(self, request, ehtiyotqism_pk):
             try:
@@ -376,7 +376,7 @@ class EhtiyotQismMiqdorListAPIView(APIView):
 
 class EhtiyotQismMiqdorCreateAPIView(generics.CreateAPIView):
     serializer_class = EhtiyotQismHistorySerializer
-    permission_classes = [IsAuthenticated, IsSkladchi]
+    permission_classes = [IsAuthenticated, IsSkladchi,IsTexnik]
 
     def perform_create(self, serializer):
         ehtiyotqism_pk = self.kwargs.get("ehtiyotqism_pk")
@@ -1259,7 +1259,7 @@ class TarkibDetailViewSet(BaseViewSet):
             elements.append(Spacer(1, 12))  # nosozliklar jadvalidan keyin kichik bo‘sh joy
 
         # --- QR code (pastda, o‘ng burchakda) ---
-        qr_url = f"https://depo-main.vercel.app/depo/{tarkib.id}/"
+        qr_url = f"https://depo-main.vercel.app/"
         qr = qrcode.QRCode(version=1, error_correction=qrcode.constants.ERROR_CORRECT_H, box_size=3, border=1)
         qr.add_data(qr_url)
         qr.make(fit=True)
