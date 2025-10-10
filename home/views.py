@@ -1131,6 +1131,8 @@ class KorikNosozlikStatisticsView(APIView):
 
 class TarkibDetailViewSet(BaseViewSet):
     permission_classes = [IsAuthenticated, IsTexnik, IsMonitoringReadOnly]
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter, DjangoFilterBackend]
+    search_fields = ['guruhi','holati']
 
     def get_queryset(self):
         return HarakatTarkibi.objects.filter(is_active=True)
