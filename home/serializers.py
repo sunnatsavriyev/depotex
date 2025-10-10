@@ -262,7 +262,6 @@ class SlugOrPkRelatedField(serializers.SlugRelatedField):
         return super().to_internal_value(data)
 
 
-# --- Ehtiyot qismlar uchun serializerlar ---
 class TexnikKorikEhtiyotQismSerializer(serializers.ModelSerializer):
     ehtiyot_qism_nomi = serializers.CharField(source="ehtiyot_qism.ehtiyotqism_nomi", read_only=True)
     birligi = serializers.CharField(source="ehtiyot_qism.birligi", read_only=True)

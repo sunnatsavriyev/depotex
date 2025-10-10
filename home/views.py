@@ -1,5 +1,5 @@
 from rest_framework import viewsets, status, filters, mixins, generics
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.http import HttpResponse
@@ -338,6 +338,11 @@ class ElektroDepoViewSet(BaseViewSet):
     filter_backends = [filters.SearchFilter, filters.OrderingFilter, DjangoFilterBackend]
     search_fields = ['depo_nomi', 'qisqacha_nomi', 'joylashuvi']   
     ordering_fields = ['qisqacha_nomi', 'id']
+    def get_permissions(self):
+        # READ (detail view) uchun public; boshqa actionlar uchun normal role-based permissionlar qoʻyiladi
+        if self.action in ['retrieve', 'list']:
+            return [AllowAny()]
+        return [IsAuthenticated()] 
     
 
 class EhtiyotQismlariViewSet(viewsets.ModelViewSet):
@@ -437,7 +442,7 @@ class HarakatTarkibiViewSet(BaseViewSet):
         return HarakatTarkibi.objects.none()
     pagination_class = CustomPagination
     filter_backends = [filters.SearchFilter, filters.OrderingFilter, DjangoFilterBackend]
-    search_fields = ['guruhi','tarkib_raqami','turi','ishga_tushgan_vaqti','eksplutatsiya_vaqti']   
+    search_fields = ['guruhi','tarkib_raqami','turi','ishga_tushgan_vaqti','eksplutatsiya_vaqti','holati']   
     ordering_fields = ['ishga_tushgan_vaqti', 'id']
     
 
@@ -455,7 +460,7 @@ class HarakatTarkibiGetViewSet(BaseViewSet):
     require_login_fields = False
     pagination_class = CustomPagination
     filter_backends = [filters.SearchFilter, filters.OrderingFilter, DjangoFilterBackend]
-    search_fields = ['guruhi', 'tarkib_raqami', 'turi', 'ishga_tushgan_vaqti', 'eksplutatsiya_vaqti']
+    search_fields = ['guruhi', 'tarkib_raqami', 'turi', 'ishga_tushgan_vaqti', 'eksplutatsiya_vaqti','holati']
     ordering_fields = ['ishga_tushgan_vaqti', 'id']
     filterset_fields = ['depo']
 
@@ -534,7 +539,7 @@ class HarakatTarkibiActiveViewSet(BaseViewSet):
     require_login_fields = False
     pagination_class = CustomPagination
     filter_backends = [filters.SearchFilter, filters.OrderingFilter, DjangoFilterBackend]
-    search_fields = ['guruhi', 'tarkib_raqami', 'turi', 'ishga_tushgan_vaqti', 'eksplutatsiya_vaqti']
+    search_fields = ['guruhi', 'tarkib_raqami', 'turi', 'ishga_tushgan_vaqti', 'eksplutatsiya_vaqti','holati']
     ordering_fields = ['ishga_tushgan_vaqti', 'id']
     filterset_fields = ['depo']
 
@@ -1333,7 +1338,7 @@ class TarkibDetailViewSet(BaseViewSet):
         elements.append(Spacer(1, 15))
 
         # --- QR kod va pastki fon ---
-        qr_url = "https://depo-main.vercel.app/"
+        qr_url = f"https://depo-main.vercel.app/depo/{tarkib.id}"
         qr = qrcode.QRCode(error_correction=qrcode.constants.ERROR_CORRECT_H, box_size=3, border=1)
         qr.add_data(qr_url)
         qr.make(fit=True)
