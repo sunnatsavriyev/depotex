@@ -1080,9 +1080,10 @@ class KorikNosozlikStatisticsView(APIView):
                 "id",
                 "tarkib__tarkib_raqami",
                 "tarkib__turi",
+                "nosozliklar_haqida__nosozlik_turi",  
                 "bartaraf_etilgan_nosozliklar",
                 "created_at"
-            )
+                    )
         )
 
         korik_counts = (
