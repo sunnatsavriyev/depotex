@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import TamirTuri, ElektroDepo, EhtiyotQismlari, HarakatTarkibi, TexnikKorik, CustomUser, Nosozliklar, TexnikKorikEhtiyotQism, NosozlikEhtiyotQism, TexnikKorikStep, TexnikKorikEhtiyotQismStep, NosozlikEhtiyotQismStep, NosozlikStep, KunlikYurish,Vagon,EhtiyotQismHistory
+from .models import TamirTuri, ElektroDepo, EhtiyotQismlari, HarakatTarkibi, TexnikKorik, CustomUser, Nosozliklar, TexnikKorikEhtiyotQism, NosozlikEhtiyotQism,NosozlikTuri, TexnikKorikStep, TexnikKorikEhtiyotQismStep, NosozlikEhtiyotQismStep, NosozlikStep, KunlikYurish,Vagon,EhtiyotQismHistory
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 from django.contrib.auth import authenticate
@@ -609,12 +609,8 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
         if 'ehtiyot_qismlar_detail' not in data or not data['ehtiyot_qismlar_detail']:
             data['ehtiyot_qismlar_detail'] = self.get_ehtiyot_qismlar_detail(instance)
         
-        # Bo'sh qiymatlarni olib tashlamaslik
-        clean_data = {
-            k: v for k, v in data.items()
-            if v not in [None, False] and not (isinstance(v, str) and v.strip() == "")
-        }
-        return clean_data
+        return data
+        
 
 
 
@@ -825,11 +821,8 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
             data['steps'] = self.get_steps(instance)
         
         # Faqat None va False qiymatlarni o'chirish
-        clean_data = {
-            k: v for k, v in data.items()
-            if v not in [None, False] and not (isinstance(v, str) and v.strip() == "")
-        }
-        return clean_data
+        
+        return data
     
     
     # --- CREATE ---
@@ -1097,6 +1090,13 @@ class NosozlikEhtiyotQismStepSerializer(serializers.ModelSerializer):
 
 
 
+class NosozlikTuriSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = NosozlikTuri
+        fields = ["id", "nosozlik_turi", "created_at"]
+        read_only_fields = ["id", "created_at"]
+
+
 
 # --- parent detail for steps (joylashuvi: step va parent serializerlardan OLDIN yozing) ---
 class NosozlikDetailForStepSerializer(serializers.ModelSerializer):
@@ -1163,6 +1163,12 @@ class NosozlikStepSerializer(serializers.ModelSerializer):
 
     ehtiyot_qismlar = NosozlikEhtiyotQismStepSerializer(many=True, write_only=True, required=False, allow_null=True, default=list)
     ehtiyot_qismlar_detail = serializers.SerializerMethodField()
+    nosozliklar_haqida = serializers.SlugRelatedField(
+        slug_field="nosozlik_turi",
+        queryset=NosozlikTuri.objects.all(),
+        required=False,
+        allow_null=True
+    )
 
     status = serializers.CharField(read_only=True)
     akt_file = serializers.FileField(write_only=True, required=False)
@@ -1252,6 +1258,17 @@ class NosozlikStepSerializer(serializers.ModelSerializer):
         yakunlash = validated_data.pop("yakunlash", False)
         akt_file = validated_data.pop("akt_file", None)
         ehtiyot_qismlar = validated_data.pop("ehtiyot_qismlar", [])
+        nosozliklar_haqida_data = validated_data.pop("nosozliklar_haqida", None)
+        
+        if nosozliklar_haqida_data:
+            if isinstance(nosozliklar_haqida_data, NosozlikTuri):
+                nosozlik_turi = nosozliklar_haqida_data
+            else:
+                nosozlik_turi, _ = NosozlikTuri.objects.get_or_create(
+                    nosozliklar_haqida=str(nosozliklar_haqida_data)
+                )
+        else:
+            nosozlik_turi = None
 
         # FormData yoki string bo‘lsa – JSON qilib ochish
         if not ehtiyot_qismlar:
@@ -1266,7 +1283,7 @@ class NosozlikStepSerializer(serializers.ModelSerializer):
             else:
                 ehtiyot_qismlar = []
 
-        print("✅ YUBORILGAN EHTIYOT QISMLAR:", ehtiyot_qismlar)
+        print("YUBORILGAN EHTIYOT QISMLAR:", ehtiyot_qismlar)
 
         # Step statusini aniqlash
         if yakunlash and akt_file:
@@ -1277,6 +1294,7 @@ class NosozlikStepSerializer(serializers.ModelSerializer):
         # 🔹 Step yaratish — endi faqat 1 ta nosozlik qiymati bilan
         step = NosozlikStep.objects.create(
             nosozlik=nosozlik,
+            nosozliklar_haqida=nosozlik_turi,
             created_by=request.user,
             akt_file=akt_file,
             status=step_status,
@@ -1351,15 +1369,11 @@ class NosozlikStepSerializer(serializers.ModelSerializer):
     def to_representation(self, instance):
         data = super().to_representation(instance)
 
-        # Ehtiyot qismlar detailni qo‘lda qo‘shish
         if "ehtiyot_qismlar_detail" not in data or not data["ehtiyot_qismlar_detail"]:
             data["ehtiyot_qismlar_detail"] = self.get_ehtiyot_qismlar_detail(instance)
 
-        clean_data = {
-            k: v for k, v in data.items()
-            if v not in [None, False] and not (isinstance(v, str) and v.strip() == "")
-        }
-        return clean_data
+        
+        return data
 
 
 
@@ -1375,6 +1389,12 @@ class NosozliklarSerializer(serializers.ModelSerializer):
         many=True, write_only=True, required=False
     )
     ehtiyot_qismlar_detail = serializers.SerializerMethodField()
+    nosozliklar_haqida = serializers.SlugRelatedField(
+        slug_field="nosozlik_turi",
+        queryset=NosozlikTuri.objects.all(),
+        required=False,
+        allow_null=True
+    )
 
     akt_file = serializers.FileField(write_only=True, required=False)
     password = serializers.CharField(write_only=True, required=True)
@@ -1458,7 +1478,7 @@ class NosozliklarSerializer(serializers.ModelSerializer):
             "tarkib": obj.tarkib.id,
             "tarkib_nomi": obj.tarkib.tarkib_raqami,
             "status": obj.status,
-            "nosozliklar_haqida": obj.nosozliklar_haqida,
+            "nosozliklar_haqida": obj.nosozliklar_haqida.nosozlik_turi if obj.nosozliklar_haqida else None,
             "bartaraf_etilgan_nosozliklar": obj.bartaraf_etilgan_nosozliklar,
             "aniqlangan_vaqti": obj.aniqlangan_vaqti,
             "bartarafqilingan_vaqti": obj.bartarafqilingan_vaqti,
@@ -1471,7 +1491,7 @@ class NosozliklarSerializer(serializers.ModelSerializer):
         search = request.query_params.get("search")
         if search:
             steps_qs = steps_qs.filter(
-                Q(nosozliklar_haqida__icontains=search) |
+                Q(nosozliklar_haqida__nosozlik_turi__icontains=search) | 
                 Q(bartaraf_etilgan_nosozliklar__icontains=search)
             )
 
@@ -1540,6 +1560,18 @@ class NosozliklarSerializer(serializers.ModelSerializer):
         yakunlash = validated_data.pop("yakunlash", False)
         akt_file = validated_data.pop("akt_file", None)
         ehtiyot_qismlar = validated_data.pop("ehtiyot_qismlar", [])
+        nosozliklar_haqida_data = validated_data.pop("nosozliklar_haqida", None)  # 🔹 qo‘shildi
+
+        # 🔹 Nosozlik turi yaratish / olish
+        if nosozliklar_haqida_data:
+            if isinstance(nosozliklar_haqida_data, NosozlikTuri):
+                nosozlik_turi = nosozliklar_haqida_data
+            else:
+                nosozlik_turi, _ = NosozlikTuri.objects.get_or_create(
+                    nosozliklar_haqida=str(nosozliklar_haqida_data)
+                )
+        else:
+            nosozlik_turi = None
 
         if not ehtiyot_qismlar:
             raw_data = request.data.get("ehtiyot_qismlar")
@@ -1564,6 +1596,7 @@ class NosozliklarSerializer(serializers.ModelSerializer):
 
         nosozlik = Nosozliklar.objects.create(
             tarkib=tarkib,
+            nosozliklar_haqida=nosozlik_turi,
             created_by=request.user,
             status=status,
             yakunlash=yakunlash,
@@ -1647,11 +1680,8 @@ class NosozliklarSerializer(serializers.ModelSerializer):
             data['ehtiyot_qismlar_detail'] = self.get_ehtiyot_qismlar_detail(instance)
         if 'steps' in data:
             data['steps'] = self.get_steps(instance)
-        clean_data = {
-            k: v for k, v in data.items()
-            if v not in [None, False] and not (isinstance(v, str) and v.strip() == "")
-        }
-        return clean_data
+        
+        return data
 
 
 

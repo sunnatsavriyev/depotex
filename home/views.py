@@ -8,13 +8,13 @@ from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from .models import (
     TamirTuri, ElektroDepo, EhtiyotQismlari,
     HarakatTarkibi, TexnikKorik, CustomUser, Nosozliklar, NosozlikEhtiyotQism, TexnikKorikStep,KunlikYurish,
-    Vagon,EhtiyotQismHistory, TexnikKorikEhtiyotQism,
+    Vagon,EhtiyotQismHistory, TexnikKorikEhtiyotQism,NosozlikTuri,
 )
 from .serializers import (
     TamirTuriSerializer, ElektroDepoSerializer,
     EhtiyotQismlariSerializer, HarakatTarkibiSerializer,
     TexnikKorikSerializer, UserSerializer, NosozliklarSerializer, TexnikKorikStepSerializer, NosozlikStepSerializer,
-    NosozlikStep,KunlikYurishSerializer,VagonSerializer,
+    NosozlikStep,KunlikYurishSerializer,VagonSerializer,NosozlikTuriSerializer,
     HarakatTarkibiActiveSerializer, EhtiyotQismWithMiqdorSerializer,EhtiyotQismHistorySerializer, TarkibFullDetailSerializer,TexnikKorikDetailForStepSerializer,NosozlikDetailForStepSerializer)
 from django.utils import timezone
 from django.db.models import Sum, F
@@ -847,34 +847,39 @@ class TexnikKorikStepViewSet(BaseViewSet):
 
 
 
-
 class NosozliklarFilter(django_filters.FilterSet):
-    tamir_turi_nomi = django_filters.CharFilter(
-        field_name="tamir_turi__tamir_nomi", lookup_expr="icontains"
+    nosozlik_turi = django_filters.CharFilter(
+        field_name="nosozliklar_haqida__nosozlik_turi",
+        lookup_expr="icontains"
     )
     tarkib_raqami = django_filters.CharFilter(
-        field_name="tarkib__tarkib_raqami", lookup_expr="icontains"
+        field_name="tarkib__tarkib_raqami",
+        lookup_expr="icontains"
     )
 
     class Meta:
         model = Nosozliklar
-        fields = ["tamir_turi_nomi", "tarkib_raqami"]
+        fields = ["nosozlik_turi", "tarkib_raqami", "status"]
 
 
 class NosozlikStepFilter(django_filters.FilterSet):
+    nosozlik_turi = django_filters.CharFilter(
+        field_name="nosozlik__nosozliklar_haqida__nosozlik_turi",
+        lookup_expr="icontains"
+    )
+    bartaraf_etilgan_nosozliklar = django_filters.CharFilter(
+        lookup_expr="icontains"
+    )
+    tamir_turi = django_filters.CharFilter(
+        field_name="tamir_turi__tamir_nomi",
+        lookup_expr="icontains"
+    )
+
     class Meta:
         model = NosozlikStep
-        fields = {
-            'nosozlik__nosozliklar_haqida': ['icontains'],
-            'bartaraf_etilgan_nosozliklar': ['icontains'],
-            'tamir_turi__tamir_nomi': ['icontains'],
-            'created_by__username': ['icontains'],
-            'created_at': ['exact', 'gte', 'lte'],
-            'bartaraf_qilingan_vaqti': ['exact', 'gte', 'lte'],
-        }
-
-
-
+        fields = ["nosozlik_turi", "bartaraf_etilgan_nosozliklar", "tamir_turi", "status"]
+        
+        
 class NosozliklarGetViewSet(mixins.ListModelMixin,
                             mixins.RetrieveModelMixin,
                             viewsets.GenericViewSet):
@@ -897,6 +902,14 @@ class NosozliklarGetViewSet(mixins.ListModelMixin,
     pagination_class = CustomPagination
     ordering_fields = ["created_at", "approved_at", "aniqlangan_vaqti"]
 
+
+class NosozlikTuriViewSet(viewsets.ModelViewSet):
+    queryset = NosozlikTuri.objects.all().order_by("-id")
+    serializer_class = NosozlikTuriSerializer
+    permission_classes = [IsAuthenticated, IsTexnik]
+    
+    
+
 class NosozliklarViewSet(BaseViewSet):
     queryset = (
         Nosozliklar.objects
@@ -907,8 +920,9 @@ class NosozliklarViewSet(BaseViewSet):
     serializer_class = NosozliklarSerializer
     permission_classes = [IsAuthenticated, IsTexnik]
     filter_backends = [filters.SearchFilter, filters.OrderingFilter, DjangoFilterBackend]
+    filterset_class = NosozliklarFilter
     search_fields = [
-        "nosozliklar_haqida",
+        "nosozliklar_haqida__nosozliklar_haqida",
         "bartaraf_etilgan_nosozliklar",
         "tarkib__tarkib_raqami",
         "created_by__username",
@@ -994,9 +1008,10 @@ class NosozlikStepViewSet(BaseViewSet):
     permission_classes = [IsAuthenticated, IsTexnik]
     pagination_class = CustomPagination
     filter_backends = [filters.SearchFilter, filters.OrderingFilter, DjangoFilterBackend]
+    filterset_class = NosozlikStepFilter
     search_fields = [
         "id",
-        "nosozliklar_haqida",
+        "nosozliklar_haqida__nosozliklar_haqida",
         "bartaraf_etilgan_nosozliklar",
         "created_by__username",
         "nosozlik__tarkib__tarkib_raqami",

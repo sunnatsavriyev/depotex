@@ -408,6 +408,16 @@ class TexnikKorikStep(models.Model):
 
 
 
+class NosozlikTuri(models.Model):
+    nosozlik_turi = models.TextField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.nosozlik_turi
+
+
+
+
 class Nosozliklar(models.Model):
     class Status(models.TextChoices):
         JARAYONDA = "Nosozlikda", "Nosozlikda"
@@ -427,7 +437,13 @@ class Nosozliklar(models.Model):
         limit_choices_to={"is_active": True},
         related_name="nosozliklar"
     )
-    nosozliklar_haqida = models.TextField(null=True, blank=True)
+    nosozliklar_haqida = models.ForeignKey(
+        "NosozlikTuri",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="nosozliklar_main"
+    )
     bartaraf_etilgan_nosozliklar = models.TextField(blank=True)
     status = models.CharField(max_length=32, choices=Status.choices, default=Status.JARAYONDA, editable=False)
     aniqlangan_vaqti = models.DateTimeField(default=timezone.now)
@@ -496,7 +512,13 @@ class NosozlikStep(models.Model):
         blank=True
     )
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.JARAYONDA)
-    nosozliklar_haqida = models.TextField(null=True, blank=True)
+    nosozliklar_haqida = models.ForeignKey(
+        "NosozlikTuri",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="nosozlikla_step"
+    )
     bartaraf_etilgan_nosozliklar = models.TextField(blank=True)
     akt_file = models.FileField(upload_to='nosozlik_step_aktlar/', null=True, blank=True)
     bartaraf_qilingan_vaqti = models.DateTimeField(null=True, blank=True)

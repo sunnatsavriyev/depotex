@@ -16,7 +16,8 @@ from .models import (
     NosozlikEhtiyotQismStep,
     KunlikYurish,
     Vagon,
-    EhtiyotQismHistory
+    EhtiyotQismHistory,
+    NosozlikTuri,
 )
 
 # ---------------- Custom User ----------------
@@ -175,7 +176,10 @@ class HarakatTarkibiAdmin(admin.ModelAdmin):
 
 
 
-
+@admin.register(NosozlikTuri)
+class NosozlikTuriAdmin(admin.ModelAdmin):
+    list_display = ("nosozlik_turi", "created_at")
+    search_fields = ("nosozlik_turi",)
 
 @admin.register(Nosozliklar)
 class NosozliklarAdmin(admin.ModelAdmin):
@@ -185,7 +189,7 @@ class NosozliklarAdmin(admin.ModelAdmin):
     )
     list_filter = ("status", "created_at")
     search_fields = (
-        "nosozliklar_haqida",
+        "nosozliklar_haqida__nosozlik_turi",
         "bartaraf_etilgan_nosozliklar",
         "tarkib__turi",
         "created_by__username"
