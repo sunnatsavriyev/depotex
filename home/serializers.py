@@ -1538,17 +1538,52 @@ class NosozliklarSerializer(serializers.ModelSerializer):
         if ehtiyot_qismlar is None:
             ehtiyot_qismlar = request.data.get("ehtiyot_qismlar", [])
 
+        # 🔹 JSON string bo‘lsa, JSON.parse qilib olamiz
         if isinstance(ehtiyot_qismlar, str):
             try:
                 ehtiyot_qismlar = json.loads(ehtiyot_qismlar)
             except Exception:
                 raise serializers.ValidationError({"ehtiyot_qismlar": "Noto‘g‘ri format."})
 
-        elif ehtiyot_qismlar and not isinstance(ehtiyot_qismlar, list):
+        # 🔹 List bo‘lishi shart
+        if ehtiyot_qismlar and not isinstance(ehtiyot_qismlar, list):
             raise serializers.ValidationError({"ehtiyot_qismlar": "List formatida bo‘lishi kerak."})
 
-        attrs["ehtiyot_qismlar"] = ehtiyot_qismlar or []
+        # 🔹 Har bir elementni tozalaymiz / to‘g‘rilaymiz
+        cleaned_list = []
+        for item in ehtiyot_qismlar:
+            if not isinstance(item, dict):
+                continue
+            eq_val = item.get("ehtiyot_qism")
+            miqdor = item.get("miqdor", 1)
+
+            # ✅ Agar ehtiyot_qism obyekti bo‘lsa — id olamiz
+            if isinstance(eq_val, EhtiyotQismlari):
+                eq_val = eq_val.id
+
+            # ✅ Agar ehtiyot_qism dict bo‘lsa — undan id olamiz
+            elif isinstance(eq_val, dict):
+                eq_val = eq_val.get("id")
+
+            # ✅ Agar id raqamli bo‘lmasa, urinish
+            try:
+                eq_val = int(eq_val) if eq_val else None
+            except (ValueError, TypeError):
+                eq_val = None
+
+            # ✅ Miqdorni floatga o‘giramiz
+            try:
+                miqdor = float(miqdor)
+            except (ValueError, TypeError):
+                miqdor = 1
+
+            if eq_val:
+                cleaned_list.append({"ehtiyot_qism": eq_val, "miqdor": miqdor})
+
+        attrs["ehtiyot_qismlar"] = cleaned_list
+        print("✅ TOZALANGAN EHTIYOT QISMLAR:", cleaned_list)
         return attrs
+
 
     # --- CREATE ---
     def create(self, validated_data):
@@ -1585,7 +1620,7 @@ class NosozliklarSerializer(serializers.ModelSerializer):
             else:
                 ehtiyot_qismlar = []
 
-        print("✅ YUBORILGAN EHTIYOT QISMLAR:", ehtiyot_qismlar)
+        print(" YUBORILGAN EHTIYOT QISMLAR:", ehtiyot_qismlar)
 
         if yakunlash and akt_file:
             status = Nosozliklar.Status.BARTARAF_ETILDI
