@@ -8,13 +8,13 @@ from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from .models import (
     TamirTuri, ElektroDepo, EhtiyotQismlari,
     HarakatTarkibi, TexnikKorik, CustomUser, Nosozliklar, NosozlikEhtiyotQism, TexnikKorikStep,KunlikYurish,
-    Vagon,EhtiyotQismHistory, TexnikKorikEhtiyotQism,NosozlikTuri,
+    Vagon,EhtiyotQismHistory, TexnikKorikEhtiyotQism,NosozlikTuri,NosozlikNotification,
 )
 from .serializers import (
     TamirTuriSerializer, ElektroDepoSerializer,
     EhtiyotQismlariSerializer, HarakatTarkibiSerializer,
     TexnikKorikSerializer, UserSerializer, NosozliklarSerializer, TexnikKorikStepSerializer, NosozlikStepSerializer,
-    NosozlikStep,KunlikYurishSerializer,VagonSerializer,NosozlikTuriSerializer,
+    NosozlikStep,KunlikYurishSerializer,VagonSerializer,NosozlikTuriSerializer,NosozlikNotificationSerializer,
     HarakatTarkibiActiveSerializer, EhtiyotQismWithMiqdorSerializer,EhtiyotQismHistorySerializer, TarkibFullDetailSerializer,TexnikKorikDetailForStepSerializer,NosozlikDetailForStepSerializer)
 from django.utils import timezone
 from django.db.models import Sum, F
@@ -1049,7 +1049,13 @@ class NosozlikStepViewSet(BaseViewSet):
         serializer.context["nosozlik"] = nosozlik
         serializer.save()
 
-   
+
+
+class NosozlikNotificationListView(generics.ListAPIView):
+    queryset = NosozlikNotification.objects.all().order_by("-last_occurrence")
+    serializer_class = NosozlikNotificationSerializer
+ 
+ 
    
 class KorikNosozlikStatisticsView(APIView):
     permission_classes = [IsAuthenticated]

@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import TamirTuri, ElektroDepo, EhtiyotQismlari, HarakatTarkibi, TexnikKorik, CustomUser, Nosozliklar, TexnikKorikEhtiyotQism, NosozlikEhtiyotQism,NosozlikTuri, TexnikKorikStep, TexnikKorikEhtiyotQismStep, NosozlikEhtiyotQismStep, NosozlikStep, KunlikYurish,Vagon,EhtiyotQismHistory
+from .models import TamirTuri, ElektroDepo, EhtiyotQismlari, HarakatTarkibi, NosozlikNotification,TexnikKorik, CustomUser, Nosozliklar, TexnikKorikEhtiyotQism, NosozlikEhtiyotQism,NosozlikTuri, TexnikKorikStep, TexnikKorikEhtiyotQismStep, NosozlikEhtiyotQismStep, NosozlikStep, KunlikYurish,Vagon,EhtiyotQismHistory
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 from django.contrib.auth import authenticate
@@ -1151,6 +1151,10 @@ class NosozlikDetailForStepSerializer(serializers.ModelSerializer):
     #     return clean_data
 
 
+class NosozlikNotificationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = NosozlikNotification
+        fields = "__all__"
 
 
 # --- Step Serializer ---
@@ -1357,6 +1361,24 @@ class NosozlikStepSerializer(serializers.ModelSerializer):
                 nosozlik.tarkib.save()
 
         step.refresh_from_db()
+        
+        
+        if step.nosozlik and step.nosozlik.nosozliklar_haqida:
+            notif, created = NosozlikNotification.objects.get_or_create(
+                tarkib=step.nosozlik.tarkib,
+                nosozlik_turi=step.nosozlik.nosozliklar_haqida.nosozlik_turi,
+                defaults={
+                    "count": 1,
+                    "first_occurrence": timezone.now(),
+                    "last_occurrence": timezone.now(),
+                    "message": f"{step.nosozlik.tarkib} tarkibida {step.nosozlik.nosozliklar_haqida.nosozlik_turi} nosozligi aniqlandi.",
+                },
+            )
+            if not created:
+                notif.count += 1
+                notif.last_occurrence = timezone.now()
+                notif.message = f"{step.nosozlik.tarkib} tarkibida {notif.nosozlik_turi} nosozligi {notif.count} marta takrorlandi."
+                notif.save()
 
         step = NosozlikStep.objects.prefetch_related(
             "ehtiyot_qismlar_step__ehtiyot_qism"
@@ -1661,6 +1683,24 @@ class NosozliklarSerializer(serializers.ModelSerializer):
         if yakunlash and akt_file:
             nosozlik.bartarafqilingan_vaqti = timezone.now()
             nosozlik.save()
+            
+            
+        if nosozlik.nosozliklar_haqida:
+            notif, created = NosozlikNotification.objects.get_or_create(
+                tarkib=nosozlik.tarkib,
+                nosozlik_turi=nosozlik.nosozliklar_haqida.nosozlik_turi,
+                defaults={
+                    "count": 1,
+                    "first_occurrence": timezone.now(),
+                    "last_occurrence": timezone.now(),
+                    "message": f"{nosozlik.tarkib} tarkibida {nosozlik.nosozliklar_haqida.nosozlik_turi} nosozligi aniqlandi.",
+                },
+            )
+            if not created:
+                notif.count += 1
+                notif.last_occurrence = timezone.now()
+                notif.message = f"{nosozlik.tarkib} tarkibida {notif.nosozlik_turi} nosozligi {notif.count} marta takrorlandi."
+                notif.save()
 
         nosozlik = Nosozliklar.objects.prefetch_related(
             'ehtiyot_qism_aloqalari__ehtiyot_qism',

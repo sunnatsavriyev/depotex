@@ -552,6 +552,18 @@ class NosozlikStep(models.Model):
     def __str__(self):
         return f"{self.nosozlik.tarkib} — Step ({self.status})"
 
+
+
+
     
-    
-    
+class NosozlikNotification(models.Model):
+    tarkib = models.ForeignKey("HarakatTarkibi", on_delete=models.CASCADE)
+    nosozlik_turi = models.CharField(max_length=255)
+    count = models.IntegerField(default=1)
+    message = models.TextField(blank=True, null=True)
+    first_occurrence = models.DateTimeField(null=True, blank=True)
+    last_occurrence = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.tarkib} - {self.nosozlik_turi} ({self.count} marta)"
+
