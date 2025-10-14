@@ -953,8 +953,8 @@ class NosozliklarViewSet(BaseViewSet):
                         Nosozliklar.objects
                         .select_related("tarkib", "created_by")
                         .prefetch_related(
-                            "nosozlikehtiyotqism_set__ehtiyot_qism",
-                            "steps__nosozlikehtiyotqismstep_set__ehtiyot_qism",
+                            "ehtiyot_qism_aloqalari__ehtiyot_qism",
+                            "steps__ehtiyot_qismlar_step__ehtiyot_qism",
                             "steps"
                         )
                         .get(id=nosozlik_id)
