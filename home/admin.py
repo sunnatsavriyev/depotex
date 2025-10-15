@@ -18,6 +18,7 @@ from .models import (
     Vagon,
     EhtiyotQismHistory,
     NosozlikTuri,
+    TexnikKorikJadval,
 )
 
 # ---------------- Custom User ----------------
@@ -205,3 +206,12 @@ class NosozlikStepAdmin(admin.ModelAdmin):
     search_fields = ("nosozlik__tarkib__tarkib_raqami", "created_by__username")
     autocomplete_fields = ("created_by",)
     inlines = [NosozlikEhtiyotQismStepInline]
+
+
+
+@admin.register(TexnikKorikJadval)
+class TexnikKorikJadvalAdmin(admin.ModelAdmin):
+    list_display = ("tarkib", "tamir_turi", "sana", "created_by", "created_at")
+    list_filter = ("tamir_turi", "tarkib__depo")
+    search_fields = ("tarkib__tarkib_raqami",)
+    ordering = ("-sana",)

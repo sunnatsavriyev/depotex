@@ -8,7 +8,7 @@ from .views import (
     HarakatTarkibiGetViewSet, NosozliklarGetViewSet,
     TexnikKorikGetViewSet, TexnikKorikStepViewSet,NosozlikStepViewSet,KorikNosozlikStatisticsView,
     KunlikYurishViewSet,HarakatTarkibiActiveViewSet,EhtiyotQismMiqdorListAPIView,EhtiyotQismMiqdorCreateAPIView,TarkibDetailViewSet,KunlikYurishHistoryAPIView,
-    get_me,NosozlikTuriViewSet,NosozlikNotificationListView,
+    get_me,NosozlikTuriViewSet,NosozlikNotificationListView,TexnikKorikJadvalViewSet,
 )
 routers
 router = DefaultRouter()
@@ -23,6 +23,7 @@ router.register(r'tarkib-detail', TarkibDetailViewSet, basename='tarkib-detail')
 router.register(r'nosozlik-turlari', NosozlikTuriViewSet, basename='nosozlik-turi')
 router.register(r"texnik-korik-steps", TexnikKorikStepViewSet, basename="texnik-korik-steps")
 router.register(r"nosozlik-steps", NosozlikStepViewSet, basename="nosozlik-steps")
+router.register(r"texnik-korik-jadval", TexnikKorikJadvalViewSet, basename="texnik-korik-jadval")
 
 
 

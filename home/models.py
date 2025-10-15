@@ -3,6 +3,8 @@ from django.contrib.auth.models import AbstractUser
 from django.utils import timezone
 from django.conf import settings
 from django.db.models import Sum
+from django.core.exceptions import ValidationError
+
 
 class CustomUser(AbstractUser):
     ROLE_CHOICES = [
@@ -567,3 +569,77 @@ class NosozlikNotification(models.Model):
     def __str__(self):
         return f"{self.tarkib} - {self.nosozlik_turi} ({self.count} marta)"
 
+
+
+
+class TexnikKorikJadval(models.Model):
+    """
+    Har oylik texnik ko‘rik jadvali
+    """
+    tarkib = models.ForeignKey(
+        "HarakatTarkibi",
+        on_delete=models.CASCADE,
+        related_name="korik_jadvallari"
+    )
+    tamir_turi = models.ForeignKey(
+        "TamirTuri",
+        on_delete=models.CASCADE,
+        related_name="korik_jadvallari"
+    )
+    sana = models.DateField(help_text="Texnik ko‘rik belgilangan sana")
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True, blank=True
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Texnik ko‘rik jadvali"
+        verbose_name_plural = "Texnik ko‘rik jadvallari"
+        unique_together = ("tarkib", "sana")  # Bitta tarkib bir kunda faqat bitta reja
+        ordering = ["-sana"]
+
+    def __str__(self):
+        return f"{self.tarkib.tarkib_raqami} — {self.tamir_turi.tamir_nomi} ({self.sana})"
+
+    def clean(self):
+        """
+        ❌ Validatsiya:
+        Agar shu tarkib shu tamir turi uchun belgilangan davrda
+        allaqachon mavjud bo‘lsa, yangi jadval qo‘shilmasin.
+        """
+        if not self.tamir_turi:
+            return
+
+        # Tamir vaqti turini aniqlaymiz
+        birlik = self.tamir_turi.tamirlanish_vaqti
+        miqdor = self.tamir_turi.tamirlanish_miqdori or 0
+
+        # Yangi kiritilgan sanadan boshlab tamir turi oralig‘ini aniqlaymiz
+        start_date = self.sana
+        if birlik == "kun":
+            end_date = start_date + timezone.timedelta(days=miqdor)
+        elif birlik == "oy":
+            end_date = start_date + timezone.timedelta(days=miqdor * 30)
+        elif birlik == "soat":
+            # Soat bo‘yicha ham 1 kun ichida
+            end_date = start_date + timezone.timedelta(days=1)
+        else:
+            end_date = start_date
+
+        # Shu oralig‘dagi mavjud jadvalni tekshiramiz
+        overlap_exists = TexnikKorikJadval.objects.filter(
+            tarkib=self.tarkib,
+            sana__range=[start_date, end_date]
+        ).exclude(id=self.id).exists()
+
+        if overlap_exists:
+            raise ValidationError(
+                f"❌ {self.tarkib} uchun {start_date:%d-%m-%Y} dan "
+                f"{end_date:%d-%m-%Y} gacha boshqa texnik ko‘rik belgilangan!"
+            )
+
+    def save(self, *args, **kwargs):
+        self.clean()
+        super().save(*args, **kwargs)

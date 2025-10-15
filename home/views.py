@@ -8,10 +8,10 @@ from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from .models import (
     TamirTuri, ElektroDepo, EhtiyotQismlari,
     HarakatTarkibi, TexnikKorik, CustomUser, Nosozliklar, NosozlikEhtiyotQism, TexnikKorikStep,KunlikYurish,
-    Vagon,EhtiyotQismHistory, TexnikKorikEhtiyotQism,NosozlikTuri,NosozlikNotification,
+    Vagon,EhtiyotQismHistory, TexnikKorikEhtiyotQism,NosozlikTuri,NosozlikNotification,TexnikKorikJadval,
 )
 from .serializers import (
-    TamirTuriSerializer, ElektroDepoSerializer,
+    TamirTuriSerializer, ElektroDepoSerializer,TexnikKorikJadvalSerializer,
     EhtiyotQismlariSerializer, HarakatTarkibiSerializer,
     TexnikKorikSerializer, UserSerializer, NosozliklarSerializer, TexnikKorikStepSerializer, NosozlikStepSerializer,
     NosozlikStep,KunlikYurishSerializer,VagonSerializer,NosozlikTuriSerializer,NosozlikNotificationSerializer,
@@ -46,7 +46,7 @@ from drf_yasg import openapi
 from io import BytesIO
 import qrcode
 from collections import defaultdict
-
+import pandas as pd
 class UserViewSet(viewsets.ModelViewSet):
     queryset = CustomUser.objects.all()
     serializer_class = UserSerializer
@@ -1157,7 +1157,7 @@ class TarkibDetailViewSet(BaseViewSet):
     search_fields = ['guruhi','holati']
 
     def get_queryset(self):
-        return HarakatTarkibi.objects.filter(is_active=True)
+        return HarakatTarkibi.objects.all()
 
     def get_serializer(self, *args, **kwargs):
         return TarkibFullDetailSerializer(*args, **kwargs)
@@ -1460,3 +1460,75 @@ class TarkibDetailViewSet(BaseViewSet):
         response["Content-Disposition"] = f'attachment; filename="Tarkib_{tarkib.id}.xlsx"'
         wb.save(response)
         return response
+    
+    
+    
+class TexnikKorikJadvalViewSet(viewsets.ModelViewSet):
+    queryset = TexnikKorikJadval.objects.select_related("tarkib", "tamir_turi", "created_by")
+    serializer_class = TexnikKorikJadvalSerializer
+    permission_classes = [IsAuthenticated]
+    filter_backends = [filters.SearchFilter, DjangoFilterBackend, filters.OrderingFilter]
+    search_fields = ["tarkib__tarkib_raqami", "tamir_turi__tamir_nomi"]
+    filterset_fields = ["tarkib", "tamir_turi", "sana"]
+    ordering_fields = ["sana", "created_at"]
+    
+    
+    def get_queryset(self):
+        return (
+            TexnikKorikJadval.objects
+            .select_related("tarkib", "tamir_turi", "created_by")
+            .filter(tarkib__is_active=True)
+    )
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
+        
+        
+    @action(detail=False, methods=["get"])
+    def export_excel(self, request):
+        queryset = self.filter_queryset(self.get_queryset())
+        data = [
+            {
+                "Tarkib": j.tarkib.tarkib_raqami,
+                "Depo": j.tarkib.depo.qisqacha_nomi if j.tarkib.depo else "",
+                "Tamir turi": j.tamir_turi.tamir_nomi,
+                "Sana": j.sana.strftime("%d.%m.%Y"),
+                "Yaratgan": j.created_by.username if j.created_by else "",
+            }
+            for j in queryset
+        ]
+        df = pd.DataFrame(data)
+        output = BytesIO()
+        df.to_excel(output, index=False)
+        response = HttpResponse(
+            output.getvalue(),
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+        response["Content-Disposition"] = 'attachment; filename="texnik_korik_jadval.xlsx"'
+        return response
+
+    @action(detail=False, methods=["get"])
+    def export_pdf(self, request):
+        queryset = self.filter_queryset(self.get_queryset())
+        buffer = BytesIO()
+        doc = SimpleDocTemplate(buffer)
+        styles = getSampleStyleSheet()
+        data = [["Tarkib", "Depo", "Tamir turi", "Sana", "Yaratgan"]]
+        for j in queryset:
+            data.append([
+                j.tarkib.tarkib_raqami,
+                j.tarkib.depo.qisqacha_nomi if j.tarkib.depo else "",
+                j.tamir_turi.tamir_nomi,
+                j.sana.strftime("%d.%m.%Y"),
+                j.created_by.username if j.created_by else "",
+            ])
+        table = Table(data)
+        table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.grey),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
+            ("GRID", (0, 0), (-1, -1), 1, colors.black),
+        ]))
+        doc.build([Paragraph("Texnik ko‘rik jadvali", styles["Title"]), table])
+        buffer.seek(0)
+        return HttpResponse(buffer, content_type="application/pdf")
+    

@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import TamirTuri, ElektroDepo, EhtiyotQismlari, HarakatTarkibi, NosozlikNotification,TexnikKorik, CustomUser, Nosozliklar, TexnikKorikEhtiyotQism, NosozlikEhtiyotQism,NosozlikTuri, TexnikKorikStep, TexnikKorikEhtiyotQismStep, NosozlikEhtiyotQismStep, NosozlikStep, KunlikYurish,Vagon,EhtiyotQismHistory
+from .models import TamirTuri, ElektroDepo, EhtiyotQismlari, HarakatTarkibi,TexnikKorikJadval, NosozlikNotification,TexnikKorik, CustomUser, Nosozliklar, TexnikKorikEhtiyotQism, NosozlikEhtiyotQism,NosozlikTuri, TexnikKorikStep, TexnikKorikEhtiyotQismStep, NosozlikEhtiyotQismStep, NosozlikStep, KunlikYurish,Vagon,EhtiyotQismHistory
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 from django.contrib.auth import authenticate
@@ -322,53 +322,6 @@ class TexnikKorikEhtiyotQismStepSerializer(serializers.ModelSerializer):
             )
         return instance
 
-
-# class TexnikKorikDetailForStepSerializer(serializers.ModelSerializer):
-#     created_by = serializers.CharField(source="created_by.username", read_only=True)
-#     tarkib_nomi = serializers.CharField(source="tarkib.tarkib_raqami", read_only=True)
-#     tamir_turi_nomi = serializers.CharField(source="tamir_turi.tamir_nomi", read_only=True)
-
-#     ehtiyot_qismlar_detail = serializers.SerializerMethodField()
-
-#     class Meta:
-#         model = TexnikKorik
-#         fields = [
-#             "id",
-#             "tarkib",
-#             "tarkib_nomi",
-#             "tamir_turi",
-#             "tamir_turi_nomi",
-#             "status",
-#             "kamchiliklar_haqida",
-#             "bartaraf_etilgan_kamchiliklar",
-#             "kirgan_vaqti",
-#             "chiqqan_vaqti",
-#             "created_by",
-#             "created_at",
-#             "ehtiyot_qismlar_detail",
-#         ]
-#         read_only_fields = fields
-
-#     def to_representation(self, instance):
-#         data = super().to_representation(instance)
-
-#         if hasattr(instance, "texnikkorikehtiyotqism_set"):
-#             data["ehtiyot_qismlar_detail"] = [
-#                 {
-#                     "id": item.id,
-#                     "ehtiyot_qism": item.ehtiyot_qism.id,  
-#                     "ehtiyot_qism_nomi": item.ehtiyot_qism.ehtiyotqism_nomi,
-#                     "birligi": item.ehtiyot_qism.birligi,
-#                     "miqdor": item.miqdor
-#                 }
-#                 for item in instance.texnikkorikehtiyotqism_set.all()
-#             ]
-
-#         clean_data = {
-#             k: v for k, v in data.items()
-#             if v not in [None, False, [], {}] and not (isinstance(v, str) and v.strip() == "")
-#         }
-#         return clean_data
 
 class TexnikKorikDetailForStepSerializer(serializers.ModelSerializer):
     created_by = serializers.CharField(source="created_by.username", read_only=True)
@@ -1417,7 +1370,7 @@ class NosozliklarSerializer(serializers.ModelSerializer):
         required=False,
         allow_null=True
     )
-
+    pervious_version = serializers.SerializerMethodField()
     akt_file = serializers.FileField(write_only=True, required=False)
     password = serializers.CharField(write_only=True, required=True)
     yakunlash = serializers.BooleanField(required=False, default=False)
@@ -1428,7 +1381,7 @@ class NosozliklarSerializer(serializers.ModelSerializer):
     class Meta:
         model = Nosozliklar
         fields = [
-            "id", "tarkib", "tarkib_nomi", "is_active",
+            "id", "tarkib", "tarkib_nomi", "is_active","pervious_version",
             "nosozliklar_haqida", "bartaraf_etilgan_nosozliklar",
             "status", "aniqlangan_vaqti", "bartarafqilingan_vaqti",
             "created_by", "created_at",
@@ -1822,3 +1775,24 @@ class TarkibFullDetailSerializer(serializers.ModelSerializer):
 
     def get_tamir_turi_soni(self, obj):
         return TexnikKorik.objects.filter(tarkib=obj).values("tamir_turi").distinct().count()
+
+
+
+
+class TexnikKorikJadvalSerializer(serializers.ModelSerializer):
+    tarkib_raqami = serializers.CharField(source="tarkib.tarkib_raqami", read_only=True)
+    tamir_nomi = serializers.CharField(source="tamir_turi.tamir_nomi", read_only=True)
+    depo_nomi = serializers.CharField(source="tarkib.depo.qisqacha_nomi", read_only=True)
+
+    class Meta:
+        model = TexnikKorikJadval
+        fields = [
+            "id", "tarkib", "tarkib_raqami", "depo_nomi",
+            "tamir_turi", "tamir_nomi",
+            "sana", "created_by", "created_at"
+        ]
+        read_only_fields = ["created_by", "created_at"]
+
+    def create(self, validated_data):
+        validated_data["created_by"] = self.context["request"].user
+        return super().create(validated_data)
