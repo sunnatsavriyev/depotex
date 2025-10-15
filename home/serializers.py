@@ -1128,7 +1128,7 @@ class NosozlikStepSerializer(serializers.ModelSerializer):
     )
 
     status = serializers.CharField(read_only=True)
-    akt_file = serializers.FileField(write_only=True, required=False)
+    akt_file = serializers.FileField( required=False)
     password = serializers.CharField(write_only=True, required=True)
     yakunlash = serializers.BooleanField(required=False)
     bartaraf_qilingan_vaqti = serializers.DateTimeField(required=False, read_only=True)
@@ -1371,7 +1371,7 @@ class NosozliklarSerializer(serializers.ModelSerializer):
         allow_null=True
     )
     pervious_version = serializers.SerializerMethodField()
-    akt_file = serializers.FileField(write_only=True, required=False)
+    akt_file = serializers.FileField(required=False)
     password = serializers.CharField(write_only=True, required=True)
     yakunlash = serializers.BooleanField(required=False, default=False)
     bartarafqilingan_vaqti = serializers.DateTimeField(read_only=True)
