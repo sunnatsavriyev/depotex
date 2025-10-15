@@ -1726,12 +1726,13 @@ class TexnikKorikByTypeViewSet(BaseViewSet):
         )
         elements.append(history_title)
         elements.append(Spacer(1, 6))
+
         data = [[
             Paragraph(f"<font color='darkblue'><b>{h}</b></font>", styles['Normal'])
             for h in ["No", "Kirgan sana", "Chiqqan sana", "Kimlar qilgani"]
         ]]
+
         for i, k in enumerate(queryset, 1):
-            # Barcha userlarni birlashtirish: step yozgan, yakunlagan, yaratgan
             users = []
             if getattr(k, "step_yozgan", None):
                 users.append(k.step_yozgan.username)
@@ -1748,14 +1749,17 @@ class TexnikKorikByTypeViewSet(BaseViewSet):
                 users_str
             ])
 
-        table = Table(data, hAlign='CENTER', colWidths=[1*cm, 4*cm, 4*cm, 7*cm])
-        table.setStyle(TableStyle([
+        # Jadval ustunlarini full_width ga tenglab berish
+        col_widths_history = [full_width * 0.1, full_width * 0.3, full_width * 0.3, full_width * 0.3]
+
+        history_table = Table(data, hAlign='CENTER', colWidths=col_widths_history)
+        history_table.setStyle(TableStyle([
             ('GRID', (0,0), (-1,-1), 0.6, colors.black),
             ('BACKGROUND', (0,0), (-1,0), colors.whitesmoke),
             ('ALIGN', (0,0), (-1,-1), 'CENTER'),
             ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
         ]))
-        elements.append(table)
+        elements.append(history_table)
         elements.append(Spacer(1, 12))
 
         # --- QR kod ---
