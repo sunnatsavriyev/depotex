@@ -389,7 +389,7 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
 
     password = serializers.CharField(write_only=True, required=True)
     yakunlash = serializers.BooleanField(required=False)
-    akt_file = serializers.FileField(write_only=True, required=False)
+    akt_file = serializers.FileField( required=False)
     chiqqan_vaqti = serializers.DateTimeField(read_only=True)
     status = serializers.CharField(read_only=True)
 
@@ -595,7 +595,7 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
     
     
 
-    akt_file = serializers.FileField(write_only=True, required=False)
+    akt_file = serializers.FileField( required=False)
     password = serializers.CharField(write_only=True, required=True)
     yakunlash = serializers.BooleanField(required=False, default=False)
     chiqqan_vaqti = serializers.DateTimeField(read_only=True)
@@ -1780,6 +1780,9 @@ class TarkibFullDetailSerializer(serializers.ModelSerializer):
 
 
 class TexnikKorikJadvalSerializer(serializers.ModelSerializer):
+    tarkib = serializers.PrimaryKeyRelatedField(
+        queryset=HarakatTarkibi.objects.filter(is_active=True)
+    )
     tarkib_raqami = serializers.CharField(source="tarkib.tarkib_raqami", read_only=True)
     tamir_nomi = serializers.CharField(source="tamir_turi.tamir_nomi", read_only=True)
     depo_nomi = serializers.CharField(source="tarkib.depo.qisqacha_nomi", read_only=True)

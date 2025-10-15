@@ -5,7 +5,7 @@ from rest_framework.exceptions import NotFound
 
 
 class CustomPagination(PageNumberPagination):
-    page_size = 50  # default
+    page_size = 5000000000000000000000000  # default
     page_size_query_param = "limit"
     page_query_param = "page"
 

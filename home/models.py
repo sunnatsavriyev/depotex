@@ -80,35 +80,7 @@ class ElektroDepo(models.Model):
         return self.depo_nomi
     
 
-# class EhtiyotQismlari(models.Model):
-#     ehtiyotqism_nomi = models.CharField(max_length=255, unique=True)
-#     nomenklatura_raqami = models.CharField(max_length=100)
-#     birligi = models.CharField(
-#         max_length=50,
-#         choices=[
-#             ("dona", "Dona"),
-#             ("para", "Para"),
-#             ("metr", "Metr"),
-#             ("litr", "Litr"),
-#         ],
-#         default="dona"
-#     )
-#     depo = models.ForeignKey(
-#         "ElektroDepo",
-#         on_delete=models.SET_NULL,
-#         null=True, blank=True
-#     )
-#     miqdori = models.PositiveIntegerField(default=1)
-#     created_by = models.ForeignKey(
-#         settings.AUTH_USER_MODEL,
-#         on_delete=models.SET_NULL,
-#         null=True,
-#         blank=True
-#     )
-#     created_at = models.DateTimeField(auto_now_add=True)
 
-#     def __str__(self):
-#         return f"{self.ehtiyotqism_nomi} ({self.birligi})"
 
 class EhtiyotQismlari(models.Model):
     ehtiyotqism_nomi = models.CharField(max_length=255, unique=True)

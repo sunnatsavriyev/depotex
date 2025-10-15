@@ -2,8 +2,10 @@ from rest_framework import viewsets, status, filters, mixins, generics
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework.viewsets import ViewSet
 from django.http import HttpResponse
 from openpyxl import Workbook
+from openpyxl.utils import get_column_letter
 from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from .models import (
     TamirTuri, ElektroDepo, EhtiyotQismlari,
@@ -527,6 +529,7 @@ class HarakatTarkibiGetViewSet(BaseViewSet):
         return Response(serializer.data)
 
 
+
 class HarakatTarkibiActiveViewSet(BaseViewSet):
     queryset = (
         HarakatTarkibi.objects.filter(is_active=True)
@@ -534,14 +537,162 @@ class HarakatTarkibiActiveViewSet(BaseViewSet):
         .order_by("-id")
     )
     serializer_class = HarakatTarkibiActiveSerializer
-    basename = "Harakat Tarkibi Active"
+    basename = "harakat-tarkibi-active"  # ✅ Bo‘sh joysiz
     permission_classes = [IsAuthenticated, IsTexnik]
     require_login_fields = False
     pagination_class = CustomPagination
     filter_backends = [filters.SearchFilter, filters.OrderingFilter, DjangoFilterBackend]
-    search_fields = ['guruhi', 'tarkib_raqami', 'turi', 'ishga_tushgan_vaqti', 'eksplutatsiya_vaqti','holati']
+    search_fields = ['guruhi', 'tarkib_raqami', 'turi', 'ishga_tushgan_vaqti', 'eksplutatsiya_vaqti', 'holati']
     ordering_fields = ['ishga_tushgan_vaqti', 'id']
     filterset_fields = ['depo']
+
+
+
+class HarakatTarkibiHolatStatistikaViewSet(viewsets.ViewSet):
+    permission_classes = [IsAuthenticated, IsTexnik]
+
+    # --- Asosiy statistikani chiqarish ---
+    def list(self, request):
+        queryset = HarakatTarkibi.objects.filter(is_active=True)
+
+        nosozlikda = queryset.filter(holati="Nosozlikda")
+        texnik_korikda = queryset.filter(holati="Texnik ko‘rikda")
+
+        nosozlik_serializer = HarakatTarkibiActiveSerializer(nosozlikda, many=True)
+        texnik_serializer = HarakatTarkibiActiveSerializer(texnik_korikda, many=True)
+
+        return Response({
+            "nosozlikda_soni": nosozlikda.count(),
+            "nosozlikda_tarkiblar": nosozlik_serializer.data,
+            "texnik_korikda_soni": texnik_korikda.count(),
+            "texnik_korikda_tarkiblar": texnik_serializer.data,
+        })
+
+    # --- PDF EXPORT ---
+    @action(detail=False, methods=["get"], url_path="export-nosozlikda-pdf")
+    def export_nosozlikda_pdf(self, request):
+        queryset = HarakatTarkibi.objects.filter(is_active=True, holati="Nosozlikda")
+
+        buffer = BytesIO()
+        doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=1*cm, bottomMargin=1*cm)
+        elements = []
+
+        title = Paragraph(
+            "<b><font size=14 color='red'>Nosozlikda bo‘lgan tarkiblar ro‘yxati</font></b>",
+            ParagraphStyle('title', alignment=1)
+        )
+        elements += [title, Spacer(1, 10)]
+
+        data = [["#", "Tarkib raqami", "Turi", "Masofa", "Holati"]]
+        for i, obj in enumerate(queryset, 1):
+            data.append([
+                i,
+                str(obj.tarkib_raqami or "-"),
+                str(obj.turi or "-"),
+                str(getattr(obj, 'masofa', "-")),
+                str(obj.holati or "-"),
+            ])
+
+        table = Table(data, hAlign='CENTER', colWidths=[1*cm, 4*cm, 4*cm, 3*cm, 5*cm])
+        table.setStyle(TableStyle([
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
+            ('BACKGROUND', (0, 0), (-1, 0), colors.whitesmoke),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.darkblue),  # 🔹 Header matnini darkblue qilish
+            ('ALIGN', (0, 0), (-1, 0), 'CENTER'),              # Headerlarni o‘rtaga tekislash
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),            # Vertikal markazlashtirish
+            ('FONTSIZE', (0, 0), (-1, 0), 11),                 # Header matn o‘lchami
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),   # Headerni qalin qilish
+        ]))
+        elements.append(table)
+
+        doc.build(elements)
+        pdf = buffer.getvalue()
+        buffer.close()
+
+        response = HttpResponse(pdf, content_type="application/pdf")
+        filename = f"Nosozlikda_Tarkiblar_{datetime.now().strftime('%Y%m%d')}.pdf"
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        return response
+
+    # --- PDF: Texnik ko‘rikdagilar ---
+    @action(detail=False, methods=["get"], url_path="export-texnik-pdf")
+    def export_texnik_pdf(self, request):
+        queryset = HarakatTarkibi.objects.filter(is_active=True, holati="Texnik ko‘rikda")
+
+        buffer = BytesIO()
+        doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=1*cm, bottomMargin=1*cm)
+        elements = []
+
+        title = Paragraph(
+            "<b><font size=14 color='blue'>Texnik ko‘rikda bo‘lgan tarkiblar ro‘yxati</font></b>",
+            ParagraphStyle('title', alignment=1)
+        )
+        elements += [title, Spacer(1, 10)]
+
+        data = [["#", "Tarkib raqami", "Turi", "Masofa", "Holati"]]
+        for i, obj in enumerate(queryset, 1):
+            data.append([
+                i,
+                str(obj.tarkib_raqami or "-"),
+                str(obj.turi or "-"),
+                str(getattr(obj, 'masofa', "-")),
+                str(obj.holati or "-"),
+            ])
+
+        table = Table(data, hAlign='CENTER', colWidths=[1*cm, 4*cm, 4*cm, 3*cm, 5*cm])
+        table.setStyle(TableStyle([
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
+            ('BACKGROUND', (0, 0), (-1, 0), colors.whitesmoke),
+        ]))
+        elements.append(table)
+
+        doc.build(elements)
+        pdf = buffer.getvalue()
+        buffer.close()
+
+        response = HttpResponse(pdf, content_type="application/pdf")
+        filename = f"TexnikKorik_Tarkiblar_{datetime.now().strftime('%Y%m%d')}.pdf"
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        return response
+
+    # --- EXCEL EXPORT ---
+    @action(detail=False, methods=["get"], url_path="export-excel")
+    def export_excel(self, request):
+        queryset = HarakatTarkibi.objects.filter(is_active=True)
+        nosozlikda = queryset.filter(holati="Nosozlikda")
+        texnik_korikda = queryset.filter(holati="Texnik ko‘rikda")
+
+        wb = Workbook()
+        ws1 = wb.active
+        ws1.title = "Nosozlikda"
+        ws2 = wb.create_sheet("Texnik ko‘rikda")
+
+        headers = ["#", "Tarkib raqami", "Turi", "Masofa", "Holati"]
+
+        for sheet, data in [(ws1, nosozlikda), (ws2, texnik_korikda)]:
+            sheet.append(headers)
+            for i, obj in enumerate(data, 1):
+                sheet.append([
+                    i,
+                    str(obj.tarkib_raqami or "-"),
+                    str(obj.turi or "-"),
+                    str(getattr(obj, 'masofa', "-")),
+                    str(obj.holati or "-"),
+                ])
+            for col in range(1, len(headers) + 1):
+                sheet.column_dimensions[get_column_letter(col)].width = 20
+
+        output = BytesIO()
+        wb.save(output)
+        output.seek(0)
+
+        response = HttpResponse(
+            output,
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+        filename = f"HarakatTarkibi_Statistika_{datetime.now().strftime('%Y%m%d')}.xlsx"
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        return response
 
 
 
@@ -843,6 +994,7 @@ class TexnikKorikStepViewSet(BaseViewSet):
 
         serializer.context["korik"] = korik 
         serializer.save()
+        
 
 
 
@@ -1151,6 +1303,9 @@ class KorikNosozlikStatisticsView(APIView):
             "top_10_ehtiyot_qism": top_10_ehtiyot_qism,
         })
 
+
+
+
 class TarkibDetailViewSet(BaseViewSet):
     permission_classes = [IsAuthenticated, IsTexnik, IsMonitoringReadOnly]
     filter_backends = [filters.SearchFilter, filters.OrderingFilter, DjangoFilterBackend]
@@ -1262,8 +1417,9 @@ class TarkibDetailViewSet(BaseViewSet):
                 for h in ["Ekspluatatsiyaga qo‘yilgan sana", "Turi", "Nomeri", "Masofa", "Hozirgi holati"]
             ],
             [
-                Paragraph(f"<b>{str(tarkib.eksplutatsiya_vaqti or '-') }</b>", styles['Normal']),
-                Paragraph(f"<b>{tarkib.turi or '-'}</b>", styles['Normal']),
+                Paragraph(f"<b>{tarkib.ishga_tushgan_vaqti.strftime('%d-%m-%Y') if tarkib.ishga_tushgan_vaqti else '-'}</b>", 
+                            styles['Normal']),
+                Paragraph(f"<b>{tarkib.guruhi or '-'}</b>", styles['Normal']),
                 Paragraph(f"<b>{tarkib.tarkib_raqami or '-'}</b>", styles['Normal']),
                 Paragraph(f"<b>{str(getattr(tarkib, 'masofa', '–'))}</b>", styles['Normal']),
                 Paragraph(f"<b>{tarkib.holati or '-'}</b>", styles['Normal']),
@@ -1296,25 +1452,38 @@ class TarkibDetailViewSet(BaseViewSet):
         elements.append(Spacer(1, 12))
 
         # --- Texnik ko‘riklar tarixi ---
-        elements.append(Paragraph("<b><font color='red' size=12>Texnik ko‘riklar tarixi</font></b>",
-                                ParagraphStyle('h3', alignment=1)))
+        elements.append(Paragraph(
+            "<b><font color='red' size=12>Texnik ko‘riklar tarixi</font></b>",
+            ParagraphStyle('h3', alignment=1)
+        ))
         elements.append(Spacer(1, 6))
 
-        all_types = ["TO-1", "TO-2", "TO-3", "TR-1", "TR-2", "TR-3", "KR-1", "KR-2"]
-        korik_counts = {t: 0 for t in all_types}
+        # Barcha tamir turlarini bazadan olish
+        from home.models import TamirTuri
+        tamir_turlari = TamirTuri.objects.all().values_list('tamir_nomi', flat=True)
+
+        # Har bir tamir turi uchun hisob
+        korik_counts = {t: 0 for t in tamir_turlari}
         for tk in texnik_koriklar:
             if tk.tamir_turi and tk.tamir_turi.tamir_nomi in korik_counts:
                 korik_counts[tk.tamir_turi.tamir_nomi] += 1
 
+        # Jadval uchun ma’lumot tayyorlash
         korik_data = [[Paragraph("<b><font color='black'>Ta’mir turi</font></b>", styles['Normal'])] +
-                    [Paragraph(f"<font color='red'><b>{t}</b></font>", styles['Normal']) for t in all_types]]
+                    [Paragraph(f"<font color='red'><b>{t}</b></font>", styles['Normal']) for t in tamir_turlari]]
+
         korik_values = [
             Paragraph(f"<b><font color='blue'>{korik_counts[t]}</font></b>", styles['Normal'])
             if korik_counts[t] > 0 else Paragraph("<b>-</b>", styles['Normal'])
-            for t in all_types
+            for t in tamir_turlari
         ]
+
         korik_data.append([Paragraph("<b>Soni</b>", styles['Normal'])] + korik_values)
-        korik_table = Table(korik_data, hAlign='CENTER', colWidths=[full_width / 9] * 9)
+
+        # Jadval kengliklarini moslashtirish (dinamik)
+        col_width = (A4[0] - 2 * cm) / (len(tamir_turlari) + 1)
+        korik_table = Table(korik_data, hAlign='CENTER', colWidths=[col_width] * (len(tamir_turlari) + 1))
+
         korik_table.setStyle(TableStyle([
             ('GRID', (0, 0), (-1, -1), 0.6, colors.black),
             ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
@@ -1460,6 +1629,472 @@ class TarkibDetailViewSet(BaseViewSet):
         response["Content-Disposition"] = f'attachment; filename="Tarkib_{tarkib.id}.xlsx"'
         wb.save(response)
         return response
+   
+   
+   
+
+class TexnikKorikByTypeViewSet(BaseViewSet):
+    queryset = TexnikKorik.objects.select_related("tarkib", "tamir_turi", "created_by")
+    serializer_class = TexnikKorikSerializer
+    permission_classes = [IsAuthenticated]
+
+    # -------- PDF EXPORT --------
+    @action(detail=False, methods=["get"], url_path=r"(?P<tarkib_id>\d+)/(?P<tamir_turi_id>\d+)/export-pdf")
+    def export_pdf(self, request, tarkib_id=None, tamir_turi_id=None):
+        queryset = self.get_queryset().filter(tarkib_id=tarkib_id, tamir_turi_id=tamir_turi_id)
+        if not queryset.exists():
+            return HttpResponse("Ma'lumot topilmadi", status=404)
+
+        tarkib = queryset.first().tarkib
+        tamir_turi = queryset.first().tamir_turi
+
+        buffer = BytesIO()
+        response = HttpResponse(content_type="application/pdf")
+        filename = f"{tarkib.tarkib_raqami}_{tamir_turi.tamir_nomi}_koriklar.pdf"
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+
+        doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=1*cm, bottomMargin=1*cm)
+        styles = getSampleStyleSheet()
+        elements = []
+        title_text = (
+            f"<b><font color='red'>{tarkib.tarkib_raqami}</font></b> harakat tarkibining "
+            f"<br/><b><font color='red'>{tamir_turi.tamir_nomi}</font></b> texnik ko'rigi bo‘yicha to'liq ma'lumot"
+        )
+        # --- Sarlavha ---
+        title = Paragraph(
+            title_text,
+            ParagraphStyle('title', parent=styles['Title'], alignment=1, textColor=colors.darkblue),
+        )
+        elements.append(title)
+        elements.append(Spacer(1, 10))
+
+        # --- Rasm ---
+        if getattr(tarkib, 'image', None):
+            try:
+                img = Image(tarkib.image.path, width=15.5 * cm, height=6.5 * cm)
+                img.hAlign = 'CENTER'
+                elements.append(img)
+                elements.append(Spacer(1, 10))
+            except:
+                pass
+
+        # --- Ekspluatatsiya ma’lumotlari ---
+        ekspl_data = [
+            [
+                Paragraph(f"<font color='red'><b>{h}</b></font>", styles['Normal'])
+                for h in ["Ekspluatatsiyaga qo‘yilgan sana", "Turi", "Nomeri", "Masofa", "Hozirgi holati"]
+            ],
+            [
+                Paragraph(f"<b>{tarkib.ishga_tushgan_vaqti.strftime('%d-%m-%Y') if tarkib.ishga_tushgan_vaqti else '-'}</b>", 
+                            styles['Normal']),
+                Paragraph(f"<b>{tarkib.guruhi or '-'}</b>", styles['Normal']),
+                Paragraph(f"<b>{tarkib.tarkib_raqami or '-'}</b>", styles['Normal']),
+                Paragraph(f"<b>{str(getattr(tarkib, 'masofa', '–'))}</b>", styles['Normal']),
+                Paragraph(f"<b>{tarkib.holati or '-'}</b>", styles['Normal']),
+            ],
+        ]
+
+        # Jadval eni sahifa eni bo‘ylab teng bo‘lishi uchun
+        full_width = A4[0] - 2 * cm
+
+        # Ustun kengliklarini belgilash (Nomeri ustunini biroz kengroq qilamiz)
+        col_widths = [
+            full_width * 0.18,  # Ekspluatatsiya sana
+            full_width * 0.18,  # Turi
+            full_width * 0.26,  # Nomeri (kattaroq)
+            full_width * 0.18,  # Masofa
+            full_width * 0.20,  # Hozirgi holati
+        ]
+
+        ekspl_table = Table(ekspl_data, hAlign='CENTER', colWidths=col_widths)
+        ekspl_table.setStyle(TableStyle([
+            ('GRID', (0, 0), (-1, -1), 0.6, colors.black),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('BACKGROUND', (0, 0), (-1, 0), colors.whitesmoke),
+            ('BOX', (0, 0), (-1, -1), 1, colors.black),
+            ('FONTSIZE', (0, 0), (-1, -1), 9),
+        ]))
+
+        elements.append(ekspl_table)
+        elements.append(Spacer(1, 12))
+
+        # --- Texnik ko‘riklar tarixi (Soddalashtirilgan) ---
+        history_title = Paragraph(
+            f"<b><font color='red'>{tamir_turi.tamir_nomi} texnik ko'rigi tarixi</font></b>",
+            ParagraphStyle('h3', alignment=1)
+        )
+        elements.append(history_title)
+        elements.append(Spacer(1, 6))
+        data = [[
+            Paragraph(f"<font color='darkblue'><b>{h}</b></font>", styles['Normal'])
+            for h in ["No", "Kirgan sana", "Chiqqan sana", "Kimlar qilgani"]
+        ]]
+        for i, k in enumerate(queryset, 1):
+            # Barcha userlarni birlashtirish: step yozgan, yakunlagan, yaratgan
+            users = []
+            if getattr(k, "step_yozgan", None):
+                users.append(k.step_yozgan.username)
+            if getattr(k, "yakunlagan", None):
+                users.append(k.yakunlagan.username)
+            if getattr(k, "created_by", None):
+                users.append(k.created_by.username)
+            users_str = ", ".join(users) if users else "-"
+
+            data.append([
+                i,
+                k.kirgan_vaqti.strftime("%d-%m-%Y %H:%M") if k.kirgan_vaqti else "-",
+                k.chiqqan_vaqti.strftime("%d-%m-%Y %H:%M") if k.chiqqan_vaqti else "-",
+                users_str
+            ])
+
+        table = Table(data, hAlign='CENTER', colWidths=[1*cm, 4*cm, 4*cm, 7*cm])
+        table.setStyle(TableStyle([
+            ('GRID', (0,0), (-1,-1), 0.6, colors.black),
+            ('BACKGROUND', (0,0), (-1,0), colors.whitesmoke),
+            ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ]))
+        elements.append(table)
+        elements.append(Spacer(1, 12))
+
+        # --- QR kod ---
+        qr_url = f"https://depo-main.vercel.app/depo/{tarkib.id}"
+        qr = qrcode.QRCode(error_correction=qrcode.constants.ERROR_CORRECT_H, box_size=3, border=1)
+        qr.add_data(qr_url)
+        qr.make(fit=True)
+        qr_buffer = BytesIO()
+        qr.make_image(fill_color="black", back_color="white").save(qr_buffer, format='PNG')
+        qr_buffer.seek(0)
+        qr_img = Image(qr_buffer, width=2.5 * cm, height=2.5 * cm)
+        qr_img.hAlign = 'RIGHT'
+
+        footer_text = Paragraph(
+            """<font size=9><b>
+            Hujjatning haqiqiyligini tekshirish uchun QR kodni skanerlang.<br/>
+            <font color='blue'><b>depo.tm1.uz</b></font> sayti orqali tasdiqlangan.<br/>
+            Ushbu hisobotdagi barcha ma’lumotlar uchun xodim mas’uldir.
+            </b></font>""",
+            ParagraphStyle('footer', parent=styles['Normal'], alignment=0, leading=12),
+        )
+
+        footer_table = Table([[footer_text, qr_img]], colWidths=[14 * cm, 3 * cm])
+        footer_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, -1), colors.lightblue),
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ('BOX', (0, 0), (-1, -1), 0.8, colors.black),
+        ]))
+        elements.append(footer_table)
+
+        # --- Sahifa border ---
+        def draw_border(canvas, doc):
+            canvas.saveState()
+            canvas.setStrokeColor(colors.black)
+            canvas.setLineWidth(1)
+            canvas.rect(0.8 * cm, 0.8 * cm, A4[0] - 1.6 * cm, A4[1] - 1.6 * cm)
+            canvas.restoreState()
+
+        doc.build(elements, onFirstPage=draw_border, onLaterPages=draw_border)
+
+        buffer.seek(0)
+        response.write(buffer.getvalue())
+        buffer.close()
+        return response
+
+
+    # -------- EXCEL EXPORT --------
+    @action(detail=False, methods=["get"], url_path=r"(?P<tarkib_id>\d+)/(?P<tamir_turi_id>\d+)/export-excel")
+    def export_excel(self, request, tarkib_id=None, tamir_turi_id=None):
+        queryset = self.get_queryset().filter(tarkib_id=tarkib_id, tamir_turi_id=tamir_turi_id)
+        if not queryset.exists():
+            return HttpResponse("Ma'lumot topilmadi", status=404)
+
+        tarkib = queryset.first().tarkib
+        tamir_turi = queryset.first().tamir_turi
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Texnik Ko'riklar"
+
+        ws.merge_cells("A1:G1")
+        ws["A1"] = f"{tarkib.tarkib_raqami} — {tamir_turi.tamir_nomi} bo‘yicha texnik ko‘riklar"
+        ws["A1"].font = Font(bold=True, size=14)
+        ws["A1"].alignment = Alignment(horizontal="center")
+
+        ws.append([])
+        ws.append(["Ekspluatatsiya", "Turi", "Raqami", "Masofa", "Holati"])
+        ws.append([
+            str(tarkib.eksplutatsiya_vaqti or "-"),
+            tarkib.turi or "-",
+            tarkib.tarkib_raqami or "-",
+            getattr(tarkib, "masofa", "-"),
+            tarkib.holati or "-",
+        ])
+        ws.append([])
+
+        ws.append(["#", "Kirgan sana", "Chiqqan sana", "Status", "Kamchiliklar", "Bart. etilgan", "Yaratgan xodim"])
+        for i, k in enumerate(queryset, 1):
+            ws.append([
+                i,
+                str(k.kirgan_vaqti or "-"),
+                str(k.chiqqan_vaqti or "-"),
+                k.status or "-",
+                k.kamchiliklar_haqida or "-",
+                k.bartaraf_etilgan_kamchiliklar or "-",
+                k.created_by.username if k.created_by else "-",
+            ])
+
+        response = HttpResponse(
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+        filename = f"{tarkib.tarkib_raqami}_{tamir_turi.tamir_nomi}_koriklar.xlsx"
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        wb.save(response)
+        return response
+
+class TexnikKorikStepViewSet1(ViewSet):
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return TexnikKorikStep.objects.select_related(
+            "korik__tarkib", "tamir_turi", "created_by"
+        ).prefetch_related("ehtiyot_qismlar").all()
+
+    @action(detail=False, methods=["get"], url_path=r"(?P<korik_id>\d+)/export-pdf")
+    def export_pdf(self, request, korik_id=None):
+        # --- Korikni olish ---
+        try:
+            korik = TexnikKorik.objects.select_related("tarkib", "tamir_turi").get(id=korik_id)
+        except TexnikKorik.DoesNotExist:
+            return HttpResponse("Bunday Texnik Ko‘rik topilmadi", status=404)
+
+        # --- Shu korik bo‘yicha barcha steplar ---
+        steps = self.get_queryset().filter(korik=korik).order_by("id")
+        if not steps.exists():
+            return HttpResponse("Bu ko‘rik bo‘yicha steplar topilmadi", status=404)
+
+        buffer = BytesIO()
+        response = HttpResponse(content_type="application/pdf")
+        filename = f"Korik_{korik.id}_steps.pdf"
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+
+        doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=1*cm, bottomMargin=1*cm)
+        styles = getSampleStyleSheet()
+        elements = []
+
+        # --- Title tepa ---
+        title_text = (
+            f"<b><font color='red'>{korik.tarkib.tarkib_raqami if korik.tarkib else '-'}</font></b> harakat tarkibining "
+            f"<b><font color='red'>{korik.created_at.strftime('%d-%m-%Y') if korik.created_at else '-'}</font></b> da o'tkazilgan "
+            f"<b><font color='red'>{korik.tamir_turi.tamir_nomi if korik.tamir_turi else '-'}</font></b> texnik ko‘rigi bo'yicha to'liq ma'lumot"
+        )
+        title = Paragraph(
+            title_text, 
+            ParagraphStyle('title', parent=styles['Title'], alignment=1, textColor=colors.darkblue)
+        )
+        elements.append(title)
+        elements.append(Spacer(1, 10))
+
+        # --- Tarkib rasmi ---
+        if getattr(korik.tarkib, 'image', None):
+            try:
+                img = Image(korik.tarkib.image.path, width=15.5*cm, height=6.5*cm)
+                img.hAlign = 'CENTER'
+                elements.append(img)
+                elements.append(Spacer(1, 10))
+            except:
+                pass
+
+        # --- Ekspluatatsiya jadvali ---
+        ekspl_data = [
+            [
+                Paragraph(f"<font color='red'><b>{h}</b></font>", styles['Normal'])
+                for h in ["Ekspluatatsiyaga qo‘yilgan sana", "Turi", "Nomeri", "Masofa", "Hozirgi holati"]
+            ],
+            [
+                Paragraph(f"<b>{korik.tarkib.ishga_tushgan_vaqti.strftime('%d-%m-%Y') if getattr(korik.tarkib, 'ishga_tushgan_vaqti', None) else '-'}</b>", styles['Normal']),
+                Paragraph(f"<b>{korik.tarkib.guruhi if getattr(korik.tarkib, 'guruhi', None) else '-'}</b>", styles['Normal']),
+                Paragraph(f"<b>{korik.tarkib.tarkib_raqami if getattr(korik.tarkib, 'tarkib_raqami', None) else '-'}</b>", styles['Normal']),
+                Paragraph(f"<b>{korik.tarkib.masofa if getattr(korik.tarkib, 'masofa', None) else '-'}</b>", styles['Normal']),
+                Paragraph(f"<b>{korik.tarkib.holati if getattr(korik.tarkib, 'holati', None) else '-'}</b>", styles['Normal']),
+            ],
+        ]
+        full_width = A4[0]-2*cm
+        col_widths = [full_width*0.18, full_width*0.18, full_width*0.26, full_width*0.18, full_width*0.20]
+
+        ekspl_table = Table(ekspl_data, hAlign='CENTER', colWidths=col_widths)
+        ekspl_table.setStyle(TableStyle([
+            ('GRID', (0,0), (-1,-1), 0.6, colors.black),
+            ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+            ('BACKGROUND', (0,0), (-1,0), colors.whitesmoke),
+            ('BOX', (0,0), (-1,-1), 1, colors.black),
+            ('FONTSIZE', (0,0), (-1,-1), 9),
+        ]))
+        elements.append(ekspl_table)
+        elements.append(Spacer(1, 12))
+
+        # --- Texnik ko‘rik steplari ---
+        created_at_str = korik.created_at.strftime('%d-%m-%Y') if getattr(korik, 'created_at', None) else '-'
+        tamir_turi_nomi = getattr(korik.tamir_turi, 'tamir_nomi', '-') if getattr(korik, 'tamir_turi', None) else '-'
+        tarkib_raqami = getattr(korik.tarkib, 'tarkib_raqami', '-') if getattr(korik, 'tarkib', None) else '-'
+
+        history_title_text = f"<font color='red'>{created_at_str}</font> da o'tkazilgan " \
+                            f"<font color='red'>{tamir_turi_nomi}</font> texnik ko'rigi bo'yicha to'liq ma'lumot"
+        history_title = Paragraph(
+            history_title_text,
+            ParagraphStyle('h3', alignment=1, leading=14, textColor=colors.darkblue)
+        )
+        elements.append(history_title)
+        elements.append(Spacer(1, 6))
+
+        # --- Qizil chiziq Title dan keyin ---
+        title_line = Table(
+            [[""]],
+            colWidths=[A4[0] - 2 * cm],
+            style=TableStyle([('LINEABOVE', (0,0), (-1,-1), 1, colors.red)])
+        )
+        elements.append(title_line)
+        elements.append(Spacer(1, 6))
+
+        # --- Steplar ---
+        for i, step in enumerate(steps, 1):
+            created_by = getattr(step.created_by, 'username', '-')
+            kamchilik = getattr(step, "kamchiliklar_haqida", '-')
+
+            ehtiyot_qismlar_qs = getattr(step, 'ehtiyot_qismlar', None)
+            if ehtiyot_qismlar_qs is not None:
+                ehtiyot_qismlar_detail = ", ".join([
+                    getattr(eq, 'ehtiyot_qism_nomi', '-') for eq in ehtiyot_qismlar_qs.all()
+                ]) or "-"
+            else:
+                ehtiyot_qismlar_detail = "-"
+
+            step_date = step.created_at.strftime("%d-%m-%Y") if getattr(step, 'created_at', None) else "-"
+
+            # Step matni: {} ichidagilar qizil, qolgan darkblue
+            step_text = (
+                f"<font color='darkblue'>{tarkib_raqami} harakat tarkibi "
+                f"<font color='red'>{step_date}</font> da "
+                f"<font color='red'>{created_by}</font> Depo navbatchisi tomonidan "
+                f"<font color='red'>{tamir_turi_nomi}</font> texnik ko'rigiga ro'yhatga olindi.<br/><br/>"
+                f"Depo navbatchisi aniqlagan kamchiliklar: <font color='red'>{kamchilik}</font><br/>"
+                f"Depo navbatchisi ishlatgan ehtiyot qismlar: <font color='red'>{ehtiyot_qismlar_detail}</font>"
+                f"</font>"
+            )
+
+            p = Paragraph(
+                step_text,
+                ParagraphStyle('Normal', alignment=1, leading=12)
+            )
+            elements.append(p)
+            elements.append(Spacer(1, 6))
+
+            # --- Chiziq Step dan keyin ---
+            step_line = Table(
+                [[""]],
+                colWidths=[A4[0] - 2 * cm],
+                style=TableStyle([('LINEABOVE', (0,0), (-1,-1), 1, colors.red)])
+            )
+            elements.append(step_line)
+            elements.append(Spacer(1, 6))
+
+        # --- Yakuniy matn: AKT ---
+        akt_text = f"<font color='darkblue'>Tamir turi <font color='red'>{tamir_turi_nomi}</font> to'liq yakunlanganligi bo'yicha AKT ilova qilindi.</font>"
+        akt_para = Paragraph(
+            akt_text,
+            ParagraphStyle('Normal', alignment=1, leading=12)
+        )
+        elements.append(Spacer(1, 12))
+        elements.append(akt_para)
+        elements.append(Spacer(1, 6))
+
+
+
+        # --- Footer va QR ---
+        qr_url = f"https://depo-main.vercel.app/depo/{korik.tarkib.id if korik.tarkib else 0}"
+        qr = qrcode.QRCode(error_correction=qrcode.constants.ERROR_CORRECT_H, box_size=3, border=1)
+        qr.add_data(qr_url)
+        qr.make(fit=True)
+        qr_buffer = BytesIO()
+        qr.make_image(fill_color="black", back_color="white").save(qr_buffer, format='PNG')
+        qr_buffer.seek(0)
+        qr_img = Image(qr_buffer, width=2.5*cm, height=2.5*cm)
+        qr_img.hAlign = 'RIGHT'
+
+        footer_text = Paragraph(
+            """<font size=9><b>
+            Hujjatning haqiqiyligini tekshirish uchun QR kodni skanerlang.<br/>
+            <font color='blue'><b>depo.tm1.uz</b></font> sayti orqali tasdiqlangan.<br/>
+            Ushbu hisobotdagi barcha ma’lumotlar uchun xodim mas’uldir.
+            </b></font>""",
+            ParagraphStyle('footer', parent=styles['Normal'], alignment=0, leading=12),
+        )
+        footer_table = Table([[footer_text, qr_img]], colWidths=[14*cm, 3*cm])
+        footer_table.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,-1), colors.lightblue),
+            ('VALIGN', (0,0), (-1,-1), 'TOP'),
+            ('BOX', (0,0), (-1,-1), 0.8, colors.black),
+        ]))
+        elements.append(footer_table)
+
+        # --- Border ---
+        def draw_border(canvas, doc):
+            canvas.saveState()
+            canvas.setStrokeColor(colors.black)
+            canvas.setLineWidth(1)
+            canvas.rect(0.8*cm, 0.8*cm, A4[0]-1.6*cm, A4[1]-1.6*cm)
+            canvas.restoreState()
+
+        doc.build(elements, onFirstPage=draw_border, onLaterPages=draw_border)
+        buffer.seek(0)
+        response.write(buffer.getvalue())
+        buffer.close()
+        return response
+
+
+    @action(detail=True, methods=["get"], url_path="export-excel")
+    def export_step_excel(self, request, pk=None):
+        try:
+            korik = TexnikKorik.objects.get(id=pk)
+        except TexnikKorik.DoesNotExist:
+            return HttpResponse("Bunday Texnik Korik topilmadi", status=404)
+
+        steps = self.get_queryset().filter(korik=korik).order_by("id")
+        if not steps.exists():
+            return HttpResponse("Bu ko'rik bo'yicha steplar topilmadi", status=404)
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Texnik Ko'rik Steplar"
+
+        ws.append(["#", "Tarkib raqami", "Tamir turi", "Kamchiliklar", "Ehtiyot qismlar", "Step yozgan", "Sana"])
+
+        for i, step in enumerate(steps, 1):
+            tarkib_raqami = getattr(getattr(step.korik, 'tarkib', None), 'tarkib_raqami', '-')
+            tamir_turi = getattr(step.tamir_turi, 'tamir_nomi', '-')
+            kamchilik = step.kamchiliklar_haqida or "-"
+            ehtiyot_qismlar_detail = ", ".join([getattr(eq, 'ehtiyot_qism_nomi', '-') for eq in step.ehtiyot_qismlar.all()]) or "-"
+            created_by = getattr(step.created_by, 'username', '-')
+            step_date = step.created_at.strftime("%d-%m-%Y") if step.created_at else "-"
+
+            ws.append([
+                i,
+                tarkib_raqami,
+                tamir_turi,
+                kamchilik,
+                ehtiyot_qismlar_detail,
+                created_by,
+                step_date
+            ])
+
+        response = HttpResponse(content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        response["Content-Disposition"] = f'attachment; filename="Korik_{korik.id}_steps.xlsx"'
+        wb.save(response)
+        return response
+
+    
+    
     
     
     
@@ -1530,5 +2165,8 @@ class TexnikKorikJadvalViewSet(viewsets.ModelViewSet):
         ]))
         doc.build([Paragraph("Texnik ko‘rik jadvali", styles["Title"]), table])
         buffer.seek(0)
-        return HttpResponse(buffer, content_type="application/pdf")
+        response = HttpResponse(buffer.getvalue(), content_type="application/pdf")
+        response["Content-Disposition"] = 'attachment; filename="texnik_korik_jadval.pdf"'
+        return response
+
     
