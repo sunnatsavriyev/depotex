@@ -1856,6 +1856,10 @@ class TexnikKorikByTypeViewSet(BaseViewSet):
         wb.save(response)
         return response
 
+
+
+
+
 class TexnikKorikStepViewSet1(ViewSet):
     permission_classes = [IsAuthenticated]
 

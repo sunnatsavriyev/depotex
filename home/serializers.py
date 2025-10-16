@@ -1416,8 +1416,8 @@ class NosozliklarSerializer(serializers.ModelSerializer):
         ]
 
         if getattr(obj, "yakunlash", False):
-            for step in obj.steps.all().prefetch_related("nosozlikehtiyotqismstep_set__ehtiyot_qism"):
-                for item in step.nosozlikehtiyotqismstep_set.all():
+            for step in obj.steps.all().prefetch_related("ehtiyot_qismlar_step__ehtiyot_qism"):
+                for item in step.ehtiyot_qismlar_step.all():
                     nosozlik_qismlar.append({
                         "id": item.id,
                         "step_id": step.id,
