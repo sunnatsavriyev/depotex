@@ -1328,8 +1328,22 @@ class TarkibDetailViewSet(BaseViewSet):
             return Response({"detail": "Tarkib topilmadi."}, status=404)
 
         texnik_koriklar = TexnikKorik.objects.filter(tarkib=tarkib)
-        tamir_turi_count = texnik_koriklar.values('tamir_turi__tamir_nomi').annotate(count=Count('id'))
-        texnik_korik_summary = [{"tamir_turi": t["tamir_turi__tamir_nomi"], "soni": t["count"]} for t in tamir_turi_count]
+
+        # Barcha tamir turlarini olish
+        tamir_turlari = TamirTuri.objects.all().values_list('tamir_nomi', flat=True)
+
+        # Har bir tamir turi uchun 0 dan boshlovchi dict
+        tamir_turi_count_map = {t: 0 for t in tamir_turlari}
+
+        # Mavjud texnik koriklar asosida sanash
+        for korik in texnik_koriklar:
+            if korik.tamir_turi and korik.tamir_turi.tamir_nomi in tamir_turi_count_map:
+                tamir_turi_count_map[korik.tamir_turi.tamir_nomi] += 1
+
+        # JSON chiqishi uchun ro‘yxatga aylantirish
+        texnik_korik_summary = [
+            {"tamir_turi": nomi, "soni": count} for nomi, count in tamir_turi_count_map.items()
+        ]
 
         nosozliklar = Nosozliklar.objects.filter(tarkib=tarkib)
         nosozlik_data = NosozlikDetailForStepSerializer(nosozliklar, many=True, context={'request': request}).data
