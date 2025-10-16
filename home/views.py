@@ -1370,17 +1370,6 @@ class TarkibDetailViewSet(BaseViewSet):
     
     @action(detail=True, methods=["get"], url_path="export-pdf")
     def export_pdf(self, request, pk=None):
-        from reportlab.pdfgen import canvas
-        from reportlab.lib.pagesizes import A4
-        from reportlab.lib.units import cm
-        from reportlab.platypus import (
-            SimpleDocTemplate, Paragraph, Table, TableStyle, Spacer, Image
-        )
-        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-        from reportlab.lib import colors
-        from io import BytesIO
-        import qrcode
-        from datetime import datetime
 
         tarkib = self.get_queryset().filter(pk=pk).first()
         if not tarkib:
@@ -1521,18 +1510,30 @@ class TarkibDetailViewSet(BaseViewSet):
 
         for i, n in enumerate(nosozliklar, 1):
             aniqlangan = getattr(n, 'aniqlangan_vaqti', None)
-            bartaraf = getattr(n, 'bartaraf_etilgan_vaqti', None)
-            aniqlangan_str = aniqlangan.strftime("%Y-%m-%d") if isinstance(aniqlangan, datetime) else "-"
-            bartaraf_str = bartaraf.strftime("%Y-%m-%d") if isinstance(bartaraf, datetime) else "-"
+            bartaraf = getattr(n, 'bartarafqilingan_vaqti', None)
+
+            # --- Agar asosiy modelda bo'sh bo'lsa, step ichidan eng so'nggisini olamiz ---
+            if not bartaraf:
+                last_step = n.steps.filter(bartaraf_qilingan_vaqti__isnull=False).order_by('-bartaraf_qilingan_vaqti').first()
+                if last_step:
+                    bartaraf = last_step.bartaraf_qilingan_vaqti
+
+            # --- sanalarni formatlash ---
+            aniqlangan_str = aniqlangan.strftime("%d-%m-%Y %H:%M") if isinstance(aniqlangan, datetime) else "-"
+            bartaraf_str = bartaraf.strftime("%d-%m-%Y %H:%M") if isinstance(bartaraf, datetime) else "-"
 
             nosoz_data.append([
                 Paragraph(f"<b>{str(i)}</b>", styles['Normal']),
-                Paragraph(f"<b>{n.nosozliklar_haqida or '-'}</b>", styles['Normal']),
+                Paragraph(f"<b>{getattr(n.nosozliklar_haqida, 'nosozlik_turi', '-') or '-'}</b>", styles['Normal']),
                 Paragraph(f"<b>{aniqlangan_str}</b>", styles['Normal']),
                 Paragraph(f"<b>{bartaraf_str}</b>", styles['Normal']),
             ])
 
-        nosoz_table = Table(nosoz_data, hAlign='CENTER', colWidths=[1.5 * cm, 10 * cm, 3.5 * cm, 3.5 * cm])
+        nosoz_table = Table(
+            nosoz_data,
+            hAlign='CENTER',
+            colWidths=[1.5 * cm, 10 * cm, 3.5 * cm, 3.5 * cm]
+        )
         nosoz_table.setStyle(TableStyle([
             ('GRID', (0, 0), (-1, -1), 0.6, colors.black),
             ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
@@ -1747,23 +1748,43 @@ class TexnikKorikByTypeViewSet(BaseViewSet):
         ]]
 
         for i, k in enumerate(queryset, 1):
-            users = []
-            if getattr(k, "step_yozgan", None):
-                users.append(k.step_yozgan.username)
-            if getattr(k, "yakunlagan", None):
-                users.append(k.yakunlagan.username)
+            # --- Chiqqan vaqtni aniqlaymiz ---
+            chiqqan = getattr(k, 'chiqqan_vaqti', None)
+            
+            # Agar chiqqan_vaqti bo'sh bo'lsa, step ichidan eng so'nggisini olamiz
+            if not chiqqan:
+                last_step = k.steps.filter(chiqqan_vaqti__isnull=False).order_by('-chiqqan_vaqti').first()
+                if last_step:
+                    chiqqan = last_step.chiqqan_vaqti
+
+            # --- 🔹 Foydalanuvchilarni jamlash (asosiy + step ichidagilar) ---
+            users = set()
+
             if getattr(k, "created_by", None):
-                users.append(k.created_by.username)
-            users_str = ", ".join(users) if users else "-"
+                users.add(k.created_by.username)
+            if getattr(k, "step_yozgan", None):
+                users.add(k.step_yozgan.username)
+            if getattr(k, "yakunlagan", None):
+                users.add(k.yakunlagan.username)
+
+            # Step ichidagi foydalanuvchilar
+            step_users = k.steps.values_list("created_by__username", flat=True)
+            users.update(u for u in step_users if u)
+
+            users_str = ", ".join(sorted(users)) if users else "-"
+
+            # Sana formatlari
+            kirgan_str = k.kirgan_vaqti.strftime("%d-%m-%Y %H:%M") if k.kirgan_vaqti else "-"
+            chiqqan_str = chiqqan.strftime("%d-%m-%Y %H:%M") if chiqqan else "-"
 
             data.append([
                 i,
-                k.kirgan_vaqti.strftime("%d-%m-%Y %H:%M") if k.kirgan_vaqti else "-",
-                k.chiqqan_vaqti.strftime("%d-%m-%Y %H:%M") if k.chiqqan_vaqti else "-",
+                kirgan_str,
+                chiqqan_str,
                 users_str
             ])
 
-        # Jadval ustunlarini full_width ga tenglab berish
+        # Jadval ustun kengliklari
         col_widths_history = [full_width * 0.1, full_width * 0.3, full_width * 0.3, full_width * 0.3]
 
         history_table = Table(data, hAlign='CENTER', colWidths=col_widths_history)
@@ -1775,6 +1796,7 @@ class TexnikKorikByTypeViewSet(BaseViewSet):
         ]))
         elements.append(history_table)
         elements.append(Spacer(1, 12))
+
 
         # --- QR kod ---
         qr_url = f"https://depo-main.vercel.app/depo/{tarkib.id}"
@@ -2117,9 +2139,441 @@ class TexnikKorikStepViewSet1(ViewSet):
 
     
     
+class NosozliklarPDFExportView(ViewSet):
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return Nosozliklar.objects.all()
+    
+    @action(detail=True, methods=["get"], url_path="export-pdf")
+    def export_pdf(self, request, pk=None):
+        tarkib = HarakatTarkibi.objects.filter(pk=pk).first()
+        if not tarkib:
+            return HttpResponse("Tarkib topilmadi", status=404)
+
+        nosozliklar = Nosozliklar.objects.filter(tarkib=tarkib).order_by('-id')
+        if not nosozliklar.exists():
+            return HttpResponse("Ushbu tarkibda nosozliklar topilmadi", status=404)
+
+        buffer = BytesIO()
+        response = HttpResponse(content_type="application/pdf")
+        filename = f"Tarkib_{tarkib.tarkib_raqami}_nosozliklar.pdf"
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+
+        doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=1*cm, bottomMargin=1*cm)
+        styles = getSampleStyleSheet()
+        elements = []
+
+        # Sarlavha
+        title_text = (
+            f"<b><font color='red'>{tarkib.tarkib_raqami}</font></b> harakat tarkibining "
+            f"<br/><b><font color='red'>Nosozliklar tarixi bo‘yicha to‘liq ma’lumot</font></b>"
+        )
+        title = Paragraph(title_text, ParagraphStyle('title', parent=styles['Title'], alignment=1, textColor=colors.darkblue))
+        elements.append(title)
+        elements.append(Spacer(1, 10))
+
+        # --- Tarkib rasmi ---
+        if getattr(tarkib, 'image', None):
+            try:
+                img = Image(tarkib.image.path, width=16 * cm, height=7 * cm)
+                img.hAlign = 'CENTER'
+                elements.append(img)
+                elements.append(Spacer(1, 10))
+            except:
+                pass
+
+        # --- Tarkib haqida ma’lumot ---
+        ekspl_data = [
+            [
+                Paragraph(f"<font color='red'><b>{h}</b></font>", styles['Normal'])
+                for h in ["Ekspluatatsiyaga qo‘yilgan sana", "Turi", "Nomeri", "Masofa", "Hozirgi holati"]
+            ],
+            [
+                Paragraph(f"<b>{tarkib.ishga_tushgan_vaqti.strftime('%d-%m-%Y') if tarkib.ishga_tushgan_vaqti else '-'}</b>", styles['Normal']),
+                Paragraph(f"<b>{tarkib.guruhi or '-'}</b>", styles['Normal']),
+                Paragraph(f"<b>{tarkib.tarkib_raqami or '-'}</b>", styles['Normal']),
+                Paragraph(f"<b>{str(getattr(tarkib, 'masofa', '–'))}</b>", styles['Normal']),
+                Paragraph(f"<b>{tarkib.holati or '-'}</b>", styles['Normal']),
+            ],
+        ]
+
+        full_width = A4[0] - 2 * cm
+        col_widths = [full_width * 0.18, full_width * 0.18, full_width * 0.26, full_width * 0.18, full_width * 0.20]
+        ekspl_table = Table(ekspl_data, hAlign='CENTER', colWidths=col_widths)
+        ekspl_table.setStyle(TableStyle([
+            ('GRID', (0, 0), (-1, -1), 0.6, colors.black),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('BACKGROUND', (0, 0), (-1, 0), colors.whitesmoke),
+            ('BOX', (0, 0), (-1, -1), 1, colors.black),
+            ('FONTSIZE', (0, 0), (-1, -1), 9),
+        ]))
+        elements.append(ekspl_table)
+        elements.append(Spacer(1, 12))
+
+        # --- Nosozliklar tarixi ---
+        elements.append(Paragraph("<b><font color='red' size=12>Nosozliklar tarixi</font></b>", ParagraphStyle('h3', alignment=1)))
+        elements.append(Spacer(1, 6))
+
+        nosoz_data = [[
+            Paragraph(f"<font color='darkblue'><b>{h}</b></font>", styles['Normal'])
+            for h in ["No", "Nosozlik sababi", "Aniqlangan sana", "Bartarf etilgan sana", "Kimlar qilgani"]
+        ]]
+
+        for i, n in enumerate(nosozliklar, 1):
+            aniqlangan = getattr(n, 'aniqlangan_vaqti', None)
+            bartaraf = getattr(n, 'bartarafqilingan_vaqti', None)
+            if not bartaraf:
+                last_step = n.steps.filter(bartaraf_qilingan_vaqti__isnull=False).order_by('-bartaraf_qilingan_vaqti').first()
+                if last_step:
+                    bartaraf = last_step.bartaraf_qilingan_vaqti
+
+            aniqlangan_str = aniqlangan.strftime("%d-%m-%Y %H:%M") if isinstance(aniqlangan, datetime) else "-"
+            bartaraf_str = bartaraf.strftime("%d-%m-%Y %H:%M") if isinstance(bartaraf, datetime) else "-"
+
+            # 🔹 Kimlar qilgani
+            users = set()
+            if getattr(n, "created_by", None):
+                users.add(n.created_by.username)
+            if getattr(n, "yakunlagan", None):
+                users.add(n.yakunlagan.username)
+            if getattr(n, "step_yozgan", None):
+                users.add(n.step_yozgan.username)
+
+            step_users = n.steps.values_list("created_by__username", flat=True)
+            users.update(u for u in step_users if u)
+            users_str = ", ".join(sorted(users)) if users else "-"
+
+            # 🔹 Nosozlik sababi (asosiy + step ichidagilar)
+            sabablar = set()
+            if getattr(n.nosozliklar_haqida, "nosozlik_turi", None):
+                sabablar.add(n.nosozliklar_haqida.nosozlik_turi)
+
+            # Step ichidagi barcha nosozlik sabablarini yig‘ish
+            step_sabablar = n.steps.values_list("nosozliklar_haqida__nosozlik_turi", flat=True)
+            sabablar.update(s for s in step_sabablar if s)
+            sabablar_str = ", ".join(sorted(sabablar)) if sabablar else "-"
+
+            nosoz_data.append([
+                Paragraph(f"<b>{i}</b>", styles['Normal']),
+                Paragraph(f"<b>{sabablar_str}</b>", styles['Normal']),
+                Paragraph(f"<b>{aniqlangan_str}</b>", styles['Normal']),
+                Paragraph(f"<b>{bartaraf_str}</b>", styles['Normal']),
+                Paragraph(f"<b>{users_str}</b>", styles['Normal']),
+            ])
+
+        nosoz_table = Table(
+            nosoz_data,
+            hAlign='CENTER',
+            colWidths=[1.2 * cm, 6.5 * cm, 3.2 * cm, 3.2 * cm, 5.0 * cm]
+        )
+        nosoz_table.setStyle(TableStyle([
+            ('GRID', (0, 0), (-1, -1), 0.6, colors.black),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('BACKGROUND', (0, 0), (-1, 0), colors.whitesmoke),
+            ('BOX', (0, 0), (-1, -1), 1, colors.black),
+            ('FONTSIZE', (0, 0), (-1, -1), 9),
+        ]))
+        elements.append(nosoz_table)
+        elements.append(Spacer(1, 15))
+
+        # --- QR kod va footer ---
+        qr_url = f"https://depo-main.vercel.app/depo/{tarkib.id}"
+        qr = qrcode.QRCode(error_correction=qrcode.constants.ERROR_CORRECT_H, box_size=3, border=1)
+        qr.add_data(qr_url)
+        qr.make(fit=True)
+        qr_buffer = BytesIO()
+        qr.make_image(fill_color="black", back_color="white").save(qr_buffer, format='PNG')
+        qr_buffer.seek(0)
+        qr_img = Image(qr_buffer, width=2.5 * cm, height=2.5 * cm)
+        qr_img.hAlign = 'RIGHT'
+
+        footer_text = Paragraph(
+            """<font size=9><b>
+            Hujjatning haqiqiyligini tekshirish uchun QR kodni skanerlang.<br/>
+            <font color='blue'><b>depo.tm1.uz</b></font> sayti orqali tasdiqlangan.<br/>
+            Ushbu hisobotdagi barcha ma’lumotlar uchun xodim mas’uldir.
+            </b></font>""",
+            ParagraphStyle('footer', parent=styles['Normal'], alignment=0, leading=12),
+        )
+
+        footer_table = Table([[footer_text, qr_img]], colWidths=[14 * cm, 3 * cm])
+        footer_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, -1), colors.lightblue),
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ('BOX', (0, 0), (-1, -1), 0.8, colors.black),
+        ]))
+        elements.append(footer_table)
+
+        def draw_border(canvas, doc):
+            canvas.saveState()
+            canvas.setStrokeColor(colors.black)
+            canvas.setLineWidth(1)
+            canvas.rect(0.8 * cm, 0.8 * cm, A4[0] - 1.6 * cm, A4[1] - 1.6 * cm)
+            canvas.restoreState()
+
+        doc.build(elements, onFirstPage=draw_border, onLaterPages=draw_border)
+        buffer.seek(0)
+        response.write(buffer.getvalue())
+        buffer.close()
+        return response
+
+    # ======================
+    # 🔹 EXCEL EXPORT ACTION
+    # ======================
+    @action(detail=True, methods=["get"], url_path="export-excel")
+    def export_excel(self, request, pk=None):
+        tarkib = HarakatTarkibi.objects.filter(pk=pk).first()
+        if not tarkib:
+            return HttpResponse("Tarkib topilmadi", status=404)
+
+        nosozliklar = Nosozliklar.objects.filter(tarkib=tarkib).order_by('-id')
+        if not nosozliklar.exists():
+            return HttpResponse("Ushbu tarkibda nosozliklar topilmadi", status=404)
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Nosozliklar tarixi"
+
+        ws.append(["#", "Nosozlik sababi", "Aniqlangan sana", "Bartarf etilgan sana"])
+
+        for i, n in enumerate(nosozliklar, 1):
+            aniqlangan = getattr(n, 'aniqlangan_vaqti', None)
+            bartaraf = getattr(n, 'bartarafqilingan_vaqti', None)
+            aniqlangan_str = aniqlangan.strftime("%d-%m-%Y %H:%M") if isinstance(aniqlangan, datetime) else "-"
+            bartaraf_str = bartaraf.strftime("%d-%m-%Y %H:%M") if isinstance(bartaraf, datetime) else "-"
+            ws.append([
+                i,
+                getattr(n.nosozliklar_haqida, 'nosozlik_turi', '-') or "-",
+                aniqlangan_str,
+                bartaraf_str,
+            ])
+
+        response = HttpResponse(content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        response["Content-Disposition"] = f'attachment; filename="Tarkib_{tarkib.tarkib_raqami}_nosozliklar.xlsx"'
+        wb.save(response)
+        return response
+    
+
+
+
+class NosozlikStepViewSet1(ViewSet):
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return NosozlikStep.objects.select_related(
+            "nosozlik__tarkib", "nosozlik__nosozliklar_haqida", "created_by"
+        ).prefetch_related("ehtiyot_qismlar_step__ehtiyot_qism")
+
+    # === PDF EXPORT ===
+    @action(detail=True, methods=["get"], url_path="export-pdf")
+    def export_pdf(self, request, pk=None):
+        try:
+            nosozlik = Nosozliklar.objects.select_related("tarkib", "nosozliklar_haqida").get(id=pk)
+        except Nosozliklar.DoesNotExist:
+            return HttpResponse("Bunday nosozlik topilmadi", status=404)
+
+        steps = self.get_queryset().filter(nosozlik_id=pk).order_by("id")
+        if not steps.exists():
+            return HttpResponse("Bu nosozlik bo‘yicha steplar topilmadi", status=404)
+
+        buffer = BytesIO()
+        response = HttpResponse(content_type="application/pdf")
+        response["Content-Disposition"] = f'attachment; filename="Nosozlik_{nosozlik.id}_steps.pdf"'
+
+        doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=1*cm, bottomMargin=1*cm)
+        styles = getSampleStyleSheet()
+        elements = []
+
+        # --- Title ---
+        title_text = (
+            f"<b><font color='red'>{nosozlik.tarkib.tarkib_raqami if nosozlik.tarkib else '-'}</font></b> harakat tarkibida "
+            f"aniqlangan <b><font color='red'>{nosozlik.nosozliklar_haqida.nosozlik_turi if nosozlik.nosozliklar_haqida else '-'}</font></b> "
+            f"nosozligi bo‘yicha to‘liq ma’lumot"
+        )
+        title = Paragraph(
+            title_text,
+            ParagraphStyle('title', parent=styles['Title'], alignment=1, textColor=colors.darkblue)
+        )
+        elements.append(title)
+        elements.append(Spacer(1, 10))
+
+        # --- Tarkib rasmi ---
+        if getattr(nosozlik.tarkib, 'image', None):
+            try:
+                img = Image(nosozlik.tarkib.image.path, width=15.5*cm, height=6.5*cm)
+                img.hAlign = 'CENTER'
+                elements.append(img)
+                elements.append(Spacer(1, 10))
+            except:
+                pass
+
+        # --- Ekspluatatsiya jadvali (Texnik Korikdagi kabi) ---
+        ekspl_data = [
+            [
+                Paragraph(f"<font color='red'><b>{h}</b></font>", styles['Normal'])
+                for h in ["Ekspluatatsiyaga qo‘yilgan sana", "Turi", "Nomeri", "Masofa", "Hozirgi holati"]
+            ],
+            [
+                Paragraph(f"<b>{nosozlik.tarkib.ishga_tushgan_vaqti.strftime('%d-%m-%Y') if getattr(nosozlik.tarkib, 'ishga_tushgan_vaqti', None) else '-'}</b>", styles['Normal']),
+                Paragraph(f"<b>{nosozlik.tarkib.guruhi if getattr(nosozlik.tarkib, 'guruhi', None) else '-'}</b>", styles['Normal']),
+                Paragraph(f"<b>{nosozlik.tarkib.tarkib_raqami if getattr(nosozlik.tarkib, 'tarkib_raqami', None) else '-'}</b>", styles['Normal']),
+                Paragraph(f"<b>{nosozlik.tarkib.masofa if getattr(nosozlik.tarkib, 'masofa', None) else '-'}</b>", styles['Normal']),
+                Paragraph(f"<b>{nosozlik.tarkib.holati if getattr(nosozlik.tarkib, 'holati', None) else '-'}</b>", styles['Normal']),
+            ],
+        ]
+        full_width = A4[0]-2*cm
+        col_widths = [full_width*0.18, full_width*0.18, full_width*0.26, full_width*0.18, full_width*0.20]
+
+        ekspl_table = Table(ekspl_data, hAlign='CENTER', colWidths=col_widths)
+        ekspl_table.setStyle(TableStyle([
+            ('GRID', (0,0), (-1,-1), 0.6, colors.black),
+            ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+            ('BACKGROUND', (0,0), (-1,0), colors.whitesmoke),
+            ('BOX', (0,0), (-1,-1), 1, colors.black),
+            ('FONTSIZE', (0,0), (-1,-1), 9),
+        ]))
+        elements.append(ekspl_table)
+        elements.append(Spacer(1, 12))
+
+        # --- Qizil chiziq ---
+        title_line = Table(
+            [[""]],
+            colWidths=[A4[0] - 2 * cm],
+            style=TableStyle([('LINEABOVE', (0,0), (-1,-1), 1, colors.red)])
+        )
+        elements.append(title_line)
+        elements.append(Spacer(1, 6))
+
+        # --- Step-lar ---
+        for i, step in enumerate(steps, 1):
+            created_by = getattr(step.created_by, 'username', '-')
+            step_date = step.created_at.strftime("%d-%m-%Y") if getattr(step, 'created_at', None) else "-"
+            kamchilik = getattr(step, "bartaraf_etilgan_nosozliklar", '-')
+            ehtiyot_qismlar_detail = ", ".join([
+                getattr(eq.ehtiyot_qism, 'ehtiyotqism_nomi', '-')
+                for eq in step.ehtiyot_qismlar_step.all()
+            ]) or "-"
+
+            step_text = (
+                f"<font color='darkblue'>{nosozlik.tarkib.tarkib_raqami}</font> tarkibida aniqlangan "
+                f"<font color='red'>{nosozlik.nosozliklar_haqida.nosozlik_turi if nosozlik.nosozliklar_haqida else '-'}</font> "
+                f"nosozlik bo‘yicha <font color='red'>{step_date}</font> kuni "
+                f"<font color='red'>{created_by}</font> tomonidan qo‘shimcha ma’lumot kiritildi.<br/><br/>"
+                f"Depo navbatchisi aniqlagan nosozlik haqida: <font color='red'>{kamchilik}</font><br/>"
+                f"Depo navbatchisi ishlatgan ehtiyot qismlar: <font color='red'>{ehtiyot_qismlar_detail}</font>"
+            )
+
+            p = Paragraph(
+                step_text,
+                ParagraphStyle('Normal', alignment=1, leading=12)
+            )
+            elements.append(p)
+            elements.append(Spacer(1, 6))
+
+            step_line = Table(
+                [[""]],
+                colWidths=[A4[0] - 2 * cm],
+                style=TableStyle([('LINEABOVE', (0,0), (-1,-1), 1, colors.red)])
+            )
+            elements.append(step_line)
+            elements.append(Spacer(1, 6))
+
+        # --- Yakuniy akt matni ---
+        akt_text = (
+            f"<font color='darkblue'>Nosozlik <font color='red'>{nosozlik.nosozliklar_haqida.nosozlik_turi if nosozlik.nosozliklar_haqida else '-'}</font> "
+            f"bo‘yicha barcha bosqichlar yakunlandi va AKT ilova qilindi.</font>"
+        )
+        akt_para = Paragraph(
+            akt_text,
+            ParagraphStyle('Normal', alignment=1, leading=12)
+        )
+        elements.append(Spacer(1, 12))
+        elements.append(akt_para)
+        elements.append(Spacer(1, 6))
+
+        # --- Footer va QR ---
+        qr_url = f"https://depo-main.vercel.app/nosozlik/{nosozlik.id}"
+        qr = qrcode.QRCode(error_correction=qrcode.constants.ERROR_CORRECT_H, box_size=3, border=1)
+        qr.add_data(qr_url)
+        qr.make(fit=True)
+        qr_buffer = BytesIO()
+        qr.make_image(fill_color="black", back_color="white").save(qr_buffer, format='PNG')
+        qr_buffer.seek(0)
+        qr_img = Image(qr_buffer, width=2.5*cm, height=2.5*cm)
+        qr_img.hAlign = 'RIGHT'
+
+        footer_text = Paragraph(
+            """<font size=9><b>
+            Hujjatning haqiqiyligini tekshirish uchun QR kodni skanerlang.<br/>
+            <font color='blue'><b>depo.tm1.uz</b></font> sayti orqali tasdiqlangan.<br/>
+            Ushbu hisobotdagi barcha ma’lumotlar uchun xodim mas’uldir.
+            </b></font>""",
+            ParagraphStyle('footer', parent=styles['Normal'], alignment=0, leading=12),
+        )
+        footer_table = Table([[footer_text, qr_img]], colWidths=[14*cm, 3*cm])
+        footer_table.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,-1), colors.lightblue),
+            ('VALIGN', (0,0), (-1,-1), 'TOP'),
+            ('BOX', (0,0), (-1,-1), 0.8, colors.black),
+        ]))
+        elements.append(footer_table)
+
+        # --- Border ---
+        def draw_border(canvas, doc):
+            canvas.saveState()
+            canvas.setStrokeColor(colors.black)
+            canvas.setLineWidth(1)
+            canvas.rect(0.8*cm, 0.8*cm, A4[0]-1.6*cm, A4[1]-1.6*cm)
+            canvas.restoreState()
+
+        doc.build(elements, onFirstPage=draw_border, onLaterPages=draw_border)
+        buffer.seek(0)
+        response.write(buffer.getvalue())
+        buffer.close()
+        return response
+
+    # === EXCEL EXPORT ===
+    @action(detail=True, methods=["get"], url_path="export-excel")
+    def export_step_excel(self, request, pk=None):
+        try:
+            nosozlik = Nosozliklar.objects.get(id=pk)
+        except Nosozliklar.DoesNotExist:
+            return HttpResponse("Bunday nosozlik topilmadi", status=404)
+
+        steps = self.get_queryset().filter(nosozlik_id=pk)
+        if not steps.exists():
+            return HttpResponse("Bu nosozlik bo‘yicha steplar topilmadi", status=404)
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Nosozlik Steplar"
+        ws.append(["#", "Tarkib raqami", "Nosozlik turi", "Kamchiliklar", "Ehtiyot qismlar", "Xodim", "Sana", "Status"])
+
+        for i, step in enumerate(steps, 1):
+            ws.append([
+                i,
+                nosozlik.tarkib.tarkib_raqami if nosozlik.tarkib else "-",
+                nosozlik.nosozliklar_haqida.nosozlik_turi if nosozlik.nosozliklar_haqida else "-",
+                step.bartaraf_etilgan_nosozliklar or "-",
+                ", ".join([eq.ehtiyot_qism.ehtiyotqism_nomi for eq in step.ehtiyot_qismlar_step.all()]) or "-",
+                step.created_by.username if step.created_by else "-",
+                step.created_at.strftime("%d-%m-%Y") if step.created_at else "-",
+                step.status,
+            ])
+
+        response = HttpResponse(content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        response["Content-Disposition"] = f'attachment; filename=Nosozlik_{nosozlik.id}_steps.xlsx'
+        wb.save(response)
+        return response
     
     
     
+    
+
 class TexnikKorikJadvalViewSet(viewsets.ModelViewSet):
     queryset = TexnikKorikJadval.objects.select_related("tarkib", "tamir_turi", "created_by")
     serializer_class = TexnikKorikJadvalSerializer

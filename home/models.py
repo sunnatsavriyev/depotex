@@ -313,19 +313,25 @@ class TexnikKorik(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     def save(self, *args, **kwargs):
-        if not self.id:  # Yangi korik
-            self.status = TexnikKorik.Status.JARAYONDA
+        """TexnikKorik modelining saqlash mantiqi"""
+        # 1️⃣ Kirgan vaqt bo‘lmasa → created_at yoki hozirgi vaqt bilan to‘ldir
+        if not self.kirgan_vaqti:
+            self.kirgan_vaqti = getattr(self, "created_at", timezone.now())
 
-            # Tarkib holatini avtomatik "Texnik_korikda" qilamiz
+        # 2️⃣ Yangi yozuv bo‘lsa
+        if not self.id:
+            self.status = TexnikKorik.Status.JARAYONDA
+            # Tarkib holatini avtomatik o‘zgartirish
             if self.tarkib and self.tarkib.holati != "Texnik_korikda":
                 self.tarkib.holati = "Texnik_korikda"
                 self.tarkib.save()
-        else:  # Update
+        else:
+            # Eski yozuvda chiqqan vaqtni o‘zgartirmaymiz
             old = TexnikKorik.objects.filter(id=self.id).first()
-            if old:
+            if old and old.chiqqan_vaqti:
                 self.chiqqan_vaqti = old.chiqqan_vaqti
 
-        # Agar akt_file mavjud bo‘lsa va yakunlash True bo‘lsa
+        # 3️⃣ Agar akt_file mavjud bo‘lsa va yakunlash True bo‘lsa
         if self.akt_file and self.yakunlash:
             self.status = TexnikKorik.Status.BARTARAF_ETILDI
             self.chiqqan_vaqti = timezone.now()
@@ -360,17 +366,30 @@ class TexnikKorikStep(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     def save(self, *args, **kwargs):
-        # Agar step yakunlansa va akt_file mavjud bo‘lsa → status o‘zgartirish
+        """TexnikKorikStep modelining saqlash mantiqi"""
+        #  Kirgan vaqt bo‘lmasa → created_at yoki hozirgi vaqt bilan to‘ldir
+        if not self.kirgan_vaqti:
+            self.kirgan_vaqti = getattr(self, "created_at", timezone.now())
+
+        # 2️Agar akt_file mavjud bo‘lsa → step yakunlandi
         if self.akt_file:
             self.status = self.Status.BARTARAF_ETILDI
             self.chiqqan_vaqti = timezone.now()
+
             if self.korik:
                 self.korik.status = TexnikKorik.Status.BARTARAF_ETILDI
-                self.korik.tarkib.holati = "Soz_holatda"
-                self.korik.tarkib.save()
+                self.korik.chiqqan_vaqti = timezone.now()
+
+                if not self.korik.kirgan_vaqti:
+                    self.korik.kirgan_vaqti = getattr(self.korik, "created_at", timezone.now())
+
+                if self.korik.tarkib:
+                    self.korik.tarkib.holati = "Soz_holatda"
+                    self.korik.tarkib.save()
+
                 self.korik.save()
         else:
-            # Akt_file bo‘lmasa → Jarayonda va tarkib holatini tekshirish
+            # 3️⃣ Aks holda jarayonda
             self.status = self.Status.JARAYONDA
             if self.korik and self.korik.tarkib.holati != "Texnik_korikda":
                 self.korik.tarkib.holati = "Texnik_korikda"
@@ -429,31 +448,45 @@ class Nosozliklar(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     def save(self, *args, **kwargs):
-        """TexnikKorik save() mantiqiga moslashtirilgan"""
-        # Yangi nosozlik
-        if not self.id:
+        """TexnikKorik save() mantiqiga moslashtirilgan (aniqlangan_vaqti/bartarafqilingan_vaqti avtomatik)"""
+        is_new = not self.id  # yangi yozuv ekanligini tekshirish
+
+        # 🔹 Yangi nosozlik bo‘lsa
+        if is_new:
             self.status = Nosozliklar.Status.JARAYONDA
-            self.aniqlangan_vaqti = timezone.now()
+
+            # Agar aniqlangan_vaqti yuborilmagan bo‘lsa, created_at yoki hozirgi vaqtni oladi
+            if not self.aniqlangan_vaqti:
+                self.aniqlangan_vaqti = timezone.now()
 
             # Tarkib holatini "Nosozlikda" ga o‘zgartirish
             if self.tarkib and self.tarkib.holati != "Nosozlikda":
                 self.tarkib.holati = "Nosozlikda"
                 self.tarkib.save()
         else:
-            # Eski yozuv — chiqish vaqtini saqlab qolamiz
+            # 🔹 Eski yozuvni olib, mavjud bartarafqilingan_vaqti ni saqlab qolamiz
             old = Nosozliklar.objects.filter(id=self.id).first()
-            if old:
+            if old and not self.bartarafqilingan_vaqti:
                 self.bartarafqilingan_vaqti = old.bartarafqilingan_vaqti
 
-        # Yakunlash shartlari bajarilganda
+        # 🔹 Yakunlash shartlari bajarilganda
         if self.akt_file and self.yakunlash:
             self.status = Nosozliklar.Status.BARTARAF_ETILDI
-            self.bartarafqilingan_vaqti = timezone.now()
+
+            # Agar bartarafqilingan_vaqti yuborilmagan bo‘lsa — aniqlangan_vaqti yoki created_at dan olsin
+            if not self.bartarafqilingan_vaqti:
+                self.bartarafqilingan_vaqti = self.aniqlangan_vaqti or self.created_at or timezone.now()
+
             if self.tarkib:
                 self.tarkib.holati = "Soz_holatda"
                 self.tarkib.save()
 
+        # 🔹 Agar hali yakunlanmagan, lekin aniqlangan_vaqti yo‘q bo‘lsa — created_at dan olsin
+        if not self.aniqlangan_vaqti:
+            self.aniqlangan_vaqti = self.created_at or timezone.now()
+
         super().save(*args, **kwargs)
+
 
     def __str__(self):
         return f"{self.tarkib} - {self.status} ({self.created_by})"
@@ -500,16 +533,23 @@ class NosozlikStep(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     def save(self, *args, **kwargs):
-        """TexnikKorikStep mantiqiga to‘liq moslashtirilgan"""
-        # Akt_file yuklangan bo‘lsa → stepni yakunlangan deb belgila
+        """NosozlikStep  saqlash mantiqi"""
+        # 1️⃣ Agar aniqlangan_vaqti mavjud bo‘lmasa → created_at yoki hozirgi vaqt bilan to‘ldirish
+        if not self.aniqlangan_vaqti:
+            self.aniqlangan_vaqti = getattr(self, "created_at", timezone.now())
+
+        # 2️⃣ Akt_file yuklangan bo‘lsa → stepni yakunlangan deb belgila
         if self.akt_file:
             self.status = self.Status.BARTARAF_ETILDI
             self.bartaraf_qilingan_vaqti = timezone.now()
 
-            # Step yakunlanganda asosiy nosozlikni ham yakunlash
             if self.nosozlik:
                 self.nosozlik.status = Nosozliklar.Status.BARTARAF_ETILDI
+                # Nosozlikdagi aniqlangan_vaqti ham agar yo‘q bo‘lsa yaratilgan vaqt bilan to‘ldiriladi
+                if not self.nosozlik.aniqlangan_vaqti:
+                    self.nosozlik.aniqlangan_vaqti = getattr(self.nosozlik, "created_at", timezone.now())
                 self.nosozlik.bartarafqilingan_vaqti = timezone.now()
+
                 if self.nosozlik.tarkib:
                     self.nosozlik.tarkib.holati = "Soz_holatda"
                     self.nosozlik.tarkib.save()

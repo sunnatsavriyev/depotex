@@ -1213,8 +1213,11 @@ class NosozlikStepSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({"nosozlik": "Nosozlik tanlanmagan."})
 
         yakunlash = validated_data.pop("yakunlash", False)
+        bartaraf_qilingan_vaqti = validated_data.pop("bartarafqilingan_vaqti", None)
+        aniqlangan_vaqti = validated_data.get("aniqlangan_vaqti", None)
         akt_file = validated_data.pop("akt_file", None)
         ehtiyot_qismlar = validated_data.pop("ehtiyot_qismlar", [])
+    
         nosozliklar_haqida_data = validated_data.pop("nosozliklar_haqida", None)
         
         if nosozliklar_haqida_data:
@@ -1302,7 +1305,13 @@ class NosozlikStepSerializer(serializers.ModelSerializer):
 
         # Nosozlik holatini yangilash
         if yakunlash and akt_file:
-            step.bartaraf_qilingan_vaqti = timezone.now()
+
+            if not aniqlangan_vaqti:
+                step.aniqlangan_vaqti = step.created_at
+
+            if not bartaraf_qilingan_vaqti:
+                step.bartaraf_qilingan_vaqti = timezone.now()
+
             step.save()
             nosozlik.status = Nosozliklar.Status.BARTARAF_ETILDI
             nosozlik.tarkib.holati = "Soz_holatda"
@@ -1570,7 +1579,9 @@ class NosozliklarSerializer(serializers.ModelSerializer):
         yakunlash = validated_data.pop("yakunlash", False)
         akt_file = validated_data.pop("akt_file", None)
         ehtiyot_qismlar = validated_data.pop("ehtiyot_qismlar", [])
-        nosozliklar_haqida_data = validated_data.pop("nosozliklar_haqida", None)  # 🔹 qo‘shildi
+        bartarafqilingan_vaqti = validated_data.pop("bartarafqilingan_vaqti", None)
+        aniqlangan_vaqti = validated_data.get("aniqlangan_vaqti", None)
+        nosozliklar_haqida_data = validated_data.pop("nosozliklar_haqida", None)  
 
         # 🔹 Nosozlik turi yaratish / olish
         if nosozliklar_haqida_data:
@@ -1633,10 +1644,20 @@ class NosozliklarSerializer(serializers.ModelSerializer):
                 miqdor=miqdor
             )
 
+        if aniqlangan_vaqti:
+            nosozlik.aniqlangan_vaqti = aniqlangan_vaqti
+        else:
+            nosozlik.aniqlangan_vaqti = nosozlik.created_at 
+
+        
         if yakunlash and akt_file:
-            nosozlik.bartarafqilingan_vaqti = timezone.now()
-            nosozlik.save()
-            
+            if bartarafqilingan_vaqti:
+                nosozlik.bartarafqilingan_vaqti = bartarafqilingan_vaqti
+            else:
+                nosozlik.bartarafqilingan_vaqti = nosozlik.created_at
+
+        nosozlik.save()
+                
             
         if nosozlik.nosozliklar_haqida:
             notif, created = NosozlikNotification.objects.get_or_create(

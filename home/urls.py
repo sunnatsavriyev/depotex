@@ -9,7 +9,7 @@ from .views import (
     TexnikKorikGetViewSet, TexnikKorikStepViewSet,NosozlikStepViewSet,KorikNosozlikStatisticsView,
     KunlikYurishViewSet,HarakatTarkibiActiveViewSet,EhtiyotQismMiqdorListAPIView,EhtiyotQismMiqdorCreateAPIView,TarkibDetailViewSet,KunlikYurishHistoryAPIView,
     get_me,NosozlikTuriViewSet,NosozlikNotificationListView,TexnikKorikJadvalViewSet,HarakatTarkibiHolatStatistikaViewSet,
-    TexnikKorikByTypeViewSet,TexnikKorikStepViewSet1,
+    TexnikKorikByTypeViewSet,TexnikKorikStepViewSet1,NosozliklarPDFExportView,NosozlikStepViewSet1,
 )
 routers
 router = DefaultRouter()
@@ -18,6 +18,8 @@ router.register(r"elektro-depo", ElektroDepoViewSet)
 router.register(r"ehtiyot-qismlari", EhtiyotQismlariViewSet)
 router.register(r"harakat-tarkibi", HarakatTarkibiViewSet)
 router.register(r"nosozliklar", NosozliklarViewSet)
+router.register(r"nosozliklar-export-bytarkib", NosozliklarPDFExportView, basename="nosozliklar-export-bytarkib")
+router.register(r"nosozliklar-get1", NosozlikStepViewSet1, basename="nosozliklar-get1")
 router.register(r"texnik-korik", TexnikKorikViewSet, basename="texnik-korik")
 router.register(r"kunlik-yurish", KunlikYurishViewSet, basename="kunlik-yurish")
 router.register(r'tarkib-detail', TarkibDetailViewSet, basename='tarkib-detail')
@@ -32,6 +34,7 @@ router.register(
     HarakatTarkibiHolatStatistikaViewSet,
     basename='harakat-tarkibi-holat-statistika'
 )
+
 
 
 
@@ -62,6 +65,7 @@ urlpatterns = [
         KunlikYurishHistoryAPIView.as_view(),
         name="kunlik-yurish-history"
     ),
+    
     path("notifications/", NosozlikNotificationListView.as_view(), name="nosozlik-notifications"),
     path("nosozliklar-get/", NosozliklarGetViewSet.as_view({"get": "list"}), name="nosozliklar-get"),
     path("texnik-korik-get/", TexnikKorikGetViewSet.as_view({"get": "list"}), name="texnik-korik-get"),
