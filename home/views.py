@@ -2006,17 +2006,14 @@ class TexnikKorikStepViewSet1(ViewSet):
             created_by = getattr(step.created_by, 'username', '-')
             kamchilik = getattr(step, "kamchiliklar_haqida", '-')
 
-            ehtiyot_qismlar_qs = getattr(step, 'ehtiyot_qismlar', None)
-            if ehtiyot_qismlar_qs is not None:
-                ehtiyot_qismlar_detail = ", ".join([
-                    getattr(eq, 'ehtiyot_qism_nomi', '-') for eq in ehtiyot_qismlar_qs.all()
-                ]) or "-"
-            else:
-                ehtiyot_qismlar_detail = "-"
+            # ✅ To‘g‘ri joy: through model orqali olish
+            ehtiyot_qismlar_detail = ", ".join([
+                f"{eqs.ehtiyot_qism.ehtiyotqism_nomi} ({eqs.miqdor} {eqs.ehtiyot_qism.birligi})"
+                for eqs in step.texnikkorikehtiyotqismstep_set.select_related("ehtiyot_qism").all()
+            ]) or "-"
 
             step_date = step.created_at.strftime("%d-%m-%Y") if getattr(step, 'created_at', None) else "-"
 
-            # Step matni: {} ichidagilar qizil, qolgan darkblue
             step_text = (
                 f"<font color='darkblue'>{tarkib_raqami} harakat tarkibi "
                 f"<font color='red'>{step_date}</font> da "
@@ -2027,10 +2024,7 @@ class TexnikKorikStepViewSet1(ViewSet):
                 f"</font>"
             )
 
-            p = Paragraph(
-                step_text,
-                ParagraphStyle('Normal', alignment=1, leading=12)
-            )
+            p = Paragraph(step_text, ParagraphStyle('Normal', alignment=1, leading=12))
             elements.append(p)
             elements.append(Spacer(1, 6))
 

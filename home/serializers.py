@@ -606,7 +606,7 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
             "id", "tarkib", "tarkib_nomi", "is_active", "pervious_version",
             "tamir_turi", "tamir_turi_nomi", "status",
             "kamchiliklar_haqida", "ehtiyot_qismlar", "ehtiyot_qismlar_detail",
-            "bartaraf_etilgan_kamchiliklar", "chiqqan_vaqti",
+            "bartaraf_etilgan_kamchiliklar", 'kirgan_vaqti', "chiqqan_vaqti",
             "akt_file", "yakunlash", "created_by", "created_at", "steps", "password"
         ]
         read_only_fields = ["status", "created_by", "created_at", "steps"]
