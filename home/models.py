@@ -368,8 +368,6 @@ class TexnikKorikStep(models.Model):
     def save(self, *args, **kwargs):
         """TexnikKorikStep modelining saqlash mantiqi"""
         #  Kirgan vaqt bo‘lmasa → created_at yoki hozirgi vaqt bilan to‘ldir
-        if not self.kirgan_vaqti:
-            self.kirgan_vaqti = getattr(self, "created_at", timezone.now())
 
         # 2️Agar akt_file mavjud bo‘lsa → step yakunlandi
         if self.akt_file:
