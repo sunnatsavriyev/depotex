@@ -9,7 +9,7 @@ from .views import (
     TexnikKorikGetViewSet, TexnikKorikStepViewSet,NosozlikStepViewSet,KorikNosozlikStatisticsView,
     KunlikYurishViewSet,HarakatTarkibiActiveViewSet,EhtiyotQismMiqdorListAPIView,EhtiyotQismMiqdorCreateAPIView,TarkibDetailViewSet,KunlikYurishHistoryAPIView,
     get_me,NosozlikTuriViewSet,NosozlikNotificationListView,TexnikKorikJadvalViewSet,HarakatTarkibiHolatStatistikaViewSet,
-    TexnikKorikByTypeViewSet,TexnikKorikStepViewSet1,NosozliklarPDFExportView,NosozlikStepViewSet1,
+    TexnikKorikByTypeViewSet,TexnikKorikStepViewSet1,NosozliklarPDFExportView,NosozlikStepViewSet1,NotificationViewSet,
 )
 routers
 router = DefaultRouter()
@@ -34,6 +34,7 @@ router.register(
     HarakatTarkibiHolatStatistikaViewSet,
     basename='harakat-tarkibi-holat-statistika'
 )
+router.register(r'notifications', NotificationViewSet, basename='notifications')
 
 
 

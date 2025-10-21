@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import TamirTuri, ElektroDepo, EhtiyotQismlari, HarakatTarkibi,TexnikKorikJadval, NosozlikNotification,TexnikKorik, CustomUser, Nosozliklar, TexnikKorikEhtiyotQism, NosozlikEhtiyotQism,NosozlikTuri, TexnikKorikStep, TexnikKorikEhtiyotQismStep, NosozlikEhtiyotQismStep, NosozlikStep, KunlikYurish,Vagon,EhtiyotQismHistory
+from .models import TamirTuri, ElektroDepo, EhtiyotQismlari,Notification, HarakatTarkibi,TexnikKorikJadval, NosozlikNotification,TexnikKorik, CustomUser, Nosozliklar, TexnikKorikEhtiyotQism, NosozlikEhtiyotQism,NosozlikTuri, TexnikKorikStep, TexnikKorikEhtiyotQismStep, NosozlikEhtiyotQismStep, NosozlikStep, KunlikYurish,Vagon,EhtiyotQismHistory
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 from django.contrib.auth import authenticate
@@ -8,6 +8,7 @@ from django.db.models import Q
 from django.db.models import Sum
 from django.db import models
 import json
+from datetime import timedelta
 User = get_user_model()
 class UserSerializer(serializers.ModelSerializer):
     depo_nomi = serializers.CharField(source="depo.qisqacha_nomi", read_only=True)
@@ -1791,8 +1792,24 @@ class TarkibFullDetailSerializer(serializers.ModelSerializer):
         return TexnikKorikDetailForStepSerializer(koriklar, many=True, context=self.context).data
 
     def get_nosozliklar(self, obj):
-        nosozlik_qs = Nosozliklar.objects.filter(tarkib=obj)
-        return NosozlikDetailForStepSerializer(nosozlik_qs, many=True, context=self.context).data
+        nosozliklar = Nosozliklar.objects.filter(tarkib=obj)
+        result = []
+        for n in nosozliklar:
+            result.append({
+                "id": n.id,
+                "tarkib": n.tarkib.id if n.tarkib else None,
+                "tarkib_nomi": getattr(n.tarkib, "tarkib_raqami", None),
+                "is_active": n.is_active,
+                "nosozlik_turi_id": getattr(n.nosozliklar_haqida, "id", None),
+                "nosozlik_turi": getattr(n.nosozliklar_haqida, "nosozlik_turi", None),
+                "bartaraf_etilgan_nosozliklar": n.bartaraf_etilgan_nosozliklar,
+                "status": n.status,
+                "bartaraf_qilingan_vaqti": n.bartaraf_qilingan_vaqti,
+                "created_by": getattr(n.created_by, "username", None),
+                "created_at": n.created_at,
+                "akt_file": n.akt_file.url if n.akt_file else None,
+            })
+        return result
 
     def get_tamir_turi_soni(self, obj):
         return TexnikKorik.objects.filter(tarkib=obj).values("tamir_turi").distinct().count()
@@ -1816,7 +1833,58 @@ class TexnikKorikJadvalSerializer(serializers.ModelSerializer):
             "sana", "created_by", "created_at"
         ]
         read_only_fields = ["created_by", "created_at"]
+        
+    def validate(self, attrs):
+        tarkib = attrs.get("tarkib")
+        sana = attrs.get("sana")
+        tamir_turi = attrs.get("tamir_turi")
+
+        if not tarkib or not sana or not tamir_turi:
+            return attrs
+
+        # Shu tarkib uchun oxirgi yozuvni topamiz
+        last_korik = (
+            TexnikKorikJadval.objects
+            .filter(tarkib=tarkib)
+            .order_by('-sana')
+            .first()
+        )
+
+        if last_korik:
+            # Oxirgi tamirning tugash muddatini aniqlaymiz
+            old_tamir = last_korik.tamir_turi
+            miqdor = old_tamir.tamirlanish_miqdori or 0
+            birlik = old_tamir.tamirlanish_vaqti
+
+            if birlik == "kun":
+                old_end = last_korik.sana + timedelta(days=miqdor)
+            elif birlik == "oy":
+                old_end = last_korik.sana + timedelta(days=miqdor * 30)
+            elif birlik == "soat":
+                old_end = last_korik.sana + timedelta(days=1)
+            else:
+                old_end = last_korik.sana
+
+            # Agar yangi sana hali eski muddat tugamasdan kiritilsa — xato
+            if sana <= old_end:
+                raise serializers.ValidationError({
+                    "detail": (
+                        f"❌ {tarkib.tarkib_raqami} uchun "
+                        f"so‘nggi '{old_tamir.tamir_nomi}' ({last_korik.sana:%d-%m-%Y}) "
+                        f"tamiri hali tugamagan! "
+                        f"Yangi tamirni faqat {old_end:%d-%m-%Y} dan keyin kiritish mumkin."
+                    )
+                })
+
+        return attrs
 
     def create(self, validated_data):
         validated_data["created_by"] = self.context["request"].user
         return super().create(validated_data)
+    
+    
+    
+class NotificationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Notification
+        fields = ["id", "title", "message", "is_read", "created_at"]

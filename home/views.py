@@ -10,13 +10,13 @@ from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from .models import (
     TamirTuri, ElektroDepo, EhtiyotQismlari,
     HarakatTarkibi, TexnikKorik, CustomUser, Nosozliklar, NosozlikEhtiyotQism, TexnikKorikStep,KunlikYurish,
-    Vagon,EhtiyotQismHistory, TexnikKorikEhtiyotQism,NosozlikTuri,NosozlikNotification,TexnikKorikJadval,
+    Vagon,EhtiyotQismHistory, TexnikKorikEhtiyotQism,NosozlikTuri,NosozlikNotification,TexnikKorikJadval,Notification,
 )
 from .serializers import (
     TamirTuriSerializer, ElektroDepoSerializer,TexnikKorikJadvalSerializer,
     EhtiyotQismlariSerializer, HarakatTarkibiSerializer,
     TexnikKorikSerializer, UserSerializer, NosozliklarSerializer, TexnikKorikStepSerializer, NosozlikStepSerializer,
-    NosozlikStep,KunlikYurishSerializer,VagonSerializer,NosozlikTuriSerializer,NosozlikNotificationSerializer,
+    NosozlikStep,KunlikYurishSerializer,VagonSerializer,NosozlikTuriSerializer,NosozlikNotificationSerializer,NotificationSerializer,
     HarakatTarkibiActiveSerializer, EhtiyotQismWithMiqdorSerializer,EhtiyotQismHistorySerializer, TarkibFullDetailSerializer,TexnikKorikDetailForStepSerializer,NosozlikDetailForStepSerializer)
 from django.utils import timezone
 from django.db.models import Sum, F
@@ -1346,7 +1346,21 @@ class TarkibDetailViewSet(BaseViewSet):
         ]
 
         nosozliklar = Nosozliklar.objects.filter(tarkib=tarkib)
-        nosozlik_data = NosozlikDetailForStepSerializer(nosozliklar, many=True, context={'request': request}).data
+        nosozlik_data = []
+        for n in nosozliklar:
+            nosozlik_data.append({
+                "id": n.id,
+                "tarkib": n.tarkib.id if n.tarkib else None,
+                "tarkib_nomi": getattr(n.tarkib, "tarkib_raqami", None),
+                "nosozlik_turi_id": getattr(n.nosozliklar_haqida, "id", None),
+                "nosozlik_turi": getattr(n.nosozliklar_haqida, "nosozlik_turi", None),
+                "bartaraf_etilgan_nosozliklar": n.bartaraf_etilgan_nosozliklar,
+                "status": n.status,
+                "bartarafqilingan_vaqti": n.bartarafqilingan_vaqti,
+                "created_by": getattr(n.created_by, "username", None),
+                "created_at": n.created_at,
+                "akt_file": request.build_absolute_uri(n.akt_file.url) if n.akt_file else None,
+            })
 
         response_data = {
             "tarkib_id": tarkib.id,
@@ -1609,41 +1623,56 @@ class TarkibDetailViewSet(BaseViewSet):
         ws = wb.active
         ws.title = f"Tarkib_{tarkib.id}"
 
+        # Sana formatlash yordamchi funksiyasi
+        def safe_date(value):
+            if hasattr(value, "strftime"):  # agar datetime bo‘lsa
+                return value.strftime("%d-%m-%Y")
+            return str(value) if value else "-"
+
         # --- Tarkib umumiy ma'lumotlari ---
         general_info = [
             ["Tarkib ID", tarkib.id],
             ["Tarkib raqami", tarkib.tarkib_raqami],
-            ["Depo", tarkib.depo.qisqacha_nomi if tarkib.depo else ""],
-            ["Guruhi", tarkib.guruhi],
-            ["Turi", tarkib.turi],
-            ["Holati", tarkib.holati],
-            ["Ishga tushgan vaqti", tarkib.ishga_tushgan_vaqti],
-            ["Eksplutatsiya vaqti", tarkib.eksplutatsiya_vaqti],
-            ["Created by", tarkib.created_by.username if tarkib.created_by else ""],
+            ["Depo", tarkib.depo.qisqacha_nomi if tarkib.depo else "-"],
+            ["Guruhi", tarkib.guruhi or "-"],
+            ["Turi", tarkib.turi or "-"],
+            ["Holati", tarkib.holati or "-"],
+            ["Ishga tushgan vaqti", safe_date(tarkib.ishga_tushgan_vaqti)],
+            ["Eksplutatsiya vaqti", safe_date(tarkib.eksplutatsiya_vaqti)],
+            ["Created by", tarkib.created_by.username if tarkib.created_by else "-"],
         ]
         for row in general_info:
             ws.append(row)
         ws.append([])  # bo‘sh qator
 
-        # --- Texnik koriklar jadvali ---
-        ws.append(["Texnik koriklar (soni tamir turi bo‘yicha)"])
+        # --- Texnik ko‘riklar jadvali ---
+        ws.append(["Texnik ko‘riklar (soni tamir turi bo‘yicha)"])
         ws.append(["Tamir turi", "Soni"])
         for t in tamir_turi_count:
-            ws.append([t['tamir_turi__tamir_nomi'], t['count']])
+            ws.append([t.get("tamir_turi__tamir_nomi", "-"), t.get("count", 0)])
         ws.append([])
 
         # --- Nosozliklar jadvali ---
         ws.append(["Nosozliklar batafsil"])
-        ws.append(["ID", "Nosozliklar", "Bartaf etilgan", "Holati"])
-        for n in nosozliklar:
-            ws.append([n.id, n.nosozliklar_haqida, n.bartaraf_etilgan_nosozliklar, n.status])
+        ws.append(["ID", "Nosozlik sababi", "Bartarf etilgan nosozlik", "Holati"])
 
+        for n in nosozliklar:
+            nosozlik_sababi = "-"
+            if hasattr(n, "nosozliklar_haqida") and n.nosozliklar_haqida:
+                nosozlik_sababi = getattr(n.nosozliklar_haqida, "nosozlik_turi", str(n.nosozliklar_haqida))
+            bartaraf = getattr(n, "bartaraf_etilgan_nosozliklar", "-") or "-"
+            holat = getattr(n, "status", "-") or "-"
+            ws.append([n.id, str(nosozlik_sababi), str(bartaraf), str(holat)])
+
+        # --- Foydalanuvchiga qaytarish ---
         response = HttpResponse(
             content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
         response["Content-Disposition"] = f'attachment; filename="Tarkib_{tarkib.id}.xlsx"'
+
         wb.save(response)
         return response
+
    
    
    
@@ -2565,7 +2594,7 @@ class NosozlikStepViewSet1(ViewSet):
         return response
     
     
-    
+   
     
 
 class TexnikKorikJadvalViewSet(viewsets.ModelViewSet):
@@ -2639,4 +2668,9 @@ class TexnikKorikJadvalViewSet(viewsets.ModelViewSet):
         response["Content-Disposition"] = 'attachment; filename="texnik_korik_jadval.pdf"'
         return response
 
-    
+class NotificationViewSet(viewsets.ReadOnlyModelViewSet):
+    serializer_class = NotificationSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return Notification.objects.filter(user=self.request.user).order_by("-created_at")

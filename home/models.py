@@ -613,43 +613,21 @@ class TexnikKorikJadval(models.Model):
     def __str__(self):
         return f"{self.tarkib.tarkib_raqami} — {self.tamir_turi.tamir_nomi} ({self.sana})"
 
-    def clean(self):
-        """
-        ❌ Validatsiya:
-        Agar shu tarkib shu tamir turi uchun belgilangan davrda
-        allaqachon mavjud bo‘lsa, yangi jadval qo‘shilmasin.
-        """
-        if not self.tamir_turi:
-            return
-
-        # Tamir vaqti turini aniqlaymiz
-        birlik = self.tamir_turi.tamirlanish_vaqti
-        miqdor = self.tamir_turi.tamirlanish_miqdori or 0
-
-        # Yangi kiritilgan sanadan boshlab tamir turi oralig‘ini aniqlaymiz
-        start_date = self.sana
-        if birlik == "kun":
-            end_date = start_date + timezone.timedelta(days=miqdor)
-        elif birlik == "oy":
-            end_date = start_date + timezone.timedelta(days=miqdor * 30)
-        elif birlik == "soat":
-            # Soat bo‘yicha ham 1 kun ichida
-            end_date = start_date + timezone.timedelta(days=1)
-        else:
-            end_date = start_date
-
-        # Shu oralig‘dagi mavjud jadvalni tekshiramiz
-        overlap_exists = TexnikKorikJadval.objects.filter(
-            tarkib=self.tarkib,
-            sana__range=[start_date, end_date]
-        ).exclude(id=self.id).exists()
-
-        if overlap_exists:
-            raise ValidationError(
-                f"❌ {self.tarkib} uchun {start_date:%d-%m-%Y} dan "
-                f"{end_date:%d-%m-%Y} gacha boshqa texnik ko‘rik belgilangan!"
-            )
-
     def save(self, *args, **kwargs):
         self.clean()
         super().save(*args, **kwargs)
+        
+        
+class Notification(models.Model):
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="notifications"
+    )
+    title = models.CharField(max_length=255)
+    message = models.TextField()
+    is_read = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.user.username} — {self.title}"
