@@ -37,18 +37,23 @@ from reportlab.platypus import Paragraph, Spacer, HRFlowable, Image, Table, Tabl
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from django.db.models import Count
 from django.utils.timezone import now
-from datetime import timedelta, datetime
+from datetime import timedelta, datetime, date
 from rest_framework.views import APIView
 from drf_spectacular.utils import extend_schema, OpenApiParameter
 from .permissions import IsMonitoringReadOnly, IsTexnik, IsSkladchiOrReadOnly
 import json
 from reportlab.lib.units import cm
 from drf_yasg.utils import swagger_auto_schema
+from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiTypes
 from drf_yasg import openapi
 from io import BytesIO
 import qrcode
 from collections import defaultdict
 import pandas as pd
+import calendar
+from reportlab.lib.pagesizes import A3, landscape
+
+
 class UserViewSet(viewsets.ModelViewSet):
     queryset = CustomUser.objects.all()
     serializer_class = UserSerializer
@@ -66,6 +71,25 @@ def get_me(request):
     token = None
     if auth_header and auth_header.startswith("Bearer "):
         token = auth_header.split(" ")[1]
+        
+        
+    today = date.today()
+    todays_checks = TexnikKorikJadval.objects.filter(sana=today)
+
+    for check in todays_checks:
+        depo = getattr(check.tarkib, "depo", None)
+        if depo and user in depo.xodimlar.filter(role="texnik"):
+            message = (
+                f"Bugun {check.tarkib.tarkib_raqami} tarkibi uchun "
+                f"'{check.tamir_turi.tamir_nomi}' texnik ko‘rik rejalashtirilgan."
+            )
+
+            Notification.objects.get_or_create(
+                user=user,
+                title="Bugungi texnik ko‘rik eslatmasi",
+                message=message,
+                defaults={"is_read": False},
+            )
 
     return Response({
         "id": user.id,
@@ -556,7 +580,7 @@ class HarakatTarkibiHolatStatistikaViewSet(viewsets.ViewSet):
         queryset = HarakatTarkibi.objects.filter(is_active=True)
 
         nosozlikda = queryset.filter(holati="Nosozlikda")
-        texnik_korikda = queryset.filter(holati="Texnik ko‘rikda")
+        texnik_korikda = queryset.filter(holati="Texnik_korikda")
 
         nosozlik_serializer = HarakatTarkibiActiveSerializer(nosozlikda, many=True)
         texnik_serializer = HarakatTarkibiActiveSerializer(texnik_korikda, many=True)
@@ -1203,12 +1227,28 @@ class NosozlikStepViewSet(BaseViewSet):
 
 
 
-class NosozlikNotificationListView(generics.ListAPIView):
+class NosozlikNotificationViewSet(viewsets.ModelViewSet):
     queryset = NosozlikNotification.objects.all().order_by("-last_occurrence")
     serializer_class = NosozlikNotificationSerializer
- 
- 
-   
+    permission_classes = [IsAuthenticated, IsMonitoringReadOnly]
+
+    @action(detail=True, methods=["patch"])
+    def mark_seen(self, request, pk=None):
+        """
+        PATCH /api/notifications/{id}/mark_seen/
+        -> seen=True qiladi
+        """
+        try:
+            notification = self.get_object()
+            notification.seen = True
+            notification.save(update_fields=["seen"])
+            return Response({"detail": "Ko‘rildi holati True bo‘ldi"}, status=status.HTTP_200_OK)
+        except NosozlikNotification.DoesNotExist:
+            return Response({"error": "Topilmadi"}, status=status.HTTP_404_NOT_FOUND)
+        
+        
+        
+
 class KorikNosozlikStatisticsView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -1307,7 +1347,7 @@ class KorikNosozlikStatisticsView(APIView):
 
 
 class TarkibDetailViewSet(BaseViewSet):
-    permission_classes = [IsAuthenticated, IsTexnik, IsMonitoringReadOnly]
+    permission_classes = [IsAuthenticated, IsTexnik |IsMonitoringReadOnly]
     filter_backends = [filters.SearchFilter, filters.OrderingFilter, DjangoFilterBackend]
     search_fields = ['guruhi','holati']
 
@@ -1680,7 +1720,7 @@ class TarkibDetailViewSet(BaseViewSet):
 class TexnikKorikByTypeViewSet(BaseViewSet):
     queryset = TexnikKorik.objects.select_related("tarkib", "tamir_turi", "created_by")
     serializer_class = TexnikKorikSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsTexnik |IsMonitoringReadOnly]
 
     # -------- PDF EXPORT --------
     @action(detail=False, methods=["get"], url_path=r"(?P<tarkib_id>\d+)/(?P<tamir_turi_id>\d+)/export-pdf")
@@ -1773,7 +1813,7 @@ class TexnikKorikByTypeViewSet(BaseViewSet):
 
         data = [[
             Paragraph(f"<font color='darkblue'><b>{h}</b></font>", styles['Normal'])
-            for h in ["No", "Kirgan sana", "Chiqqan sana", "Kimlar qilgani"]
+            for h in ["No", "Kirgan sana", "Chiqqan sana", "Kim (kimlar) tomonidan  texnik ko’rik o’tkazilganligi"]
         ]]
 
         for i, k in enumerate(queryset, 1):
@@ -1926,7 +1966,7 @@ class TexnikKorikByTypeViewSet(BaseViewSet):
 
 
 class TexnikKorikStepViewSet1(ViewSet):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsTexnik |IsMonitoringReadOnly]
 
     def get_queryset(self):
         return TexnikKorikStep.objects.select_related(
@@ -2163,7 +2203,7 @@ class TexnikKorikStepViewSet1(ViewSet):
     
     
 class NosozliklarPDFExportView(ViewSet):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsTexnik |IsMonitoringReadOnly]
 
     def get_queryset(self):
         return Nosozliklar.objects.all()
@@ -2383,7 +2423,7 @@ class NosozliklarPDFExportView(ViewSet):
 
 
 class NosozlikStepViewSet1(ViewSet):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsTexnik |IsMonitoringReadOnly]
 
     def get_queryset(self):
         return NosozlikStep.objects.select_related(
@@ -2600,7 +2640,7 @@ class NosozlikStepViewSet1(ViewSet):
 class TexnikKorikJadvalViewSet(viewsets.ModelViewSet):
     queryset = TexnikKorikJadval.objects.select_related("tarkib", "tamir_turi", "created_by")
     serializer_class = TexnikKorikJadvalSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsTexnik]
     filter_backends = [filters.SearchFilter, DjangoFilterBackend, filters.OrderingFilter]
     search_fields = ["tarkib__tarkib_raqami", "tamir_turi__tamir_nomi"]
     filterset_fields = ["tarkib", "tamir_turi", "sana"]
@@ -2641,36 +2681,156 @@ class TexnikKorikJadvalViewSet(viewsets.ModelViewSet):
         response["Content-Disposition"] = 'attachment; filename="texnik_korik_jadval.xlsx"'
         return response
 
+    @extend_schema(
+    parameters=[
+        OpenApiParameter(
+            name="year",
+            type=OpenApiTypes.INT,
+            location=OpenApiParameter.QUERY,
+            description="Yilni kiriting (masalan: 2025)",
+            required=False,
+        ),
+        OpenApiParameter(
+            name="month",
+            type=OpenApiTypes.INT,
+            location=OpenApiParameter.QUERY,
+            description="Oy raqamini kiriting (1-12 oralig‘ida, masalan: 10)",
+            required=False,
+        ),
+    ],
+    description="Tanlangan oy va yil uchun texnik ko‘rik jadvalini PDF shaklida eksport qiladi.",
+    responses={200: "application/pdf"},
+)
     @action(detail=False, methods=["get"])
     def export_pdf(self, request):
         queryset = self.filter_queryset(self.get_queryset())
+
+        # === Tanlangan yil/oy (yoki hozirgi) ===
+        yil = int(request.query_params.get("year", datetime.now().year))
+        oy = int(request.query_params.get("month", datetime.now().month))
+        kunlar_soni = calendar.monthrange(yil, oy)[1]
+        oy_nomi = datetime(yil, oy, 1).strftime("%B %Y")
+
+        # === Tamir turlari uchun ranglar ===
+        tamir_ranglar = {
+            "TO-2": colors.lightgreen,
+            "TO-3": colors.lightblue,
+            "TR-1": colors.lightpink,
+            "TR-2": colors.lightyellow,
+            "TR-3": colors.lavender,
+            "KR-1": colors.palegreen,
+            "KR-2": colors.orange,
+        }
+
         buffer = BytesIO()
-        doc = SimpleDocTemplate(buffer)
+        doc = SimpleDocTemplate(
+            buffer,
+            pagesize=landscape(A3),
+            topMargin=1 * cm,
+            bottomMargin=1 * cm,
+            leftMargin=1 * cm,
+            rightMargin=1 * cm,
+        )
+
         styles = getSampleStyleSheet()
-        data = [["Tarkib", "Depo", "Tamir turi", "Sana", "Yaratgan"]]
-        for j in queryset:
-            data.append([
-                j.tarkib.tarkib_raqami,
-                j.tarkib.depo.qisqacha_nomi if j.tarkib.depo else "",
-                j.tamir_turi.tamir_nomi,
-                j.sana.strftime("%d.%m.%Y"),
-                j.created_by.username if j.created_by else "",
-            ])
-        table = Table(data)
-        table.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), colors.grey),
-            ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
-            ("GRID", (0, 0), (-1, -1), 1, colors.black),
-        ]))
-        doc.build([Paragraph("Texnik ko‘rik jadvali", styles["Title"]), table])
+        title_style = ParagraphStyle("Title", parent=styles["Title"], alignment=1)
+        elements = [
+            Paragraph(f"<b>Texnik ko‘rik oylik jadvali — {oy_nomi}</b>", title_style),
+            Spacer(1, 10)
+        ]
+
+        kunlar = list(range(1, kunlar_soni + 1))
+        header = ["Tarkib raqami", "Depo"] + [str(k) for k in kunlar]
+
+        # === Faqat is_active=True bo‘lgan barcha tarkiblar ===
+        from home.models import HarakatTarkibi  # kerakli joyda import qiling
+        barcha_aktiv_tarkiblar = HarakatTarkibi.objects.filter(is_active=True)
+
+        # === Tamir yozuvlari (TO-1 dan tashqari) ===
+        tamirlar = queryset.exclude(tamir_turi__tamir_nomi="TO-1")
+
+        # === Tarkiblarni guruhlab chiqish ===
+        tarkiblar = {
+            t.tarkib_raqami: {"depo": t.depo.qisqacha_nomi if t.depo else "", "tamirlar": []}
+            for t in barcha_aktiv_tarkiblar
+        }
+
+        for j in tamirlar:
+            if j.sana.year != yil or j.sana.month != oy:
+                continue
+
+            tarkib_raqam = j.tarkib.tarkib_raqami
+            if tarkib_raqam not in tarkiblar:
+                continue
+
+            sana_kun = j.sana.day
+            tamir_nomi = j.tamir_turi.tamir_nomi if j.tamir_turi else ""
+            davom_kun = (
+                j.tamir_turi.tamirlanish_miqdori
+                if j.tamir_turi and j.tamir_turi.tamirlanish_vaqti == "kun"
+                else 1
+            )
+
+            end_kun = min(sana_kun + davom_kun - 1, kunlar_soni)
+            tarkiblar[tarkib_raqam]["tamirlar"].append({
+                "boshlanish": sana_kun,
+                "tugash": end_kun,
+                "tamir_nomi": tamir_nomi,
+            })
+
+        # === Jadval ma'lumotlarini tayyorlash ===
+        data = [header]
+        style_commands = [
+            ("GRID", (0, 0), (-1, -1), 0.3, colors.grey),
+            ("BACKGROUND", (0, 0), (-1, 0), colors.lightblue),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, 0), 8),
+            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ]
+
+        row_index = 1
+        for tarkib, info in sorted(tarkiblar.items()):
+            row = [tarkib, info["depo"]] + [""] * kunlar_soni
+
+            if info["tamirlar"]:
+                for t in info["tamirlar"]:
+                    start, end, tamir_nomi = t["boshlanish"], t["tugash"], t["tamir_nomi"]
+                    col_start = 2 + (start - 1)
+                    col_end = 2 + (end - 1)
+                    row[col_start] = tamir_nomi
+                    style_commands.append(("SPAN", (col_start, row_index), (col_end, row_index)))
+                    color = tamir_ranglar.get(tamir_nomi, colors.whitesmoke)
+                    style_commands.append(("BACKGROUND", (col_start, row_index), (col_end, row_index), color))
+
+            data.append(row)
+            row_index += 1
+
+        col_widths = [5 * cm, 3 * cm] + [0.9 * cm] * kunlar_soni
+        table = Table(data, repeatRows=1, colWidths=col_widths, hAlign="CENTER")
+        table.setStyle(TableStyle(style_commands))
+
+        elements.append(table)
+        doc.build(elements)
         buffer.seek(0)
+
         response = HttpResponse(buffer.getvalue(), content_type="application/pdf")
-        response["Content-Disposition"] = 'attachment; filename="texnik_korik_jadval.pdf"'
+        response["Content-Disposition"] = f'attachment; filename="texnik_korik_{yil}_{oy}.pdf"'
         return response
 
-class NotificationViewSet(viewsets.ReadOnlyModelViewSet):
+
+
+class NotificationViewSet(viewsets.ModelViewSet):
     serializer_class = NotificationSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsTexnik]
 
     def get_queryset(self):
         return Notification.objects.filter(user=self.request.user).order_by("-created_at")
+
+    @action(detail=True, methods=["patch"])
+    def mark_as_read(self, request, pk=None):
+        """is_read=True qilish uchun PATCH"""
+        notification = self.get_object()
+        notification.is_read = True
+        notification.save()
+        return Response({"status": "read"}, status=200)

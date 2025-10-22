@@ -8,7 +8,7 @@ from .views import (
     HarakatTarkibiGetViewSet, NosozliklarGetViewSet,
     TexnikKorikGetViewSet, TexnikKorikStepViewSet,NosozlikStepViewSet,KorikNosozlikStatisticsView,
     KunlikYurishViewSet,HarakatTarkibiActiveViewSet,EhtiyotQismMiqdorListAPIView,EhtiyotQismMiqdorCreateAPIView,TarkibDetailViewSet,KunlikYurishHistoryAPIView,
-    get_me,NosozlikTuriViewSet,NosozlikNotificationListView,TexnikKorikJadvalViewSet,HarakatTarkibiHolatStatistikaViewSet,
+    get_me,NosozlikTuriViewSet,NosozlikNotificationViewSet,TexnikKorikJadvalViewSet,HarakatTarkibiHolatStatistikaViewSet,
     TexnikKorikByTypeViewSet,TexnikKorikStepViewSet1,NosozliklarPDFExportView,NosozlikStepViewSet1,NotificationViewSet,
 )
 routers
@@ -35,7 +35,7 @@ router.register(
     basename='harakat-tarkibi-holat-statistika'
 )
 router.register(r'notifications', NotificationViewSet, basename='notifications')
-
+router.register(r'nosozlik_notifications', NosozlikNotificationViewSet, basename='nosozlik_notifications')
 
 
 
@@ -66,8 +66,6 @@ urlpatterns = [
         KunlikYurishHistoryAPIView.as_view(),
         name="kunlik-yurish-history"
     ),
-    
-    path("notifications/", NosozlikNotificationListView.as_view(), name="nosozlik-notifications"),
     path("nosozliklar-get/", NosozliklarGetViewSet.as_view({"get": "list"}), name="nosozliklar-get"),
     path("texnik-korik-get/", TexnikKorikGetViewSet.as_view({"get": "list"}), name="texnik-korik-get"),
 ]

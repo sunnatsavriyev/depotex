@@ -532,9 +532,6 @@ class NosozlikStep(models.Model):
 
     def save(self, *args, **kwargs):
         """NosozlikStep  saqlash mantiqi"""
-        # 1️⃣ Agar aniqlangan_vaqti mavjud bo‘lmasa → created_at yoki hozirgi vaqt bilan to‘ldirish
-        if not self.aniqlangan_vaqti:
-            self.aniqlangan_vaqti = getattr(self, "created_at", timezone.now())
 
         # 2️⃣ Akt_file yuklangan bo‘lsa → stepni yakunlangan deb belgila
         if self.akt_file:
@@ -575,6 +572,7 @@ class NosozlikNotification(models.Model):
     message = models.TextField(blank=True, null=True)
     first_occurrence = models.DateTimeField(null=True, blank=True)
     last_occurrence = models.DateTimeField(auto_now=True)
+    seen = models.BooleanField(default=False)
 
     def __str__(self):
         return f"{self.tarkib} - {self.nosozlik_turi} ({self.count} marta)"

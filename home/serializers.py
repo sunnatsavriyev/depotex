@@ -1215,7 +1215,6 @@ class NosozlikStepSerializer(serializers.ModelSerializer):
 
         yakunlash = validated_data.pop("yakunlash", False)
         bartaraf_qilingan_vaqti = validated_data.pop("bartarafqilingan_vaqti", None)
-        aniqlangan_vaqti = validated_data.get("aniqlangan_vaqti", None)
         akt_file = validated_data.pop("akt_file", None)
         ehtiyot_qismlar = validated_data.pop("ehtiyot_qismlar", [])
     
@@ -1307,9 +1306,6 @@ class NosozlikStepSerializer(serializers.ModelSerializer):
         # Nosozlik holatini yangilash
         if yakunlash and akt_file:
 
-            if not aniqlangan_vaqti:
-                step.aniqlangan_vaqti = step.created_at
-
             if not bartaraf_qilingan_vaqti:
                 step.bartaraf_qilingan_vaqti = timezone.now()
 
@@ -1326,26 +1322,44 @@ class NosozlikStepSerializer(serializers.ModelSerializer):
         step.refresh_from_db()
         
         
-        if step.nosozlik and step.nosozlik.nosozliklar_haqida:
-            notif, created = NosozlikNotification.objects.get_or_create(
-                tarkib=step.nosozlik.tarkib,
-                nosozlik_turi=step.nosozlik.nosozliklar_haqida.nosozlik_turi,
-                defaults={
-                    "count": 1,
-                    "first_occurrence": timezone.now(),
-                    "last_occurrence": timezone.now(),
-                    "message": f"{step.nosozlik.tarkib} tarkibida {step.nosozlik.nosozliklar_haqida.nosozlik_turi} nosozligi aniqlandi.",
-                },
-            )
-            if not created:
-                notif.count += 1
-                notif.last_occurrence = timezone.now()
-                notif.message = f"{step.nosozlik.tarkib} tarkibida {notif.nosozlik_turi} nosozligi {notif.count} marta takrorlandi."
-                notif.save()
+        # 🔹 Nosozlik paydo bo‘lganda notification yozish (xato tashlamasdan)
+        try:
+            if step.nosozlik and step.nosozlik.nosozliklar_haqida:
+                tarkib = step.nosozlik.tarkib
+                nosozlik_turi = step.nosozlik.nosozliklar_haqida.nosozlik_turi
 
-        step = NosozlikStep.objects.prefetch_related(
-            "ehtiyot_qismlar_step__ehtiyot_qism"
-        ).get(id=step.id)
+                notif = (
+                    NosozlikNotification.objects
+                    .filter(tarkib=tarkib, nosozlik_turi=nosozlik_turi)
+                    .order_by("id")
+                    .first()
+                )
+
+                if notif:
+                    notif.count = (notif.count or 0) + 1
+                    notif.last_occurrence = timezone.now()
+                    notif.message = (
+                        f"{tarkib} tarkibida {nosozlik_turi} nosozligi "
+                        f"{notif.count} marta takrorlandi."
+                    )
+                    notif.save(update_fields=["count", "last_occurrence", "message"])
+                else:
+                    NosozlikNotification.objects.create(
+                        tarkib=tarkib,
+                        nosozlik_turi=nosozlik_turi,
+                        count=1,
+                        first_occurrence=timezone.now(),
+                        last_occurrence=timezone.now(),
+                        message=f"{tarkib} tarkibida {nosozlik_turi} nosozligi aniqlandi.",
+                    )
+
+        except Exception as e:
+            # ⚠️ Xato bo‘lsa ham, hech narsa to‘xtamasin
+            print(f"⚠️ NosozlikNotification yozishda xatolik: {e}")
+            pass
+
+
+
 
         return step
 
@@ -1660,27 +1674,40 @@ class NosozliklarSerializer(serializers.ModelSerializer):
         nosozlik.save()
                 
             
-        if nosozlik.nosozliklar_haqida:
-            notif, created = NosozlikNotification.objects.get_or_create(
-                tarkib=nosozlik.tarkib,
-                nosozlik_turi=nosozlik.nosozliklar_haqida.nosozlik_turi,
-                defaults={
-                    "count": 1,
-                    "first_occurrence": timezone.now(),
-                    "last_occurrence": timezone.now(),
-                    "message": f"{nosozlik.tarkib} tarkibida {nosozlik.nosozliklar_haqida.nosozlik_turi} nosozligi aniqlandi.",
-                },
-            )
-            if not created:
-                notif.count += 1
-                notif.last_occurrence = timezone.now()
-                notif.message = f"{nosozlik.tarkib} tarkibida {notif.nosozlik_turi} nosozligi {notif.count} marta takrorlandi."
-                notif.save()
+        try:
+            if nosozlik.nosozliklar_haqida:
+                tarkib = nosozlik.tarkib
+                nosozlik_turi = nosozlik.nosozliklar_haqida.nosozlik_turi
 
-        nosozlik = Nosozliklar.objects.prefetch_related(
-            'ehtiyot_qism_aloqalari__ehtiyot_qism',
-            'steps__ehtiyot_qismlar_step__ehtiyot_qism'
-        ).get(id=nosozlik.id)
+                # Bir nechta mavjud bo‘lsa — eng birinchisini olish
+                notif = (
+                    NosozlikNotification.objects
+                    .filter(tarkib=tarkib, nosozlik_turi=nosozlik_turi)
+                    .order_by("id")
+                    .first()
+                )
+
+                if notif:
+                    notif.count = (notif.count or 0) + 1
+                    notif.last_occurrence = timezone.now()
+                    notif.message = (
+                        f"{tarkib} tarkibida {nosozlik_turi} nosozligi "
+                        f"{notif.count} marta takrorlandi."
+                    )
+                    notif.save(update_fields=["count", "last_occurrence", "message"])
+                else:
+                    NosozlikNotification.objects.create(
+                        tarkib=tarkib,
+                        nosozlik_turi=nosozlik_turi,
+                        count=1,
+                        first_occurrence=timezone.now(),
+                        last_occurrence=timezone.now(),
+                        message=f"{tarkib} tarkibida {nosozlik_turi} nosozligi aniqlandi.",
+                    )
+
+        except Exception as e:
+            print(f"⚠️ NosozlikNotification yozishda xatolik: {e}")
+            pass
         return nosozlik
 
     # --- UPDATE ---
@@ -1833,6 +1860,12 @@ class TexnikKorikJadvalSerializer(serializers.ModelSerializer):
             "sana", "created_by", "created_at"
         ]
         read_only_fields = ["created_by", "created_at"]
+        
+        
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Tamir turi tanlashda TO-1 ni chiqarilmasin
+        self.fields["tamir_turi"].queryset = self.fields["tamir_turi"].queryset.exclude(tamir_nomi="TO-1")
         
     def validate(self, attrs):
         tarkib = attrs.get("tarkib")

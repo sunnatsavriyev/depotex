@@ -3,6 +3,7 @@ from django.dispatch import receiver
 from django.utils import timezone
 from datetime import timedelta
 from .models import Nosozliklar, NosozlikNotification,TexnikKorikJadval, Notification
+from django.contrib.auth.signals import user_logged_in
 
 @receiver(post_save, sender=Nosozliklar)
 def create_notification_for_repeated_nosozlik(sender, instance, created, **kwargs):
@@ -44,28 +45,37 @@ def create_notification_for_repeated_nosozlik(sender, instance, created, **kwarg
         print(f"🔔 {message}")
         
         
-@receiver(post_save, sender=TexnikKorikJadval)
-def create_notification_for_upcoming_check(sender, instance, created, **kwargs):
-    if not created:
-        return
-
-    # Texnik ko‘rik sanasi
-    check_date = instance.sana
+@receiver(user_logged_in)
+def notify_today_checks(sender, user, request, **kwargs):
+    """Foydalanuvchi tizimga kirganda bugungi texnik ko‘riklar uchun xabar yaratish"""
     today = timezone.now().date()
 
-    # Agar sanasi 1 kundan keyin bo‘lsa — bugun xabar yuboriladi
-    if check_date - timedelta(days=1) == today:
-        depo = instance.tarkib.depo
-        if depo:
-            # Shu deposidagi texnik foydalanuvchilarni topamiz
-            texniklar = depo.xodimlar.filter(role="texnik")  # yoki o'zingizdagi role nomiga qarab
-            for texnik in texniklar:
+    # Bugungi sanada bo‘ladigan koriklar
+    today_checks = TexnikKorikJadval.objects.filter(sana=today)
+
+    for korik in today_checks:
+        depo = getattr(korik.tarkib, "depo", None)
+        if not depo:
+            continue
+
+        # Shu depo texnik foydalanuvchilariga xabar
+        texniklar = depo.users.filter(role="texnik")  
+
+        for texnik in texniklar:
+            # Shu tarkib uchun bugungi xabar allaqachon bormi?
+            exists = Notification.objects.filter(
+                user=texnik,
+                title="Bugungi texnik ko‘rik",
+                message__icontains=str(korik.tarkib.tarkib_raqami),
+                created_at__date=today
+            ).exists()
+
+            if not exists:
                 Notification.objects.create(
                     user=texnik,
-                    title="Texnik ko‘rik eslatmasi",
+                    title="Bugungi texnik ko‘rik",
                     message=(
-                        f"{instance.tarkib.tarkib_raqami} tarkib uchun "
-                        f"{check_date:%d-%m-%Y} sanada '{instance.tamir_turi.tamir_nomi}' "
-                        f"texnik ko‘rik rejalashtirilgan."
+                        f"Bugun {korik.tarkib.tarkib_raqami} tarkib uchun "
+                        f"'{korik.tamir_turi.tamir_nomi}' texnik ko‘rik rejalashtirilgan."
                     ),
                 )

@@ -44,15 +44,16 @@ class IsSkladchiOrReadOnly(BasePermission):
 
 class IsMonitoringReadOnly(BasePermission):
     """
-    Monitoring: barcha endpointlarda faqat GET, HEAD, OPTIONS.
-    Boshqalar: bu klassni o‘tgan holda ruxsat yo‘q.
+    Faqat monitoring roli yoki superuser foydalanuvchilarga 
+    GET, HEAD, OPTIONS metodlariga ruxsat beradi.
+    Boshqa metodlarga (POST, PUT, DELETE) ruxsat yo‘q.
     """
     def has_permission(self, request, view):
         user = request.user
         return (
             user
             and user.is_authenticated
-            and user.role == "monitoring"
+            and (user.is_superuser or user.role == "monitoring")
             and request.method in SAFE_METHODS
         )
     
