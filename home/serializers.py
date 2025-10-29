@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import TamirTuri, ElektroDepo, EhtiyotQismlari,Notification, HarakatTarkibi,TexnikKorikJadval, NosozlikNotification,TexnikKorik, CustomUser, Nosozliklar, TexnikKorikEhtiyotQism, NosozlikEhtiyotQism,NosozlikTuri, TexnikKorikStep, TexnikKorikEhtiyotQismStep, NosozlikEhtiyotQismStep, NosozlikStep, KunlikYurish,Vagon,EhtiyotQismHistory
+from .models import TamirTuri, ElektroDepo, EhtiyotQismlari,Marshrut,Notification,YilOy, HarakatTarkibi,TexnikKorikJadval, Notification,TexnikKorik, CustomUser, Nosozliklar, TexnikKorikEhtiyotQism, NosozlikEhtiyotQism,NosozlikTuri, TexnikKorikStep, TexnikKorikEhtiyotQismStep, NosozlikEhtiyotQismStep, NosozlikStep, KunlikYurish,Vagon,EhtiyotQismHistory
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 from django.contrib.auth import authenticate
@@ -9,6 +9,7 @@ from django.db.models import Sum
 from django.db import models
 import json
 from datetime import timedelta
+from django.conf import settings
 User = get_user_model()
 class UserSerializer(serializers.ModelSerializer):
     depo_nomi = serializers.CharField(source="depo.qisqacha_nomi", read_only=True)
@@ -129,6 +130,20 @@ class HarakatTarkibiSerializer(serializers.ModelSerializer):
             "created_by", "created_at", "holati",
             "is_active", "pervious_version","vagonlar" 
         ]
+        
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # User deposidagi faqat active tarkiblarni ko'rsatish
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            user_depo = request.user.depo
+            
+            # SuperUser uchun barcha depolardagi tarkiblarni ko'rsatish
+            if request.user.is_superuser:
+                self.Meta.model.objects.filter(is_active=True)
+            # Oddiy user uchun faqat o'z deposidagi tarkiblarni ko'rsatish
+            elif user_depo:
+                self.Meta.model.objects.filter(is_active=True, depo=user_depo)
 
     def update(self, instance, validated_data):
         """ faqat tarkib_raqami o‘zgarganda yangi versiya yaratadi,
@@ -186,9 +201,68 @@ class HarakatTarkibiSerializer(serializers.ModelSerializer):
 
 
 class HarakatTarkibiActiveSerializer(HarakatTarkibiSerializer):
+    korik_id = serializers.SerializerMethodField()
+    nosozlik_id = serializers.SerializerMethodField()
+    tamir_turi = serializers.SerializerMethodField()
+    image = serializers.SerializerMethodField()
     class Meta(HarakatTarkibiSerializer.Meta):
         model = HarakatTarkibi
-        fields = HarakatTarkibiSerializer.Meta.fields
+        fields = '__all__'  
+
+    def get_tamir_turi(self, obj):
+        from home.models import TexnikKorik  
+        
+        latest_korik = (
+            TexnikKorik.objects.filter(tarkib=obj)
+            .select_related("tamir_turi")
+            .order_by('-id')
+            .first()
+        )
+
+        if latest_korik and latest_korik.tamir_turi:
+            return latest_korik.tamir_turi.tamir_nomi
+        return None
+    
+    def get_korik_id(self, obj):
+        from home.models import TexnikKorik
+        latest_korik = (
+            TexnikKorik.objects.filter(tarkib=obj)
+            .order_by('-id')
+            .first()
+        )
+        return latest_korik.id if latest_korik else None
+
+    
+    def get_nosozlik_id(self, obj):
+        from home.models import Nosozliklar
+        latest_nosozlik = (
+            Nosozliklar.objects.filter(tarkib=obj)
+            .order_by('-id')
+            .first()
+        )
+        return latest_nosozlik.id if latest_nosozlik else None
+    
+    
+    def get_image(self, obj):
+       
+        if not obj.image:
+            return None
+
+        try:
+            relative_url = obj.image.url  # /media/tarkiblar/...
+        except ValueError:
+            return None
+
+        request = self.context.get("request")
+
+        # 1️⃣ Agar serializer contextda request mavjud bo‘lsa — build_absolute_uri orqali
+        if request:
+            return request.build_absolute_uri(relative_url)
+
+        # 2️⃣ Aks holda settings'dagi BASE_URL orqali (fallback)
+        from django.conf import settings
+        base_url = getattr(settings, "BASE_URL", "http://127.0.0.1:8000")
+        return f"{base_url.rstrip('/')}{relative_url}"
 
     
     
@@ -214,9 +288,47 @@ class EhtiyotQismlariSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         user = self.context["request"].user
         validated_data["created_by"] = user
+
+        # Agar foydalanuvchining deposi bo‘lsa, avtomatik qo‘shiladi
         if hasattr(user, "depo") and user.depo:
             validated_data["depo"] = user.depo
-        return super().create(validated_data)
+
+        # Yangi ehtiyot qism yaratish
+        instance = super().create(validated_data)
+
+        # --- 🔔 Notification tekshiruvi ---
+        qoldiq = float(instance.jami_miqdor or 0)
+        if qoldiq < 100:
+            Notification.objects.create(
+                ehtiyot_qism=instance,
+                type="ehtiyot_qism",
+                title="Yangi ehtiyot qism kam miqdorda kiritildi",
+                message=f"Omborda '{instance.ehtiyotqism_nomi}' nomli ehtiyot qism "
+                        f"{int(qoldiq)} {instance.birligi} kiritildi (100 tadan kam).",
+                is_read=False,
+                seen=False,
+            )
+
+        return instance
+    
+    def update(self, instance, validated_data):
+        old_qoldiq = float(instance.jami_miqdor or 0)
+        instance = super().update(instance, validated_data)
+        new_qoldiq = float(instance.jami_miqdor or 0)
+
+        # 🔔 Agar yangilanganidan so‘ng miqdor 100 dan kam bo‘lsa xabar chiqsin
+        if new_qoldiq < 100:
+            Notification.objects.create(
+                ehtiyot_qism=instance,
+                type="ehtiyot_qism",
+                title="Ehtiyot qism kamaygani haqida",
+                message=f"Omborda '{instance.ehtiyotqism_nomi}' nomli ehtiyot qism "
+                        f"{int(new_qoldiq)} {instance.birligi} qoldi (100 tadan kam).",
+                is_read=False,
+                seen=False,
+            )
+
+        return instance
 
 
 class EhtiyotQismWithMiqdorSerializer(serializers.ModelSerializer):
@@ -427,38 +539,48 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         request = self.context.get("request")
         
+        # Korikni olish — frontend faqat id yuboradi
+        korik_id = attrs.get("korik") or request.data.get("korik")
+        if not korik_id:
+            raise serializers.ValidationError({"korik": "Korik id majburiy."})
+
+        try:
+            korik = TexnikKorik.objects.get(id=korik_id)
+        except TexnikKorik.DoesNotExist:
+            raise serializers.ValidationError({"korik": f"ID {korik_id} topilmadi"})
+        
+        # Context-ga qo'shish, shunda create ham ishlatadi
+        self.context["korik"] = korik
+
         # Password tekshirish
         password = attrs.pop("password", None)
         if not password or not request.user.check_password(password):
             raise serializers.ValidationError({"password": "Parol noto'g'ri."})
 
-        # Yakunlash tekshirish
+        # Yakunlash va akt_file tekshirish
         yakunlash = attrs.get("yakunlash")
         akt_file = attrs.get("akt_file")
-        if yakunlash and not akt_file:
-            raise serializers.ValidationError({"akt_file": "Yakunlash uchun akt fayl majburiy."})
         
+        if yakunlash and korik.tamir_turi.akt_check and not akt_file:
+            raise serializers.ValidationError({"akt_file": "Yakunlash uchun akt fayl majburiy."})
+
         # Ehtiyot qismlarni JSON formatda qayta ishlash
         ehtiyot_qismlar = attrs.get("ehtiyot_qismlar", None)
         if ehtiyot_qismlar is None:
-            # agar DRF bu fieldni o‘qimagan bo‘lsa (masalan, FormData’da string kelsa)
             ehtiyot_qismlar = request.data.get("ehtiyot_qismlar", [])
 
-        # 🔹 String holatda kelsa — JSON qilib ochamiz
         if isinstance(ehtiyot_qismlar, str):
             try:
                 ehtiyot_qismlar = json.loads(ehtiyot_qismlar)
             except Exception:
-                raise serializers.ValidationError({"ehtiyot_qismlar": "Noto‘g‘ri format."})
-
-        # 🔹 Agar hali ham list bo‘lmasa — xato
+                raise serializers.ValidationError({"ehtiyot_qismlar": "Noto'g'ri format."})
         elif ehtiyot_qismlar and not isinstance(ehtiyot_qismlar, list):
-            raise serializers.ValidationError({"ehtiyot_qismlar": "List formatida bo‘lishi kerak."})
+            raise serializers.ValidationError({"ehtiyot_qismlar": "List formatida bo'lishi kerak."})
 
-        # ✅ Yakuniy qiymatni to‘g‘rilab yozamiz
         attrs["ehtiyot_qismlar"] = ehtiyot_qismlar or []
-
         return attrs
+
+
 
     def create(self, validated_data):
         print("\n [CREATE BOSHLANDI]")
@@ -484,8 +606,12 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
 
         print("✅ YUBORILGAN EHTIYOT QISMLAR:", ehtiyot_qismlar) 
 
-        if yakunlash and akt_file:
-            step_status = TexnikKorikStep.Status.BARTARAF_ETILDI
+        # Statusni aniqlash - yangi qoida bo'yicha
+        if yakunlash:
+            if korik.tamir_turi.akt_check and not akt_file:
+                step_status = TexnikKorikStep.Status.JARAYONDA
+            else:
+                step_status = TexnikKorikStep.Status.BARTARAF_ETILDI
         else:
             step_status = TexnikKorikStep.Status.JARAYONDA
 
@@ -494,16 +620,17 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
             korik=korik,
             tamir_turi=korik.tamir_turi,
             created_by=request.user,
-            # yakunlash=yakunlash,
             akt_file=akt_file,
             status=step_status,
             **validated_data
         )
 
-        if yakunlash and akt_file:
+        # Yakunlash bo‘lsa — korik va tarkib holatini doim yangilash
+        if yakunlash:
             korik.status = TexnikKorik.Status.BARTARAF_ETILDI
             korik.tarkib.holati = "Soz_holatda"
-            korik.akt_file = akt_file
+            if akt_file:
+                korik.akt_file = akt_file
             korik.chiqqan_vaqti = timezone.now()
             korik.save()
             korik.tarkib.save()
@@ -527,7 +654,7 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
             # Omborda yetarli miqdor borligini tekshirish
             if yakunlash and eq_obj.jami_miqdor < miqdor:
                 raise serializers.ValidationError({
-                    "ehtiyot_qism": f"Omborda yetarli miqdor yo‘q ({eq_obj.jami_miqdor})"
+                    "ehtiyot_qism": f"Omborda yetarli miqdor yo'q ({eq_obj.jami_miqdor})"
                 })
 
             # Ehtiyot qismni yaratish
@@ -536,16 +663,6 @@ class TexnikKorikStepSerializer(serializers.ModelSerializer):
                 ehtiyot_qism=eq_obj,
                 miqdor=miqdor
             )
-
-            # if yakunlash:
-            #     # eq_obj.jami_miqdor -= miqdor
-            #     # eq_obj.save()
-            #     EhtiyotQismHistory.objects.create(
-            #         ehtiyot_qism=eq_obj,
-            #         miqdor=-miqdor,
-            #         created_by=request.user,
-            #         # izoh=f"Texnik ko'rik step yakunlandi (Step ID: {step.id}, Korik ID: {korik.id})"
-            #     )
 
         step.refresh_from_db()
         
@@ -734,12 +851,19 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
         
         password = attrs.pop("password", None)
         if not password or not request.user.check_password(password):
-            raise serializers.ValidationError({"password": "Parol noto‘g‘ri."})
+            raise serializers.ValidationError({"password": "Parol noto'g'ri."})
 
         yakunlash = attrs.get("yakunlash")
         akt_file = attrs.get("akt_file")
-        if yakunlash and not akt_file:
-            raise serializers.ValidationError({"akt_file": "Yakunlash uchun akt fayl majburiy."})
+        tamir_turi = attrs.get("tamir_turi")
+        
+        # Akt file tekshiruvi - faqat ma'lum tamir turlari uchun majburiy emas
+        if yakunlash:
+            if not tamir_turi:
+                raise serializers.ValidationError({"tamir_turi": "Yakunlash uchun tamir turi tanlanishi kerak."})
+
+            if tamir_turi.akt_check and not akt_file:
+                raise serializers.ValidationError({"akt_file": "Bu tamir turi uchun yakunlashda akt fayl majburiy."})
 
         ehtiyot_qismlar = attrs.get("ehtiyot_qismlar", None)
         if ehtiyot_qismlar is None:
@@ -749,17 +873,42 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
             try:
                 ehtiyot_qismlar = json.loads(ehtiyot_qismlar)
             except Exception:
-                raise serializers.ValidationError({"ehtiyot_qismlar": "Noto‘g‘ri format."})
+                raise serializers.ValidationError({"ehtiyot_qismlar": "Noto'g'ri JSON format."})
 
-        # 🔹 Agar hali ham list bo‘lmasa — xato
-        elif ehtiyot_qismlar and not isinstance(ehtiyot_qismlar, list):
-            raise serializers.ValidationError({"ehtiyot_qismlar": "List formatida bo‘lishi kerak."})
+        if not isinstance(ehtiyot_qismlar, list):
+            raise serializers.ValidationError({"ehtiyot_qismlar": "List formatida bo'lishi kerak."})
 
-        # 🔹 Yakuniy qiymatni qayta yozamiz
-        attrs["ehtiyot_qismlar"] = ehtiyot_qismlar or []
+        moslangan_qismlar = []
+        for item in ehtiyot_qismlar:
+            eq_val = item.get("ehtiyot_qism")
+            miqdor = item.get("miqdor", 1)
+            if not eq_val:
+                continue
 
+            # 🔹 ID bo‘lsa olishga harakat qilamiz, bo‘lmasa nom orqali
+            eq_obj = None
+            try:
+                if isinstance(eq_val, int) or (isinstance(eq_val, str) and eq_val.isdigit()):
+                    eq_obj = EhtiyotQismlari.objects.get(id=int(eq_val))
+                elif isinstance(eq_val, str):
+                    eq_obj = EhtiyotQismlari.objects.get(nomi__iexact=eq_val.strip())
+                elif isinstance(eq_val, dict):
+                    eq_id = eq_val.get("id")
+                    eq_nomi = eq_val.get("nomi")
+                    if eq_id:
+                        eq_obj = EhtiyotQismlari.objects.get(id=eq_id)
+                    elif eq_nomi:
+                        eq_obj = EhtiyotQismlari.objects.get(nomi__iexact=eq_nomi.strip())
+            except EhtiyotQismlari.DoesNotExist:
+                raise serializers.ValidationError({"ehtiyot_qismlar": f"Ehtiyot qism '{eq_val}' topilmadi."})
+
+            moslangan_qismlar.append({
+                "ehtiyot_qism": eq_obj,
+                "miqdor": float(miqdor)
+            })
+
+        attrs["ehtiyot_qismlar"] = moslangan_qismlar
         return attrs
-
 
 
     
@@ -781,9 +930,10 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
     
     # --- CREATE ---
     def create(self, validated_data):
-        print("\n [CREATE BOSHLANDI]")
-        print(" VALIDATED DATA KEYLAR:", list(validated_data.keys()))
-        print(" VALIDATED EHTIYOT QISMLAR:", validated_data.get("ehtiyot_qismlar"))
+        print("\n[CREATE BOSHLANDI]")
+        print("VALIDATED DATA KEYLAR:", list(validated_data.keys()))
+        print("VALIDATED EHTIYOT QISMLAR:", validated_data.get("ehtiyot_qismlar"))
+
         request = self.context["request"]
 
         tarkib = validated_data.pop("tarkib")
@@ -791,6 +941,8 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
         yakunlash = validated_data.pop("yakunlash", False)
         akt_file = validated_data.pop("akt_file", None)
         ehtiyot_qismlar = validated_data.pop("ehtiyot_qismlar", [])
+
+        # --- Ehtiyot qismlar formatini tekshirish ---
         if not ehtiyot_qismlar:
             raw_data = request.data.get("ehtiyot_qismlar")
             if isinstance(raw_data, str):
@@ -805,77 +957,66 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
 
         print("✅ YUBORILGAN EHTIYOT QISMLAR:", ehtiyot_qismlar)
 
-
-        if yakunlash and akt_file:
+        # --- Status va tarkib holatini aniqlash ---
+        if yakunlash:
+            if tamir_turi.akt_check:
+                if not akt_file:
+                    raise serializers.ValidationError({
+                        "akt_file": "Bu tamir turi uchun yakunlashda akt fayl majburiy."
+                    })
+            # Har holda yakunlanganda soz holatga o‘tadi
             status = TexnikKorik.Status.BARTARAF_ETILDI
             tarkib_holati = "Soz_holatda"
         else:
             status = TexnikKorik.Status.JARAYONDA
             tarkib_holati = "Texnik_korikda"
 
-        # Korik yaratish
+        # --- Korik yaratish ---
         korik = TexnikKorik.objects.create(
             tarkib=tarkib,
             tamir_turi=tamir_turi,
             created_by=request.user,
-            status=status,  
+            status=status,
             yakunlash=yakunlash,
             akt_file=akt_file if akt_file else None,
             **validated_data
         )
 
-        # Tarkib holatini yangilash
+        # --- Tarkib holatini yangilash ---
         korik.tarkib.holati = tarkib_holati
         korik.tarkib.save()
 
-        # Ehtiyot qismlarni yaratish
+        # --- Agar yakunlangan bo‘lsa chiqish vaqtini yozamiz ---
+        if yakunlash:
+            korik.chiqqan_vaqti = timezone.now()
+            korik.save()
+
+        # --- Ehtiyot qismlarini bog‘lash ---
         for item in ehtiyot_qismlar:
             eq_val = item.get("ehtiyot_qism")
             miqdor = item.get("miqdor", 1)
             if not eq_val:
                 continue
 
-            # Ehtiyot qismini olish
-            if isinstance(eq_val, EhtiyotQismlari):
-                eq_obj = eq_val
-            else:
-                try:
-                    eq_obj = EhtiyotQismlari.objects.get(id=int(eq_val))
-                except (EhtiyotQismlari.DoesNotExist, ValueError, TypeError):
-                    raise serializers.ValidationError({"ehtiyot_qism": f"ID {eq_val} topilmadi"})
+            try:
+                eq_obj = EhtiyotQismlari.objects.get(id=int(eq_val))
+            except (EhtiyotQismlari.DoesNotExist, ValueError, TypeError):
+                raise serializers.ValidationError({"ehtiyot_qism": f"ID {eq_val} topilmadi"})
 
-
-            # Ehtiyot qismni yaratish
             TexnikKorikEhtiyotQism.objects.create(
                 korik=korik,
                 ehtiyot_qism=eq_obj,
                 miqdor=miqdor
             )
 
-            # Yakunlash bo'lsa ombordan chiqarish
-            # if yakunlash:
-            #     eq_obj.jami_miqdor -= miqdor
-            #     eq_obj.save()
-            #     EhtiyotQismHistory.objects.create(
-            #         ehtiyot_qism=eq_obj,
-            #         miqdor=-miqdor,
-            #         created_by=request.user,
-            #         # izoh=f"Texnik ko'rik yakunlandi (ID: {korik.id})"
-            #     )
-
-        # Yakunlash bo'lsa qo'shimcha yangilashlar
-        if yakunlash and akt_file:
-            korik.akt_file = akt_file
-            korik.chiqqan_vaqti = timezone.now()
-            korik.status = TexnikKorik.Status.BARTARAF_ETILDI   
-            korik.save()
-        
-        # DEBUG: Ehtiyot qismlarni tekshirish
+        # --- Prefetch bilan qaytarish ---
         korik = TexnikKorik.objects.prefetch_related(
             'texnikkorikehtiyotqism_set__ehtiyot_qism',
             'steps__texnikkorikehtiyotqismstep_set__ehtiyot_qism'
         ).get(id=korik.id)
+
         return korik
+
 
 
 
@@ -889,23 +1030,30 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
         ehtiyot_qismlar = validated_data.pop("ehtiyot_qismlar", [])
         akt_file = validated_data.pop("akt_file", None)
         yakunlash = validated_data.pop("yakunlash", False)
+        tamir_turi = validated_data.get("tamir_turi", instance.tamir_turi)
 
         if akt_file:
             instance.akt_file = akt_file
             
         instance.yakunlash = yakunlash
 
-        if yakunlash and akt_file:
-            instance.status = TexnikKorik.Status.BARTARAF_ETILDI
-            instance.tarkib.holati = "Soz_holatda"
-            if not instance.chiqqan_vaqti:
-                instance.chiqqan_vaqti = timezone.now()
+        # Status va tarkib holatini yangilash
+        if yakunlash:
+                if tamir_turi and tamir_turi.akt_check and not instance.akt_file:
+                    raise serializers.ValidationError({"akt_file": "Bu tamir turi uchun yakunlashda akt fayl majburiy."})
+                instance.status = TexnikKorik.Status.BARTARAF_ETILDI
+                instance.tarkib.holati = "Soz_holatda"
+                if not instance.chiqqan_vaqti:
+                    instance.chiqqan_vaqti = timezone.now()
         else:
+            instance.status = TexnikKorik.Status.JARAYONDA
             instance.tarkib.holati = "Texnik_korikda"
+        
 
         instance.tarkib.save()
         instance = super().update(instance, validated_data)
 
+        # Ehtiyot qismlarni yangilash
         for item in ehtiyot_qismlar:
             eq_id = item.get("ehtiyot_qism")
             miqdor = item.get("miqdor", 1)
@@ -917,23 +1065,12 @@ class TexnikKorikSerializer(serializers.ModelSerializer):
             except EhtiyotQismlari.DoesNotExist:
                 continue
 
-            # 🔹 oldin mavjud bo‘lsa update, bo‘lmasa create qiladi
+            # 🔹 oldin mavjud bo'lsa update, bo'lmasa create qiladi
             obj, created = TexnikKorikEhtiyotQism.objects.update_or_create(
                 korik=instance,
                 ehtiyot_qism=eq_obj,
                 defaults={"miqdor": miqdor}
             )
-
-            # if yakunlash:
-            #     # Har doim ombordan chiqarish (miqdor farqiga qaramasdan)
-            #     eq_obj.jami_miqdor -= miqdor
-            #     eq_obj.save()
-            #     EhtiyotQismHistory.objects.create(
-            #         ehtiyot_qism=eq_obj,
-            #         miqdor=-miqdor,
-            #         created_by=request.user,
-            #         # izoh=f"Texnik ko'rik yangilandi (ID: {instance.id})"
-            #     )
 
         return instance
 
@@ -1105,10 +1242,6 @@ class NosozlikDetailForStepSerializer(serializers.ModelSerializer):
     #     return clean_data
 
 
-class NosozlikNotificationSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = NosozlikNotification
-        fields = "__all__"
 
 
 # --- Step Serializer ---
@@ -1329,7 +1462,7 @@ class NosozlikStepSerializer(serializers.ModelSerializer):
                 nosozlik_turi = step.nosozlik.nosozliklar_haqida.nosozlik_turi
 
                 notif = (
-                    NosozlikNotification.objects
+                    Notification.objects
                     .filter(tarkib=tarkib, nosozlik_turi=nosozlik_turi)
                     .order_by("id")
                     .first()
@@ -1344,7 +1477,7 @@ class NosozlikStepSerializer(serializers.ModelSerializer):
                     )
                     notif.save(update_fields=["count", "last_occurrence", "message"])
                 else:
-                    NosozlikNotification.objects.create(
+                    Notification.objects.create(
                         tarkib=tarkib,
                         nosozlik_turi=nosozlik_turi,
                         count=1,
@@ -1681,7 +1814,7 @@ class NosozliklarSerializer(serializers.ModelSerializer):
 
                 # Bir nechta mavjud bo‘lsa — eng birinchisini olish
                 notif = (
-                    NosozlikNotification.objects
+                    Notification.objects
                     .filter(tarkib=tarkib, nosozlik_turi=nosozlik_turi)
                     .order_by("id")
                     .first()
@@ -1696,7 +1829,7 @@ class NosozliklarSerializer(serializers.ModelSerializer):
                     )
                     notif.save(update_fields=["count", "last_occurrence", "message"])
                 else:
-                    NosozlikNotification.objects.create(
+                    Notification.objects.create(
                         tarkib=tarkib,
                         nosozlik_turi=nosozlik_turi,
                         count=1,
@@ -1841,6 +1974,31 @@ class TarkibFullDetailSerializer(serializers.ModelSerializer):
     def get_tamir_turi_soni(self, obj):
         return TexnikKorik.objects.filter(tarkib=obj).values("tamir_turi").distinct().count()
 
+class MarshrutSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Marshrut
+        fields = ["id", "marshrut_raqam"]
+
+    def validate_marshrut_raqam(self, value):
+        """
+        0 bo‘lsa — ruxsat.
+        Boshqa raqam bo‘lsa — unique bo‘lishi kerak.
+        """
+        if value and value != "0":
+            qs = Marshrut.objects.filter(marshrut_raqam=value)
+            if self.instance:
+                qs = qs.exclude(pk=self.instance.pk)
+            if qs.exists():
+                raise serializers.ValidationError(f"{value} raqamli marshrut allaqachon mavjud.")
+        return value
+
+
+
+
+class YilOySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = YilOy
+        fields = ["id", "yil", "oy"]
 
 
 
@@ -1850,32 +2008,263 @@ class TexnikKorikJadvalSerializer(serializers.ModelSerializer):
     )
     tarkib_raqami = serializers.CharField(source="tarkib.tarkib_raqami", read_only=True)
     tamir_nomi = serializers.CharField(source="tamir_turi.tamir_nomi", read_only=True)
+    tamir_miqdori = serializers.CharField(source="tamir_turi.tamirlanish_miqdori", read_only=True)
+    tamir_miqdor_kunda = serializers.SerializerMethodField(read_only=True)
+    tamir_vaqti = serializers.CharField(source="tamir_turi.tamirlanish_vaqti", read_only=True)
+    tamir_info = serializers.SerializerMethodField(read_only=True)
     depo_nomi = serializers.CharField(source="tarkib.depo.qisqacha_nomi", read_only=True)
+    created_by = serializers.CharField(source="created_by.username", read_only=True)
+    tamir_color = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = TexnikKorikJadval
         fields = [
-            "id", "tarkib", "tarkib_raqami", "depo_nomi",
-            "tamir_turi", "tamir_nomi",
+            "id", "tarkib", "marshrut", "tarkib_raqami", "depo_nomi",
+            "tamir_turi", "tamir_nomi", "tamir_miqdori","tamir_miqdor_kunda", "tamir_vaqti", "tamir_info","tamir_color",
             "sana", "created_by", "created_at"
         ]
         read_only_fields = ["created_by", "created_at"]
+        extra_kwargs = {
+            "tamir_turi": {"required": False, "allow_null": True},
+            "marshrut": {"required": False, "allow_null": True},
+        }
         
+        
+    def get_tamir_color(self, obj):
+        """Tamir turiga qarab rang qaytaradi"""
+        if obj.tamir_turi:
+            tamir_nomi = obj.tamir_turi.tamir_nomi
+            
+            # TO lar uchun lightblue
+            if tamir_nomi.startswith('TO'):
+                return 'lightblue'
+            # TR lar uchun lightyellow
+            elif tamir_nomi.startswith('TR'):
+                return 'lightyellow'
+            # Qolgan barcha tamirlar uchun lightred
+            else:
+                return 'lightred'
+        
+        return 'lightgray'  
         
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # Tamir turi tanlashda TO-1 ni chiqarilmasin
-        self.fields["tamir_turi"].queryset = self.fields["tamir_turi"].queryset.exclude(tamir_nomi="TO-1")
+        # User deposidagi faqat active tarkiblarni ko'rsatish
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            user_depo = request.user.depo  # Userning deposi
+            
+            # SuperUser uchun barcha depolardagi tarkiblarni ko'rsatish
+            if request.user.is_superuser:
+                self.fields['tarkib'].queryset = HarakatTarkibi.objects.filter(
+                    is_active=True
+                )
+            # Oddiy user uchun faqat o'z deposidagi tarkiblarni ko'rsatish
+            elif user_depo:
+                self.fields['tarkib'].queryset = HarakatTarkibi.objects.filter(
+                    is_active=True, 
+                    depo=user_depo
+                )
+                
+                
+    def get_tamir_miqdor_kunda(self, obj):
+        """Tamir miqdorini faqat kunda qaytaradi (son sifatida)"""
+        if obj.tamir_turi:
+            tamir = obj.tamir_turi
+            kunlik_miqdor = self._convert_to_days_number(tamir.tamirlanish_miqdori, tamir.tamirlanish_vaqti)
+            if kunlik_miqdor is not None:
+                return kunlik_miqdor
+            
+            # Agar tamirlash davri bo'lsa
+            if tamir.tamirlash_davri:
+                return self._convert_period_to_days_number(tamir.tamirlash_davri)
         
+        return None
+
+    def get_tamir_info(self, obj):
+        """Tamir turi haqida to'liq ma'lumot - eski formatda qoldiramiz"""
+        if obj.tamir_turi:
+            tamir = obj.tamir_turi
+            
+            # Tamir turi nomi
+            tamir_nomi = tamir.tamir_nomi
+            
+            # Tarkib turi
+            tarkib_turi = ""
+            if tamir.tarkib_turi:
+                tarkib_turi = f" ({tamir.tarkib_turi})"
+            
+            # Tamir vaqtini kunga hisoblaymiz
+            kunlik_miqdor = self._convert_to_days(tamir.tamirlanish_miqdori, tamir.tamirlanish_vaqti)
+            
+            if kunlik_miqdor:
+                return f"{tamir_nomi}{tarkib_turi} - {kunlik_miqdor} kun"
+            elif tamir.tamirlash_davri:
+                # Tamirlash davrini ham kunga hisoblaymiz
+                davr_kunlik = self._convert_period_to_days(tamir.tamirlash_davri)
+                if davr_kunlik:
+                    return f"{tamir_nomi}{tarkib_turi} - {davr_kunlik} kun (davriy)"
+                else:
+                    return f"{tamir_nomi}{tarkib_turi} ({tamir.tamirlash_davri})"
+            else:
+                return f"{tamir_nomi}{tarkib_turi}"
+        return None
+
+    def _convert_to_days_number(self, miqdor, vaqt_turi):
+        """Tamir vaqtini kunga aylantiramiz (faqat son qaytaradi)"""
+        if not miqdor or not vaqt_turi:
+            return None
+            
+        try:
+            miqdor = float(miqdor)
+        except (TypeError, ValueError):
+            return None
+            
+        if vaqt_turi == "kun":
+            return int(miqdor)
+        elif vaqt_turi == "oy":
+            return int(miqdor * 30)
+        elif vaqt_turi == "soat":
+            return max(1, int(miqdor / 24))  # Kamida 1 kun
+        elif vaqt_turi == "hafta":
+            return int(miqdor * 7)
+        else:
+            return int(miqdor)
+
+    def _convert_period_to_days_number(self, tamirlash_davri):
+        """Tamirlash davrini kunga aylantiramiz (faqat son qaytaradi)"""
+        if not tamirlash_davri:
+            return None
+            
+        # Davrni tahlil qilish (masalan: "3 oy", "6 oy", "1 yil" etc.)
+        davr = str(tamirlash_davri).lower().strip()
+        
+        if "oy" in davr:
+            try:
+                oylar = float(davr.replace("oy", "").strip())
+                return int(oylar * 30)
+            except (ValueError, TypeError):
+                return None
+        elif "yil" in davr:
+            try:
+                yillar = float(davr.replace("yil", "").strip())
+                return int(yillar * 365)
+            except (ValueError, TypeError):
+                return None
+        elif "kun" in davr:
+            try:
+                return int(davr.replace("kun", "").strip())
+            except (ValueError, TypeError):
+                return None
+        elif "hafta" in davr:
+            try:
+                haftalar = float(davr.replace("hafta", "").strip())
+                return int(haftalar * 7)
+            except (ValueError, TypeError):
+                return None
+        else:
+            return None
+
+    # Eski metodlar o'zgarmaydi (_convert_to_days va _convert_period_to_days)
+    def _convert_to_days(self, miqdor, vaqt_turi):
+        """Tamir vaqtini kunga aylantiramiz (matn ko'rinishida)"""
+        if not miqdor or not vaqt_turi:
+            return None
+            
+        try:
+            miqdor = float(miqdor)
+        except (TypeError, ValueError):
+            return None
+            
+        if vaqt_turi == "kun":
+            return f"{int(miqdor)}"
+        elif vaqt_turi == "oy":
+            kunlar = int(miqdor * 30)
+            return f"{kunlar} ({miqdor} oy)"
+        elif vaqt_turi == "soat":
+            kunlar = max(1, int(miqdor / 24))  # Kamida 1 kun
+            return f"{kunlar} ({miqdor} soat)"
+        elif vaqt_turi == "hafta":
+            kunlar = int(miqdor * 7)
+            return f"{kunlar} ({miqdor} hafta)"
+        else:
+            return f"{int(miqdor)} {vaqt_turi}"
+
+    def _convert_period_to_days(self, tamirlash_davri):
+        """Tamirlash davrini kunga aylantiramiz (matn ko'rinishida)"""
+        if not tamirlash_davri:
+            return None
+            
+        # Davrni tahlil qilish (masalan: "3 oy", "6 oy", "1 yil" etc.)
+        davr = str(tamirlash_davri).lower().strip()
+        
+        if "oy" in davr:
+            try:
+                oylar = float(davr.replace("oy", "").strip())
+                kunlar = int(oylar * 30)
+                return f"{kunlar}"
+            except (ValueError, TypeError):
+                return None
+        elif "yil" in davr:
+            try:
+                yillar = float(davr.replace("yil", "").strip())
+                kunlar = int(yillar * 365)
+                return f"{kunlar}"
+            except (ValueError, TypeError):
+                return None
+        elif "kun" in davr:
+            try:
+                kunlar = int(davr.replace("kun", "").strip())
+                return f"{kunlar}"
+            except (ValueError, TypeError):
+                return None
+        elif "hafta" in davr:
+            try:
+                haftalar = float(davr.replace("hafta", "").strip())
+                kunlar = int(haftalar * 7)
+                return f"{kunlar}"
+            except (ValueError, TypeError):
+                return None
+        else:
+            return None
+    
+
     def validate(self, attrs):
         tarkib = attrs.get("tarkib")
         sana = attrs.get("sana")
         tamir_turi = attrs.get("tamir_turi")
+        marshrut = attrs.get("marshrut")
 
+        # 🔒 Ikkalasi ham to‘ldirilgan yoki ikkalasi ham bo‘sh bo‘lsa xato
+        if marshrut and tamir_turi:
+            raise serializers.ValidationError({
+                "detail": "❌ Marshrut va Tamir turi bir vaqtda kiritilmasin!"
+            })
+        if not marshrut and not tamir_turi:
+            raise serializers.ValidationError({
+                "detail": "❌ Marshrut yoki Tamir turidan bittasi majburiy!"
+            })
+
+        # ✅ Marshrut bo'lsa — faqat haqiqiy qiymat bo'lganda tekshir
+        if marshrut:
+            marshrut_id = marshrut.id if hasattr(marshrut, "id") else marshrut
+
+            if marshrut_id != 0:
+                exists_in_other = (
+                    TexnikKorikJadval.objects
+                    .filter(marshrut=marshrut_id, sana=sana)
+                    .exclude(tarkib=tarkib)
+                    .exists()
+                )
+                if exists_in_other:
+                    raise serializers.ValidationError({
+                        "marshrut": f"❌ {marshrut_id} raqamli marshrut allaqachon {sana} sanasida boshqa tarkibga biriktirilgan!"
+                    })
+
+        #  Tamir turi bo‘lsa — eski texnik ko‘rik sanasi bilan tekshiriladi
         if not tarkib or not sana or not tamir_turi:
             return attrs
 
-        # Shu tarkib uchun oxirgi yozuvni topamiz
         last_korik = (
             TexnikKorikJadval.objects
             .filter(tarkib=tarkib)
@@ -1884,40 +2273,45 @@ class TexnikKorikJadvalSerializer(serializers.ModelSerializer):
         )
 
         if last_korik:
-            # Oxirgi tamirning tugash muddatini aniqlaymiz
             old_tamir = last_korik.tamir_turi
-            miqdor = old_tamir.tamirlanish_miqdori or 0
-            birlik = old_tamir.tamirlanish_vaqti
+            if old_tamir:
+                miqdor = old_tamir.tamirlanish_miqdori or 0
+                birlik = old_tamir.tamirlanish_vaqti
 
-            if birlik == "kun":
-                old_end = last_korik.sana + timedelta(days=miqdor)
-            elif birlik == "oy":
-                old_end = last_korik.sana + timedelta(days=miqdor * 30)
-            elif birlik == "soat":
-                old_end = last_korik.sana + timedelta(days=1)
-            else:
-                old_end = last_korik.sana
+                # Kirgan kunini 1-kun deb hisoblaymiz
+                start_date = last_korik.sana
+                
+                if birlik == "kun":
+                    old_end = start_date + timedelta(days=miqdor - 1)  # miqdor-1 gacha davom etadi
+                elif birlik == "oy":
+                    old_end = start_date + timedelta(days=miqdor * 30 - 1)
+                elif birlik == "soat":
+                    old_end = start_date  # soatlik tamir shu kunning o'zida tugaydi
+                else:
+                    old_end = start_date
 
-            # Agar yangi sana hali eski muddat tugamasdan kiritilsa — xato
-            if sana <= old_end:
-                raise serializers.ValidationError({
-                    "detail": (
-                        f"❌ {tarkib.tarkib_raqami} uchun "
-                        f"so‘nggi '{old_tamir.tamir_nomi}' ({last_korik.sana:%d-%m-%Y}) "
-                        f"tamiri hali tugamagan! "
-                        f"Yangi tamirni faqat {old_end:%d-%m-%Y} dan keyin kiritish mumkin."
-                    )
-                })
+                # Yangi sana old_end dan keyin bo'lishi kerak
+                if sana <= old_end:
+                    raise serializers.ValidationError({
+                        "detail": (
+                            f"❌ {tarkib.tarkib_raqami} uchun "
+                            f"so'nggi '{old_tamir.tamir_nomi}' ({last_korik.sana:%d-%m-%Y}) "
+                            f"tamiri {old_end:%d-%m-%Y} gacha davom etadi! "
+                            f"Yangi tamirni faqat {old_end + timedelta(days=1):%d-%m-%Y} dan keyin kiritish mumkin."
+                        )
+                    })
 
         return attrs
+
+        
 
     def create(self, validated_data):
         validated_data["created_by"] = self.context["request"].user
         return super().create(validated_data)
     
-    
+      
     
 class NotificationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Notification
-        fields = ["id", "title", "message", "is_read", "created_at"]
+        fields = "__all__"

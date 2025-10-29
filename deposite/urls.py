@@ -12,6 +12,8 @@ from rest_framework_simplejwt.views import (
 # Swagger docs
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
+
+
 urlpatterns = [
     path("depo_admin/", admin.site.urls),
 

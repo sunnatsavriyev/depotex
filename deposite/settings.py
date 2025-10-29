@@ -116,7 +116,7 @@ REST_FRAMEWORK = {
         "rest_framework.filters.SearchFilter",
         "rest_framework.filters.OrderingFilter",
     ],
-    "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
+    "DEFAULT_PAGINATION_CLASS": "home.pagination.CustomPagination",
     "PAGE_SIZE": 50000000000000000000000000000000000000000000000000, 
     'EXCEPTION_HANDLER': 'home.utils.custom_exception_handler',
     

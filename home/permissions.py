@@ -11,35 +11,14 @@ class IsTexnik(BasePermission):
             and (user.is_superuser or user.role == "texnik")  
         )
 
-
-
-class IsSkladchiOrReadOnly(BasePermission):
-    """
-    Skladchi: Ehtiyot qismlar bo‘yicha CRUD huquqi.
-    Monitoring va boshqalar: faqat GET ko‘rish (lekin faqat login bo‘lsa).
-    """
+class IsJadvalchi(BasePermission):
     def has_permission(self, request, view):
         user = request.user
-        if not user or not user.is_authenticated:
-            return False
-
-        # Monitoring faqat o‘qiy oladi
-        if user.role == "monitoring":
-            return request.method in SAFE_METHODS
-
-        # Skladchi CRUD huquqiga ega faqat EhtiyotQism uchun
-        if user.role == "skladchi":
-            return True  # CRUD allowed in this view only
-
-        # Superuser har doim ruxsatli
-        if user.is_superuser:
-            return True
-
-        # Texnik faqat o‘qiy oladi (masalan, ehtiyot qismlar ro‘yxatini ko‘rish uchun)
-        if user.role == "texnik":
-            return request.method in SAFE_METHODS
-
-        return False
+        return (
+            user 
+            and user.is_authenticated 
+            and (user.is_superuser or user.role == "jadval")  
+        )
 
 
 class IsMonitoringReadOnly(BasePermission):

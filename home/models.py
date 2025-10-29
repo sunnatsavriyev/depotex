@@ -10,7 +10,7 @@ class CustomUser(AbstractUser):
     ROLE_CHOICES = [
         ("monitoring", "Monitoring"),
         ("texnik", "Texnik"),
-        ("skladchi", "Skladchi"),
+        ("jadval", "Jadval"),
     ]
     role = models.CharField(max_length=20, choices=ROLE_CHOICES)
 
@@ -32,9 +32,17 @@ class TamirTuri(models.Model):
     # masofa uchun
     tamirlash_davri = models.CharField(
         max_length=50,
-        help_text="Masofa bo‘yicha: 5505 ± 10 km"
+        help_text="Masofa bo‘yicha: 5505 km"
     )
-
+    tarkib_choices = [
+        ("Moskva(81-765,766,767)", "Moskva(81-765,766,767)"),
+        ("81-714,714.5,717,717.5,718,719 (Tisu)", "81-714,714.5,717,717.5,718,719 (Tisu)"),
+    ]
+    tarkib_turi = models.CharField(
+        max_length=50,
+        choices=tarkib_choices,
+        help_text="Tarkib turini tanlang",
+        null=True, blank=True)
     # vaqt uchun
     Vaqt_Choices = [
         ("soat", "Soat"),
@@ -50,6 +58,7 @@ class TamirTuri(models.Model):
         choices=Vaqt_Choices,
         help_text="Vaqt birligi: soat/kun/oy"
     )
+    akt_check = models.BooleanField(default=False)
 
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -67,6 +76,7 @@ class TamirTuri(models.Model):
 class ElektroDepo(models.Model):
     depo_nomi = models.CharField(max_length=255)
     qisqacha_nomi = models.CharField(max_length=50)
+    depo_rahbari = models.CharField(max_length=255, blank=True, null=True)
     joylashuvi = models.CharField(max_length=255)
     image = models.ImageField(upload_to="depo/", blank=True, null=True)
     created_by = models.ForeignKey(
@@ -565,34 +575,44 @@ class NosozlikStep(models.Model):
 
 
     
-class NosozlikNotification(models.Model):
-    tarkib = models.ForeignKey("HarakatTarkibi", on_delete=models.CASCADE)
-    nosozlik_turi = models.CharField(max_length=255)
-    count = models.IntegerField(default=1)
-    message = models.TextField(blank=True, null=True)
-    first_occurrence = models.DateTimeField(null=True, blank=True)
-    last_occurrence = models.DateTimeField(auto_now=True)
-    seen = models.BooleanField(default=False)
+
+
+
+class Marshrut (models.Model):
+    marshrut_raqam = models.CharField(max_length=255, null=True, blank=True)
+    
+    
+    
+class YilOy(models.Model):
+    yil = models.PositiveIntegerField()
+    oy = models.PositiveIntegerField()
+
+    class Meta:
+        unique_together = ("yil", "oy")
 
     def __str__(self):
-        return f"{self.tarkib} - {self.nosozlik_turi} ({self.count} marta)"
-
-
+        return f"{self.yil}-{self.oy:02d}"
+    
+    
 
 
 class TexnikKorikJadval(models.Model):
-    """
-    Har oylik texnik ko‘rik jadvali
-    """
     tarkib = models.ForeignKey(
         "HarakatTarkibi",
         on_delete=models.CASCADE,
         related_name="korik_jadvallari"
     )
+    marshrut = models.ForeignKey(
+        "Marshrut",
+        on_delete=models.CASCADE,
+        related_name="korik_jadvallari",
+        null=True, blank=True
+    )
     tamir_turi = models.ForeignKey(
         "TamirTuri",
         on_delete=models.CASCADE,
-        related_name="korik_jadvallari"
+        related_name="korik_jadvallari",
+        null=True, blank=True
     )
     sana = models.DateField(help_text="Texnik ko‘rik belgilangan sana")
     created_by = models.ForeignKey(
@@ -605,11 +625,18 @@ class TexnikKorikJadval(models.Model):
     class Meta:
         verbose_name = "Texnik ko‘rik jadvali"
         verbose_name_plural = "Texnik ko‘rik jadvallari"
-        unique_together = ("tarkib", "sana")  # Bitta tarkib bir kunda faqat bitta reja
+        unique_together = ("tarkib", "sana")
         ordering = ["-sana"]
 
     def __str__(self):
-        return f"{self.tarkib.tarkib_raqami} — {self.tamir_turi.tamir_nomi} ({self.sana})"
+        return f"{self.tarkib.tarkib_raqami} — {self.tamir_turi.tamir_nomi if self.tamir_turi else self.marshrut or 'No data'} ({self.sana})"
+
+    def clean(self):
+        """marshrut va tamir_turi o‘zaro mos bo‘lishini tekshirish"""
+        if self.marshrut and self.tamir_turi:
+            raise ValidationError("❌ Marshrut va Tamir turi bir vaqtda bo‘lishi mumkin emas!")
+        if not self.marshrut and not self.tamir_turi:
+            raise ValidationError("❌ Marshrut yoki Tamir turidan biri majburiy!")
 
     def save(self, *args, **kwargs):
         self.clean()
@@ -617,15 +644,31 @@ class TexnikKorikJadval(models.Model):
         
         
 class Notification(models.Model):
+    NOTIFICATION_TYPES = [
+        ("nosozlik", "Nosozlik"),
+        ("texnik_korik", "Texnik ko‘rik"),
+        ("ehtiyot_qism", "Ehtiyot qism"),
+    ]
+
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
-        related_name="notifications"
+        related_name="notifications",
+        null=True, blank=True
     )
+    type = models.CharField(max_length=50, choices=NOTIFICATION_TYPES)
     title = models.CharField(max_length=255)
     message = models.TextField()
+
+    tarkib = models.ForeignKey("HarakatTarkibi", on_delete=models.CASCADE, null=True, blank=True)
+    nosozlik_turi = models.CharField(max_length=255, null=True, blank=True)
+    ehtiyot_qism = models.ForeignKey("EhtiyotQismlari", on_delete=models.CASCADE, null=True, blank=True)
+
+    count = models.IntegerField(default=1)
     is_read = models.BooleanField(default=False)
+    seen = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
+    last_occurrence = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return f"{self.user.username} — {self.title}"
+        return f"[{self.type}] {self.title}"

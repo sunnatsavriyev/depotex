@@ -8,8 +8,8 @@ from .views import (
     HarakatTarkibiGetViewSet, NosozliklarGetViewSet,
     TexnikKorikGetViewSet, TexnikKorikStepViewSet,NosozlikStepViewSet,KorikNosozlikStatisticsView,
     KunlikYurishViewSet,HarakatTarkibiActiveViewSet,EhtiyotQismMiqdorListAPIView,EhtiyotQismMiqdorCreateAPIView,TarkibDetailViewSet,KunlikYurishHistoryAPIView,
-    get_me,NosozlikTuriViewSet,NosozlikNotificationViewSet,TexnikKorikJadvalViewSet,HarakatTarkibiHolatStatistikaViewSet,
-    TexnikKorikByTypeViewSet,TexnikKorikStepViewSet1,NosozliklarPDFExportView,NosozlikStepViewSet1,NotificationViewSet,
+    get_me,NosozlikTuriViewSet,TexnikKorikJadvalViewSet,HarakatTarkibiHolatStatistikaViewSet,
+    TexnikKorikByTypeViewSet,TexnikKorikStepViewSet1,NosozliklarPDFExportView,NosozlikStepViewSet1,NotificationViewSet,MarshrutJadvalViewSet,YilOyViewSet
 )
 routers
 router = DefaultRouter()
@@ -35,7 +35,8 @@ router.register(
     basename='harakat-tarkibi-holat-statistika'
 )
 router.register(r'notifications', NotificationViewSet, basename='notifications')
-router.register(r'nosozlik_notifications', NosozlikNotificationViewSet, basename='nosozlik_notifications')
+router.register(r'marshrut-jadval', MarshrutJadvalViewSet, basename='marshrut-jadval')
+router.register(r'yil-oy', YilOyViewSet, basename='yil-oy')
 
 
 

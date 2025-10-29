@@ -19,6 +19,8 @@ from .models import (
     EhtiyotQismHistory,
     NosozlikTuri,
     TexnikKorikJadval,
+    Marshrut,
+    YilOy,
 )
 
 # ---------------- Custom User ----------------
@@ -126,14 +128,14 @@ class TexnikKorikStepAdmin(admin.ModelAdmin):
 # ---------------- Qolganlari ----------------
 @admin.register(TamirTuri)
 class TamirTuriAdmin(admin.ModelAdmin):
-    list_display = ("id", "tamir_nomi", "tamirlash_davri", "tamirlanish_vaqti", "created_by", "created_at")
+    list_display = ("id", "tamir_nomi","tarkib_turi","akt_check", "tamirlash_davri", "tamirlanish_vaqti", "created_by", "created_at")
     search_fields = ("tamir_nomi",)
     list_filter = ("tamirlash_davri",)
 
 
 @admin.register(ElektroDepo)
 class ElektroDepoAdmin(admin.ModelAdmin):
-    list_display = ("id", "depo_nomi", "qisqacha_nomi", "joylashuvi", "created_by", "created_at", "image")
+    list_display = ("id", "depo_nomi", "qisqacha_nomi","depo_rahbari", "joylashuvi", "created_by", "created_at", "image")
     search_fields = ("depo_nomi", "qisqacha_nomi")
     list_filter = ("joylashuvi",)
 
@@ -145,7 +147,17 @@ class EhtiyotQismlariAdmin(admin.ModelAdmin):
     readonly_fields = ["jami_miqdor"]
 
 
+@admin.register(Marshrut)
+class MarshrutAdmin(admin.ModelAdmin):
+    list_display = ("id", "marshrut_raqam")
+    search_fields = ("marshrut_raqam",)
 
+
+
+@admin.register(YilOy)
+class YilOyAdmin(admin.ModelAdmin):
+    list_display = ("id", "yil", "oy")
+    search_fields = ("yil", "oy")
 
 
 
@@ -211,7 +223,7 @@ class NosozlikStepAdmin(admin.ModelAdmin):
 
 @admin.register(TexnikKorikJadval)
 class TexnikKorikJadvalAdmin(admin.ModelAdmin):
-    list_display = ("tarkib", "tamir_turi", "sana", "created_by", "created_at")
+    list_display = ("tarkib","marshrut", "tamir_turi", "sana", "created_by", "created_at")
     list_filter = ("tamir_turi", "tarkib__depo")
     search_fields = ("tarkib__tarkib_raqami",)
     ordering = ("-sana",)

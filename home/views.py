@@ -1,5 +1,5 @@
 from rest_framework import viewsets, status, filters, mixins, generics
-from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.permissions import IsAuthenticated, AllowAny,SAFE_METHODS
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.viewsets import ViewSet
@@ -10,13 +10,13 @@ from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from .models import (
     TamirTuri, ElektroDepo, EhtiyotQismlari,
     HarakatTarkibi, TexnikKorik, CustomUser, Nosozliklar, NosozlikEhtiyotQism, TexnikKorikStep,KunlikYurish,
-    Vagon,EhtiyotQismHistory, TexnikKorikEhtiyotQism,NosozlikTuri,NosozlikNotification,TexnikKorikJadval,Notification,
+    Vagon,EhtiyotQismHistory, TexnikKorikEhtiyotQism,NosozlikTuri,TexnikKorikJadval,Notification,Marshrut,YilOy
 )
 from .serializers import (
     TamirTuriSerializer, ElektroDepoSerializer,TexnikKorikJadvalSerializer,
     EhtiyotQismlariSerializer, HarakatTarkibiSerializer,
-    TexnikKorikSerializer, UserSerializer, NosozliklarSerializer, TexnikKorikStepSerializer, NosozlikStepSerializer,
-    NosozlikStep,KunlikYurishSerializer,VagonSerializer,NosozlikTuriSerializer,NosozlikNotificationSerializer,NotificationSerializer,
+    TexnikKorikSerializer, UserSerializer, NosozliklarSerializer, TexnikKorikStepSerializer, NosozlikStepSerializer,MarshrutSerializer,
+    NosozlikStep,KunlikYurishSerializer,VagonSerializer,NosozlikTuriSerializer,NotificationSerializer,YilOySerializer,
     HarakatTarkibiActiveSerializer, EhtiyotQismWithMiqdorSerializer,EhtiyotQismHistorySerializer, TarkibFullDetailSerializer,TexnikKorikDetailForStepSerializer,NosozlikDetailForStepSerializer)
 from django.utils import timezone
 from django.db.models import Sum, F
@@ -27,9 +27,11 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.decorators import api_view, permission_classes, action
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape, inch
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, HRFlowable, Image
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, HRFlowable, Image,PageBreak, Flowable
 import io
 from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.graphics.shapes import Drawing, Circle, Polygon, Rect, String
+from reportlab.graphics import renderPDF
 import requests
 import django_filters
 from rest_framework.exceptions import ValidationError
@@ -39,8 +41,8 @@ from django.db.models import Count
 from django.utils.timezone import now
 from datetime import timedelta, datetime, date
 from rest_framework.views import APIView
-from drf_spectacular.utils import extend_schema, OpenApiParameter
-from .permissions import IsMonitoringReadOnly, IsTexnik, IsSkladchiOrReadOnly
+from drf_spectacular.utils import extend_schema, OpenApiParameter,OpenApiExample
+from .permissions import IsMonitoringReadOnly, IsTexnik, IsJadvalchi
 import json
 from reportlab.lib.units import cm
 from drf_yasg.utils import swagger_auto_schema
@@ -52,8 +54,8 @@ from collections import defaultdict
 import pandas as pd
 import calendar
 from reportlab.lib.pagesizes import A3, landscape
-
-
+from django_filters.rest_framework import DjangoFilterBackend, FilterSet, DateFromToRangeFilter, NumberFilter
+from reportlab.lib.enums import TA_RIGHT
 class UserViewSet(viewsets.ModelViewSet):
     queryset = CustomUser.objects.all()
     serializer_class = UserSerializer
@@ -78,7 +80,7 @@ def get_me(request):
 
     for check in todays_checks:
         depo = getattr(check.tarkib, "depo", None)
-        if depo and user in depo.xodimlar.filter(role="texnik"):
+        if depo and user in depo.users.filter(role="texnik"):
             message = (
                 f"Bugun {check.tarkib.tarkib_raqami} tarkibi uchun "
                 f"'{check.tamir_turi.tamir_nomi}' texnik ko‘rik rejalashtirilgan."
@@ -100,7 +102,7 @@ def get_me(request):
 
 
 class BaseViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAuthenticated, IsSkladchiOrReadOnly,IsMonitoringReadOnly,IsTexnik]
+    permission_classes = [IsAuthenticated,IsMonitoringReadOnly,IsTexnik]
     require_login_fields = False
     filter_backends = [filters.SearchFilter, filters.OrderingFilter, DjangoFilterBackend]
     search_fields = []  
@@ -349,7 +351,7 @@ class TamirTuriViewSet(BaseViewSet):
     permission_classes = [IsAuthenticated,IsTexnik]
     require_login_fields = False
     filter_backends = [filters.SearchFilter, filters.OrderingFilter, DjangoFilterBackend]
-    search_fields = ['tamir_nomi', 'tamirlash_davri', 'tamirlanish_vaqti']   
+    search_fields = ['tamir_nomi',"tarkib_turi", 'tamirlash_davri', 'tamirlanish_vaqti']   
     ordering_fields = ['tamirlanish_vaqti', 'id']
     pagination_class = CustomPagination
     
@@ -374,7 +376,7 @@ class ElektroDepoViewSet(BaseViewSet):
 class EhtiyotQismlariViewSet(viewsets.ModelViewSet):
     queryset = EhtiyotQismlari.objects.all().order_by('-id')
     serializer_class = EhtiyotQismlariSerializer
-    permission_classes = [IsAuthenticated, IsSkladchiOrReadOnly]
+    permission_classes = [IsAuthenticated, IsTexnik]
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['ehtiyotqism_nomi', 'nomenklatura_raqami']
     ordering_fields = ['id', 'nomenklatura_raqami']
@@ -408,7 +410,7 @@ class EhtiyotQismMiqdorListAPIView(APIView):
 
 class EhtiyotQismMiqdorCreateAPIView(generics.CreateAPIView):
     serializer_class = EhtiyotQismHistorySerializer
-    permission_classes = [IsAuthenticated, IsSkladchiOrReadOnly]
+    permission_classes = [IsAuthenticated, IsTexnik]
 
     def perform_create(self, serializer):
         ehtiyotqism_pk = self.kwargs.get("ehtiyotqism_pk")
@@ -561,7 +563,7 @@ class HarakatTarkibiActiveViewSet(BaseViewSet):
         .order_by("-id")
     )
     serializer_class = HarakatTarkibiActiveSerializer
-    basename = "harakat-tarkibi-active"  # ✅ Bo‘sh joysiz
+    basename = "harakat-tarkibi-active"  #  Bo‘sh joysiz
     permission_classes = [IsAuthenticated, IsTexnik]
     require_login_fields = False
     pagination_class = CustomPagination
@@ -569,10 +571,27 @@ class HarakatTarkibiActiveViewSet(BaseViewSet):
     search_fields = ['guruhi', 'tarkib_raqami', 'turi', 'ishga_tushgan_vaqti', 'eksplutatsiya_vaqti', 'holati']
     ordering_fields = ['ishga_tushgan_vaqti', 'id']
     filterset_fields = ['depo']
+    
+    
+    def get_queryset(self):
+        user = self.request.user
+        
+        # SuperUser uchun barcha depolardagi tarkiblarni ko'rsatish
+        if user.is_superuser:
+            queryset = HarakatTarkibi.objects.filter(is_active=True)
+        # Oddiy user uchun faqat o'z deposidagi tarkiblarni ko'rsatish
+        else:
+            user_depo = user.depo
+            if user_depo:
+                queryset = HarakatTarkibi.objects.filter(is_active=True, depo=user_depo)
+            else:
+                queryset = HarakatTarkibi.objects.none()
+        
+        return queryset
 
 
 
-class HarakatTarkibiHolatStatistikaViewSet(viewsets.ViewSet):
+class HarakatTarkibiHolatStatistikaViewSet(viewsets.GenericViewSet):
     permission_classes = [IsAuthenticated, IsTexnik]
 
     # --- Asosiy statistikani chiqarish ---
@@ -593,16 +612,57 @@ class HarakatTarkibiHolatStatistikaViewSet(viewsets.ViewSet):
         })
 
     # --- PDF EXPORT ---
-    @action(detail=False, methods=["get"], url_path="export-nosozlikda-pdf")
-    def export_nosozlikda_pdf(self, request):
-        queryset = HarakatTarkibi.objects.filter(is_active=True, holati="Nosozlikda")
+    @extend_schema(
+    parameters=[
+        OpenApiParameter(
+            name="type",
+            description="Qaysi turdagi PDF kerak?",
+            required=True,
+            type=str,
+            examples=[
+                OpenApiExample(
+                    name="Nosozlik",
+                    summary="Nosozlikda bo‘lgan tarkiblar",
+                    value="nosozlikda"
+                ),
+                OpenApiExample(
+                    name="Texnik",
+                    summary="Texnik ko‘rikda bo‘lgan tarkiblar",
+                    value="texnik"
+                ),
+            ],
+        ),
+    ],
+    responses={200: {"description": "PDF fayl qaytaradi"}}
+    )
+    @action(detail=False, methods=["get"], url_path="export-pdf")
+    def export_pdf(self, request):
+        pdf_type = request.query_params.get("type", "").lower().strip("/")
 
+        if pdf_type not in ["nosozlikda", "texnik"]:
+            return Response({
+                "detail": "Iltimos, ?type=nosozlikda yoki ?type=texnik deb kiriting."
+            }, status=400)
+
+        # --- Filter va sozlamalar ---
+        if pdf_type == "nosozlikda":
+            queryset = HarakatTarkibi.objects.filter(is_active=True, holati="Nosozlikda")
+            title_text = "Nosozlikda bo‘lgan tarkiblar ro‘yxati"
+            title_color = "red"
+            filename_prefix = "Nosozlikda_Tarkiblar"
+        else:
+            queryset = HarakatTarkibi.objects.filter(is_active=True, holati="Texnik_korikda")
+            title_text = "Texnik ko‘rikda bo‘lgan tarkiblar ro‘yxati"
+            title_color = "blue"
+            filename_prefix = "TexnikKorik_Tarkiblar"
+
+        # --- PDF yaratish ---
         buffer = BytesIO()
         doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=1*cm, bottomMargin=1*cm)
         elements = []
 
         title = Paragraph(
-            "<b><font size=14 color='red'>Nosozlikda bo‘lgan tarkiblar ro‘yxati</font></b>",
+            f"<b><font size=14 color='{title_color}'>{title_text}</font></b>",
             ParagraphStyle('title', alignment=1)
         )
         elements += [title, Spacer(1, 10)]
@@ -621,11 +681,11 @@ class HarakatTarkibiHolatStatistikaViewSet(viewsets.ViewSet):
         table.setStyle(TableStyle([
             ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
             ('BACKGROUND', (0, 0), (-1, 0), colors.whitesmoke),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.darkblue),  # 🔹 Header matnini darkblue qilish
-            ('ALIGN', (0, 0), (-1, 0), 'CENTER'),              # Headerlarni o‘rtaga tekislash
-            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),            # Vertikal markazlashtirish
-            ('FONTSIZE', (0, 0), (-1, 0), 11),                 # Header matn o‘lchami
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),   # Headerni qalin qilish
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.darkblue),
+            ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('FONTSIZE', (0, 0), (-1, 0), 11),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
         ]))
         elements.append(table)
 
@@ -633,59 +693,21 @@ class HarakatTarkibiHolatStatistikaViewSet(viewsets.ViewSet):
         pdf = buffer.getvalue()
         buffer.close()
 
+        filename = f"{filename_prefix}_{datetime.now().strftime('%Y%m%d')}.pdf"
         response = HttpResponse(pdf, content_type="application/pdf")
-        filename = f"Nosozlikda_Tarkiblar_{datetime.now().strftime('%Y%m%d')}.pdf"
-        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
         return response
 
-    # --- PDF: Texnik ko‘rikdagilar ---
-    @action(detail=False, methods=["get"], url_path="export-texnik-pdf")
-    def export_texnik_pdf(self, request):
-        queryset = HarakatTarkibi.objects.filter(is_active=True, holati="Texnik ko‘rikda")
-
-        buffer = BytesIO()
-        doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=1*cm, bottomMargin=1*cm)
-        elements = []
-
-        title = Paragraph(
-            "<b><font size=14 color='blue'>Texnik ko‘rikda bo‘lgan tarkiblar ro‘yxati</font></b>",
-            ParagraphStyle('title', alignment=1)
-        )
-        elements += [title, Spacer(1, 10)]
-
-        data = [["#", "Tarkib raqami", "Turi", "Masofa", "Holati"]]
-        for i, obj in enumerate(queryset, 1):
-            data.append([
-                i,
-                str(obj.tarkib_raqami or "-"),
-                str(obj.turi or "-"),
-                str(getattr(obj, 'masofa', "-")),
-                str(obj.holati or "-"),
-            ])
-
-        table = Table(data, hAlign='CENTER', colWidths=[1*cm, 4*cm, 4*cm, 3*cm, 5*cm])
-        table.setStyle(TableStyle([
-            ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
-            ('BACKGROUND', (0, 0), (-1, 0), colors.whitesmoke),
-        ]))
-        elements.append(table)
-
-        doc.build(elements)
-        pdf = buffer.getvalue()
-        buffer.close()
-
-        response = HttpResponse(pdf, content_type="application/pdf")
-        filename = f"TexnikKorik_Tarkiblar_{datetime.now().strftime('%Y%m%d')}.pdf"
-        response['Content-Disposition'] = f'attachment; filename="{filename}"'
-        return response
 
     # --- EXCEL EXPORT ---
+    
     @action(detail=False, methods=["get"], url_path="export-excel")
     def export_excel(self, request):
         queryset = HarakatTarkibi.objects.filter(is_active=True)
         nosozlikda = queryset.filter(holati="Nosozlikda")
-        texnik_korikda = queryset.filter(holati="Texnik ko‘rikda")
+        texnik_korikda = queryset.filter(holati="Texnik_korikda")  # ✅ diqqat: modeldagi aniq qiymatni yozing
 
+        # Excel fayl yaratish
         wb = Workbook()
         ws1 = wb.active
         ws1.title = "Nosozlikda"
@@ -693,28 +715,44 @@ class HarakatTarkibiHolatStatistikaViewSet(viewsets.ViewSet):
 
         headers = ["#", "Tarkib raqami", "Turi", "Masofa", "Holati"]
 
-        for sheet, data in [(ws1, nosozlikda), (ws2, texnik_korikda)]:
-            sheet.append(headers)
-            for i, obj in enumerate(data, 1):
-                sheet.append([
-                    i,
-                    str(obj.tarkib_raqami or "-"),
-                    str(obj.turi or "-"),
-                    str(getattr(obj, 'masofa', "-")),
-                    str(obj.holati or "-"),
-                ])
+        # --- Nosozlikda sahifasi ---
+        ws1.append(headers)
+        for i, obj in enumerate(nosozlikda, 1):
+            ws1.append([
+                i,
+                str(obj.tarkib_raqami or "-"),
+                str(obj.turi or "-"),
+                str(getattr(obj, 'masofa', "-")),
+                str(obj.holati or "-"),
+            ])
+
+        # --- Texnik ko‘rikda sahifasi ---
+        ws2.append(headers)
+        for i, obj in enumerate(texnik_korikda, 1):
+            ws2.append([
+                i,
+                str(obj.tarkib_raqami or "-"),
+                str(obj.turi or "-"),
+                str(getattr(obj, 'masofa', "-")),
+                str(obj.holati or "-"),
+            ])
+
+        # Ustun kengliklarini moslashtirish
+        for sheet in [ws1, ws2]:
             for col in range(1, len(headers) + 1):
                 sheet.column_dimensions[get_column_letter(col)].width = 20
 
+        # Excel faylni xotirada saqlash
         output = BytesIO()
         wb.save(output)
         output.seek(0)
 
+        # Javobga yuborish
         response = HttpResponse(
             output,
             content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-        filename = f"HarakatTarkibi_Statistika_{datetime.now().strftime('%Y%m%d')}.xlsx"
+        filename = f"HarakatTarkibi_Holatlar_{datetime.now().strftime('%Y%m%d')}.xlsx"
         response['Content-Disposition'] = f'attachment; filename="{filename}"'
         return response
 
@@ -1227,26 +1265,37 @@ class NosozlikStepViewSet(BaseViewSet):
 
 
 
-class NosozlikNotificationViewSet(viewsets.ModelViewSet):
-    queryset = NosozlikNotification.objects.all().order_by("-last_occurrence")
-    serializer_class = NosozlikNotificationSerializer
-    permission_classes = [IsAuthenticated, IsMonitoringReadOnly]
+class NotificationViewSet(viewsets.ModelViewSet):
+    serializer_class = NotificationSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        qs = Notification.objects.all().order_by("-created_at")
+
+        # Agar texnik bo‘lsa — faqat o‘ziga tegishli
+        if hasattr(user, "role") and user.role == "texnik":
+            qs = qs.filter(user=user)
+        return qs
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.get_queryset()
+        nosozliklar = queryset.filter(type="nosozlik")
+        texnik_koriklar = queryset.filter(type="texnik_korik")
+        ehtiyot_qismlar = queryset.filter(type="ehtiyot_qism")
+
+        return Response({
+            "nosozlik": NotificationSerializer(nosozliklar, many=True).data,
+            "texnik_korik": NotificationSerializer(texnik_koriklar, many=True).data,
+            "ehtiyot_qism": NotificationSerializer(ehtiyot_qismlar, many=True).data,
+        })
 
     @action(detail=True, methods=["patch"])
-    def mark_seen(self, request, pk=None):
-        """
-        PATCH /api/notifications/{id}/mark_seen/
-        -> seen=True qiladi
-        """
-        try:
-            notification = self.get_object()
-            notification.seen = True
-            notification.save(update_fields=["seen"])
-            return Response({"detail": "Ko‘rildi holati True bo‘ldi"}, status=status.HTTP_200_OK)
-        except NosozlikNotification.DoesNotExist:
-            return Response({"error": "Topilmadi"}, status=status.HTTP_404_NOT_FOUND)
-        
-        
+    def mark_as_read(self, request, pk=None):
+        notif = self.get_object()
+        notif.is_read = True
+        notif.save(update_fields=["is_read"])
+        return Response({"detail": "Xabar o‘qilgan sifatida belgilandi"}, status=status.HTTP_200_OK)
         
 
 class KorikNosozlikStatisticsView(APIView):
@@ -2633,47 +2682,176 @@ class NosozlikStepViewSet1(ViewSet):
         wb.save(response)
         return response
     
-    
    
+
+
+class MarshrutJadvalViewSet(viewsets.ModelViewSet):
+    queryset = Marshrut.objects.all()
+    serializer_class = MarshrutSerializer
+    permission_classes = [IsAuthenticated, IsJadvalchi]
+    filter_backends = [filters.SearchFilter, DjangoFilterBackend, filters.OrderingFilter]
+    pagination_class = CustomPagination
+    filterset_fields = ["marshrut_raqam"]
     
+    
+class YilOyViewSet(viewsets.ModelViewSet):
+    queryset = YilOy.objects.all()
+    serializer_class = YilOySerializer
+    permission_classes = [IsAuthenticated, IsJadvalchi]
+    filter_backends = [filters.SearchFilter, DjangoFilterBackend, filters.OrderingFilter]
+    pagination_class = CustomPagination
+    filterset_fields = ["yil", "oy"]
+    
+    
+
 
 class TexnikKorikJadvalViewSet(viewsets.ModelViewSet):
     queryset = TexnikKorikJadval.objects.select_related("tarkib", "tamir_turi", "created_by")
     serializer_class = TexnikKorikJadvalSerializer
-    permission_classes = [IsAuthenticated, IsTexnik]
+    # permission_classes = [IsAuthenticated, IsJadvalchi]
     filter_backends = [filters.SearchFilter, DjangoFilterBackend, filters.OrderingFilter]
     search_fields = ["tarkib__tarkib_raqami", "tamir_turi__tamir_nomi"]
-    filterset_fields = ["tarkib", "tamir_turi", "sana"]
+    filterset_fields = ["tarkib__depo", "tamir_turi", "sana", "tarkib"]
     ordering_fields = ["sana", "created_at"]
+    pagination_class = CustomPagination
     
+    
+    def get_permissions(self):
+        
+        user = self.request.user
+
+        # Agar superuser bo‘lsa, to‘liq ruxsat
+        if user.is_superuser:
+            permission_classes = [IsAuthenticated]
+        # Jadvalchi CRUD qila oladi
+        elif getattr(user, "role", None) == "jadval":
+            permission_classes = [IsAuthenticated, IsJadvalchi]
+        # Texnik va Monitoring faqat o‘qiy oladi
+        elif getattr(user, "role", None) in ["texnik", "monitoring"]:
+            permission_classes = [IsAuthenticated]
+            if self.request.method in SAFE_METHODS:
+                # Faqat o‘qish uchun
+                permission_classes.append(IsTexnik if user.role == "texnik" else IsMonitoringReadOnly)
+            else:
+                # POST, PUT, DELETE — ruxsat yo‘q
+                self.permission_denied(
+                    self.request, message="Sizda bu amalni bajarishga ruxsat yo‘q."
+                )
+        # Boshqalar hech narsa qila olmaydi
+        else:
+            self.permission_denied(self.request, message="Sizga ruxsat yo‘q.")
+
+        return [permission() for permission in permission_classes]
     
     def get_queryset(self):
-        return (
-            TexnikKorikJadval.objects
-            .select_related("tarkib", "tamir_turi", "created_by")
-            .filter(tarkib__is_active=True)
-    )
+        user = self.request.user
+        
+        # SuperUser uchun barcha depolardagi yozuvlarni ko'rsatish
+        if user.is_superuser:
+            queryset = (
+                TexnikKorikJadval.objects
+                .select_related("tarkib", "tamir_turi", "created_by")
+                .filter(tarkib__is_active=True)
+            )
+        # Oddiy user uchun faqat o'z deposidagi yozuvlarni ko'rsatish
+        else:
+            user_depo = user.depo
+            queryset = (
+                TexnikKorikJadval.objects
+                .select_related("tarkib", "tamir_turi", "created_by")
+                .filter(tarkib__is_active=True, tarkib__depo=user_depo)
+            )
+        
+        # Year filter - ?year=2025
+        year = self.request.query_params.get('year')
+        if year and year.isdigit():
+            queryset = queryset.filter(sana__year=int(year))
+            
+        # Month filter - ?month=10  
+        month = self.request.query_params.get('month')
+        if month and month.isdigit():
+            queryset = queryset.filter(sana__month=int(month))
+            
+        # Year-month filter - ?year_month=2025-10
+        year_month = self.request.query_params.get('year_month')
+        if year_month:
+            try:
+                year, month = year_month.split('-')
+                if year.isdigit() and month.isdigit():
+                    queryset = queryset.filter(sana__year=int(year), sana__month=int(month))
+            except (ValueError, IndexError):
+                pass
+            
+        return queryset
+        
 
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
+        
+    @extend_schema(
+        parameters=[
+            
+            OpenApiParameter(
+                name="year_month",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description="Yil-oy formatida (masalan: 2025-10)",
+                required=False,
+            ),
+            OpenApiParameter(
+                name="tarkib__depo",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                description="Depo ID sini kiriting",
+                required=False,
+            ),
+            OpenApiParameter(
+                name="tamir_turi",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                description="Tamir turi ID sini kiriting",
+                required=False,
+            ),
+            OpenApiParameter(
+                name="sana",
+                type=OpenApiTypes.DATE,
+                location=OpenApiParameter.QUERY,
+                description="Aniq sana (YYYY-MM-DD formatida)",
+                required=False,
+            ),
+        ]
+    )
+    def list(self, request, *args, **kwargs):
+        return super().list(request, *args, **kwargs)
         
         
     @action(detail=False, methods=["get"])
     def export_excel(self, request):
         queryset = self.filter_queryset(self.get_queryset())
-        data = [
-            {
-                "Tarkib": j.tarkib.tarkib_raqami,
-                "Depo": j.tarkib.depo.qisqacha_nomi if j.tarkib.depo else "",
-                "Tamir turi": j.tamir_turi.tamir_nomi,
-                "Sana": j.sana.strftime("%d.%m.%Y"),
-                "Yaratgan": j.created_by.username if j.created_by else "",
-            }
-            for j in queryset
-        ]
+        
+        data = []
+        for j in queryset:
+            # None tekshirishlarini qo'shamiz
+            tarkib_raqami = j.tarkib.tarkib_raqami if j.tarkib else ""
+            depo_nomi = j.tarkib.depo.qisqacha_nomi if j.tarkib and j.tarkib.depo else ""
+            tamir_nomi = j.tamir_turi.tamir_nomi if j.tamir_turi else ""
+            sana = j.sana.strftime("%d.%m.%Y") if j.sana else ""
+            created_by = j.created_by.username if j.created_by else ""
+            
+            data.append({
+                "Tarkib": tarkib_raqami,
+                "Depo": depo_nomi,
+                "Tamir turi": tamir_nomi,
+                "Marshrut": j.marshrut or "",
+                "Sana": sana,
+                "Yaratgan": created_by,
+            })
+        
         df = pd.DataFrame(data)
         output = BytesIO()
-        df.to_excel(output, index=False)
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, sheet_name='Texnik Korik')
+        
         response = HttpResponse(
             output.getvalue(),
             content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -2701,136 +2879,199 @@ class TexnikKorikJadvalViewSet(viewsets.ModelViewSet):
     description="Tanlangan oy va yil uchun texnik ko‘rik jadvalini PDF shaklida eksport qiladi.",
     responses={200: "application/pdf"},
 )
+
+    
     @action(detail=False, methods=["get"])
     def export_pdf(self, request):
-        queryset = self.filter_queryset(self.get_queryset())
-
-        # === Tanlangan yil/oy (yoki hozirgi) ===
         yil = int(request.query_params.get("year", datetime.now().year))
         oy = int(request.query_params.get("month", datetime.now().month))
+        bugun = datetime.now().strftime("%d.%m.%Y")
         kunlar_soni = calendar.monthrange(yil, oy)[1]
-        oy_nomi = datetime(yil, oy, 1).strftime("%B %Y")
 
-        # === Tamir turlari uchun ranglar ===
-        tamir_ranglar = {
-            "TO-2": colors.lightgreen,
-            "TO-3": colors.lightblue,
-            "TR-1": colors.lightpink,
-            "TR-2": colors.lightyellow,
-            "TR-3": colors.lavender,
-            "KR-1": colors.palegreen,
-            "KR-2": colors.orange,
+        oy_nomlari = {
+            1: "Yanvar", 2: "Fevral", 3: "Mart", 4: "Aprel",
+            5: "May", 6: "Iyun", 7: "Iyul", 8: "Avgust",
+            9: "Sentabr", 10: "Oktyabr", 11: "Noyabr", 12: "Dekabr"
         }
+        oy_nomi = oy_nomlari[oy]
 
         buffer = BytesIO()
         doc = SimpleDocTemplate(
             buffer,
             pagesize=landscape(A3),
-            topMargin=1 * cm,
-            bottomMargin=1 * cm,
+            topMargin=1.5 * cm,
+            bottomMargin=1.5 * cm,
             leftMargin=1 * cm,
             rightMargin=1 * cm,
         )
 
         styles = getSampleStyleSheet()
-        title_style = ParagraphStyle("Title", parent=styles["Title"], alignment=1)
-        elements = [
-            Paragraph(f"<b>Texnik ko‘rik oylik jadvali — {oy_nomi}</b>", title_style),
-            Spacer(1, 10)
-        ]
+        title_style = ParagraphStyle("Title", parent=styles["Title"], alignment=1, fontSize=20, fontName="Helvetica-Bold")
+        depo_title_style = ParagraphStyle("DepoTitle", parent=styles["Normal"], alignment=1, fontSize=14, fontName="Helvetica-Bold")
+        boshliq_style = ParagraphStyle("Boshliq", parent=styles["Normal"], alignment=2, fontSize=12, leading=15)
+        date_style = ParagraphStyle("Date", parent=styles["Normal"], alignment=2, fontSize=10, leading=14)
+        main_text_style = ParagraphStyle("MainText", parent=styles["Normal"], alignment=1, fontSize=13, leading=18)
 
-        kunlar = list(range(1, kunlar_soni + 1))
-        header = ["Tarkib raqami", "Depo"] + [str(k) for k in kunlar]
+        # Foydalanuvchi deposiga qarab filter
+        user = request.user
+        if user.is_superuser:
+            barcha_aktiv_tarkiblar = HarakatTarkibi.objects.filter(is_active=True)
+        else:
+            barcha_aktiv_tarkiblar = HarakatTarkibi.objects.filter(is_active=True, depo=user.depo)
 
-        # === Faqat is_active=True bo‘lgan barcha tarkiblar ===
-        from home.models import HarakatTarkibi  # kerakli joyda import qiling
-        barcha_aktiv_tarkiblar = HarakatTarkibi.objects.filter(is_active=True)
-
-        # === Tamir yozuvlari (TO-1 dan tashqari) ===
+        queryset = self.filter_queryset(self.get_queryset())
         tamirlar = queryset.exclude(tamir_turi__tamir_nomi="TO-1")
 
-        # === Tarkiblarni guruhlab chiqish ===
-        tarkiblar = {
-            t.tarkib_raqami: {"depo": t.depo.qisqacha_nomi if t.depo else "", "tamirlar": []}
-            for t in barcha_aktiv_tarkiblar
-        }
+        depolar = {}
+        for t in barcha_aktiv_tarkiblar:
+            depo_nomi = t.depo.qisqacha_nomi if t.depo else "No Depo"
+            if depo_nomi not in depolar:
+                depolar[depo_nomi] = {}
+            depolar[depo_nomi][t.tarkib_raqami] = []
 
         for j in tamirlar:
             if j.sana.year != yil or j.sana.month != oy:
                 continue
-
-            tarkib_raqam = j.tarkib.tarkib_raqami
-            if tarkib_raqam not in tarkiblar:
+            if not j.tarkib or not j.tarkib.depo:
                 continue
 
-            sana_kun = j.sana.day
+            depo_nomi = j.tarkib.depo.qisqacha_nomi
+            tarkib_raqam = j.tarkib.tarkib_raqami
             tamir_nomi = j.tamir_turi.tamir_nomi if j.tamir_turi else ""
-            davom_kun = (
-                j.tamir_turi.tamirlanish_miqdori
-                if j.tamir_turi and j.tamir_turi.tamirlanish_vaqti == "kun"
-                else 1
-            )
 
-            end_kun = min(sana_kun + davom_kun - 1, kunlar_soni)
-            tarkiblar[tarkib_raqam]["tamirlar"].append({
-                "boshlanish": sana_kun,
+            davom_kun = 1
+            if j.tamir_turi and j.tamir_turi.tamirlanish_vaqti == "kun":
+                davom_kun = j.tamir_turi.tamirlanish_miqdori or 1
+            elif j.tamir_turi and j.tamir_turi.tamirlanish_vaqti == "oy":
+                davom_kun = (j.tamir_turi.tamirlanish_miqdori or 1) * 30
+
+            end_kun = min(j.sana.day + davom_kun - 1, kunlar_soni)
+
+            depolar[depo_nomi][tarkib_raqam].append({
+                "boshlanish": j.sana.day,
                 "tugash": end_kun,
                 "tamir_nomi": tamir_nomi,
+                "marshrut": j.marshrut or ""
             })
 
-        # === Jadval ma'lumotlarini tayyorlash ===
-        data = [header]
-        style_commands = [
-            ("GRID", (0, 0), (-1, -1), 0.3, colors.grey),
-            ("BACKGROUND", (0, 0), (-1, 0), colors.lightblue),
-            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-            ("FONTSIZE", (0, 0), (-1, 0), 8),
-            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ]
+        elements = []
 
-        row_index = 1
-        for tarkib, info in sorted(tarkiblar.items()):
-            row = [tarkib, info["depo"]] + [""] * kunlar_soni
+        for depo_nomi, tarkiblar in depolar.items():
+            depo_obj = ElektroDepo.objects.filter(qisqacha_nomi=depo_nomi).first()
+            depo_full = depo_obj.depo_nomi if depo_obj else depo_nomi
+            boshliq_ism = depo_obj.depo_rahbari if depo_obj and depo_obj.depo_rahbari else "__________________"
 
-            if info["tamirlar"]:
-                for t in info["tamirlar"]:
-                    start, end, tamir_nomi = t["boshlanish"], t["tugash"], t["tamir_nomi"]
-                    col_start = 2 + (start - 1)
-                    col_end = 2 + (end - 1)
-                    row[col_start] = tamir_nomi
-                    style_commands.append(("SPAN", (col_start, row_index), (col_end, row_index)))
-                    color = tamir_ranglar.get(tamir_nomi, colors.whitesmoke)
-                    style_commands.append(("BACKGROUND", (col_start, row_index), (col_end, row_index), color))
+            boshliq_style = ParagraphStyle(
+                'boshliq_style',
+                alignment=TA_RIGHT,
+                fontSize=12,
+                rightIndent=0,
+            )
 
-            data.append(row)
-            row_index += 1
+            # TASDIQLAYMAN uchun (sal chaproqda)
+            tasdiqlayman_style = ParagraphStyle(
+                'tasdiqlayman_style',
+                parent=boshliq_style,
+                alignment=TA_RIGHT,
+                rightIndent=60,  # sal chaproqda
+                fontSize=12,
+                spaceAfter=3,
+            )
 
-        col_widths = [5 * cm, 3 * cm] + [0.9 * cm] * kunlar_soni
-        table = Table(data, repeatRows=1, colWidths=col_widths, hAlign="CENTER")
-        table.setStyle(TableStyle(style_commands))
+            # Depo boshlig‘i qatori uchun (sal o‘ngroqda)
+            boshliq_nom_style = ParagraphStyle(
+                'boshliq_nom_style',
+                parent=boshliq_style,
+                alignment=TA_RIGHT,
+                rightIndent=30,  
+                fontSize=12,
+                spaceAfter=4,
+            )
 
-        elements.append(table)
+            # === 1️ Yuqori o‘ngda — tasdiqlovchi qism ===
+            elements.append(Paragraph("<b>TASDIQLAYMAN</b>", tasdiqlayman_style))
+            elements.append(Paragraph(f"{depo_full} elektrodeposi boshlig‘i", boshliq_nom_style))
+            elements.append(Paragraph(f"_________________{boshliq_ism}", boshliq_style))
+
+            #  Sana formati — ham 10 pt
+            hozirgi_yil = datetime.now().year
+            sana_matn = f"{hozirgi_yil}-yil &quot;________&quot; _______________"
+            elements.append(Paragraph(f"<i>{sana_matn}</i>", ParagraphStyle(
+                'sana_style',
+                parent=boshliq_style,
+                spaceBefore=6  
+            )))
+            elements.append(Spacer(1, 20))
+
+            # === 2️ Jadval sarlavhasi markazda ===
+            elements.append(Paragraph(
+                f"<b>{depo_full} ( {depo_nomi} ) elektrodeposidagi harakat tarkiblarining "
+                f"{yil} yil {oy_nomi} oyidagi rejali yo‘nalishga chiqish va texnik ko‘riklar o‘tkazish jadvali</b>",
+                main_text_style
+            ))
+            elements.append(Spacer(1, 15))
+
+            # === 3️ Jadval ===
+            kunlar = list(range(1, kunlar_soni + 1))
+            header = ["Tarkib raqami \\ Sana"] + [str(k) for k in kunlar]
+            data = [header]
+
+            table_style = TableStyle([
+                ("GRID", (0, 0), (-1, -1), 0.4, colors.grey),
+                ("BACKGROUND", (1, 0), (-1, 0), colors.lightgreen),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, 0), 10),
+                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ])
+
+            row_index = 1
+            for tarkib, tamirlar_list in sorted(tarkiblar.items()):
+                row = [Paragraph(f"<b>{tarkib}</b>", ParagraphStyle("", fontSize=10, fontName="Helvetica-Bold"))] + [""] * kunlar_soni
+
+                for t in tamirlar_list:
+                    start, end, tamir_nomi, marshrut = (
+                        t["boshlanish"], t["tugash"], t["tamir_nomi"], t["marshrut"]
+                    )
+                    if not tamir_nomi and marshrut:
+                        row[start] = Paragraph(f"<b>{marshrut}</b>", ParagraphStyle("", fontSize=9, alignment=1, fontName="Helvetica"))
+                    elif tamir_nomi:
+                        row[start] = Paragraph(f"<b>{tamir_nomi}</b>", ParagraphStyle("", fontSize=8, alignment=1, fontName="Helvetica-Bold"))
+                        if tamir_nomi.startswith("TO"):
+                            table_style.add("BACKGROUND", (start, row_index), (end, row_index), colors.HexColor("#fff566"))  # sariq
+                        elif tamir_nomi.startswith("TR"):
+                            table_style.add("BACKGROUND", (start, row_index), (end, row_index), colors.HexColor("#b7ebff"))  # ko‘k
+                        else:
+                            table_style.add("BACKGROUND", (start, row_index), (end, row_index), colors.HexColor("#ffccc7"))  # qizil
+
+                        table_style.add("SPAN", (start, row_index), (end, row_index))
+
+                data.append(row)
+                row_index += 1
+
+            col_widths = [4.0 * cm] + [1.15 * cm] * kunlar_soni
+            row_height = 0.9 * cm
+            table = Table(data, repeatRows=1, colWidths=col_widths, hAlign="CENTER", rowHeights=row_height)
+            table.setStyle(table_style)
+            elements.append(table)
+
+            elements.append(Spacer(1, 25))
+            if depo_nomi != list(depolar.keys())[-1]:
+                elements.append(PageBreak())
+
+        # PDF yaratish
         doc.build(elements)
         buffer.seek(0)
-
         response = HttpResponse(buffer.getvalue(), content_type="application/pdf")
         response["Content-Disposition"] = f'attachment; filename="texnik_korik_{yil}_{oy}.pdf"'
         return response
 
 
 
-class NotificationViewSet(viewsets.ModelViewSet):
-    serializer_class = NotificationSerializer
-    permission_classes = [IsAuthenticated, IsTexnik]
 
-    def get_queryset(self):
-        return Notification.objects.filter(user=self.request.user).order_by("-created_at")
 
-    @action(detail=True, methods=["patch"])
-    def mark_as_read(self, request, pk=None):
-        """is_read=True qilish uchun PATCH"""
-        notification = self.get_object()
-        notification.is_read = True
-        notification.save()
-        return Response({"status": "read"}, status=200)
+
+
+
+
+
