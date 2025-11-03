@@ -169,11 +169,11 @@ class VagonInline(admin.TabularInline):
 @admin.register(HarakatTarkibi)
 class HarakatTarkibiAdmin(admin.ModelAdmin):
     list_display = (
-        "id", "tarkib_raqami", "turi", "guruhi", "depo",
+        "id", "tarkib_raqami", "turi", "depo",
         "ishga_tushgan_vaqti", "eksplutatsiya_vaqti", "holati",
         "is_active", "created_by", "created_at",
     )
-    search_fields = ("tarkib_raqami", "turi", "guruhi")
+    search_fields = ("tarkib_raqami", "turi")
     list_filter = ("depo", "holati", "is_active")
     readonly_fields = ("image", "tarkib_raqami")  # ❗ Tarkib raqami endi faqat readonly
     inlines = [VagonInline]

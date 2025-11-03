@@ -10,7 +10,7 @@ from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from .models import (
     TamirTuri, ElektroDepo, EhtiyotQismlari,
     HarakatTarkibi, TexnikKorik, CustomUser, Nosozliklar, NosozlikEhtiyotQism, TexnikKorikStep,KunlikYurish,
-    Vagon,EhtiyotQismHistory, TexnikKorikEhtiyotQism,NosozlikTuri,TexnikKorikJadval,Notification,Marshrut,YilOy
+    Vagon,EhtiyotQismHistory, TexnikKorikEhtiyotQism,NosozlikTuri,TexnikKorikJadval,Notification,Marshrut,YilOy,UserNotificationStatus
 )
 from .serializers import (
     TamirTuriSerializer, ElektroDepoSerializer,TexnikKorikJadvalSerializer,
@@ -56,6 +56,7 @@ import calendar
 from reportlab.lib.pagesizes import A3, landscape
 from django_filters.rest_framework import DjangoFilterBackend, FilterSet, DateFromToRangeFilter, NumberFilter
 from reportlab.lib.enums import TA_RIGHT
+from django.db.models.functions import ExtractYear, ExtractMonth
 class UserViewSet(viewsets.ModelViewSet):
     queryset = CustomUser.objects.all()
     serializer_class = UserSerializer
@@ -81,16 +82,16 @@ def get_me(request):
     for check in todays_checks:
         depo = getattr(check.tarkib, "depo", None)
         if depo and user in depo.users.filter(role="texnik"):
+            tamir_nomi = getattr(check.tamir_turi, "tamir_nomi", "noaniq tamir turi")
             message = (
                 f"Bugun {check.tarkib.tarkib_raqami} tarkibi uchun "
-                f"'{check.tamir_turi.tamir_nomi}' texnik ko‘rik rejalashtirilgan."
+                f"'{tamir_nomi}' texnik ko‘rik rejalashtirilgan."
             )
 
             Notification.objects.get_or_create(
                 user=user,
                 title="Bugungi texnik ko‘rik eslatmasi",
                 message=message,
-                defaults={"is_read": False},
             )
 
     return Response({
@@ -470,7 +471,7 @@ class HarakatTarkibiViewSet(BaseViewSet):
         return HarakatTarkibi.objects.none()
     pagination_class = CustomPagination
     filter_backends = [filters.SearchFilter, filters.OrderingFilter, DjangoFilterBackend]
-    search_fields = ['guruhi','tarkib_raqami','turi','ishga_tushgan_vaqti','eksplutatsiya_vaqti','holati']   
+    search_fields = ['tarkib_raqami','turi','ishga_tushgan_vaqti','eksplutatsiya_vaqti','holati']   
     ordering_fields = ['ishga_tushgan_vaqti', 'id']
     
 
@@ -488,7 +489,7 @@ class HarakatTarkibiGetViewSet(BaseViewSet):
     require_login_fields = False
     pagination_class = CustomPagination
     filter_backends = [filters.SearchFilter, filters.OrderingFilter, DjangoFilterBackend]
-    search_fields = ['guruhi', 'tarkib_raqami', 'turi', 'ishga_tushgan_vaqti', 'eksplutatsiya_vaqti','holati']
+    search_fields = [ 'tarkib_raqami', 'turi', 'ishga_tushgan_vaqti', 'eksplutatsiya_vaqti','holati']
     ordering_fields = ['ishga_tushgan_vaqti', 'id']
     filterset_fields = ['depo']
 
@@ -568,7 +569,7 @@ class HarakatTarkibiActiveViewSet(BaseViewSet):
     require_login_fields = False
     pagination_class = CustomPagination
     filter_backends = [filters.SearchFilter, filters.OrderingFilter, DjangoFilterBackend]
-    search_fields = ['guruhi', 'tarkib_raqami', 'turi', 'ishga_tushgan_vaqti', 'eksplutatsiya_vaqti', 'holati']
+    search_fields = [ 'tarkib_raqami', 'turi', 'ishga_tushgan_vaqti', 'eksplutatsiya_vaqti', 'holati']
     ordering_fields = ['ishga_tushgan_vaqti', 'id']
     filterset_fields = ['depo']
     
@@ -1271,12 +1272,7 @@ class NotificationViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        qs = Notification.objects.all().order_by("-created_at")
-
-        # Agar texnik bo‘lsa — faqat o‘ziga tegishli
-        if hasattr(user, "role") and user.role == "texnik":
-            qs = qs.filter(user=user)
-        return qs
+        return Notification.objects.all().order_by("-created_at")
 
     def list(self, request, *args, **kwargs):
         queryset = self.get_queryset()
@@ -1284,19 +1280,24 @@ class NotificationViewSet(viewsets.ModelViewSet):
         texnik_koriklar = queryset.filter(type="texnik_korik")
         ehtiyot_qismlar = queryset.filter(type="ehtiyot_qism")
 
+        ctx = {"request": request}
         return Response({
-            "nosozlik": NotificationSerializer(nosozliklar, many=True).data,
-            "texnik_korik": NotificationSerializer(texnik_koriklar, many=True).data,
-            "ehtiyot_qism": NotificationSerializer(ehtiyot_qismlar, many=True).data,
+            "nosozlik": NotificationSerializer(nosozliklar, many=True, context=ctx).data,
+            "texnik_korik": NotificationSerializer(texnik_koriklar, many=True, context=ctx).data,
+            "ehtiyot_qism": NotificationSerializer(ehtiyot_qismlar, many=True, context=ctx).data,
         })
 
     @action(detail=True, methods=["patch"])
     def mark_as_read(self, request, pk=None):
         notif = self.get_object()
-        notif.is_read = True
-        notif.save(update_fields=["is_read"])
+        user = request.user
+        status_obj, _ = UserNotificationStatus.objects.get_or_create(user=user, notification=notif)
+        status_obj.is_read = True
+        status_obj.save(update_fields=["is_read"])
         return Response({"detail": "Xabar o‘qilgan sifatida belgilandi"}, status=status.HTTP_200_OK)
         
+
+
 
 class KorikNosozlikStatisticsView(APIView):
     permission_classes = [IsAuthenticated]
@@ -1398,7 +1399,7 @@ class KorikNosozlikStatisticsView(APIView):
 class TarkibDetailViewSet(BaseViewSet):
     permission_classes = [IsAuthenticated, IsTexnik |IsMonitoringReadOnly]
     filter_backends = [filters.SearchFilter, filters.OrderingFilter, DjangoFilterBackend]
-    search_fields = ['guruhi','holati']
+    search_fields = ['holati']
 
     def get_queryset(self):
         return HarakatTarkibi.objects.all()
@@ -1455,7 +1456,6 @@ class TarkibDetailViewSet(BaseViewSet):
             "tarkib_id": tarkib.id,
             "tarkib_raqami": tarkib.tarkib_raqami,
             "depo_nomi": tarkib.depo.qisqacha_nomi if tarkib.depo else None,
-            "guruhi": tarkib.guruhi,
             "turi": tarkib.turi,
             "holati": tarkib.holati,
             "tarkib_photo": request.build_absolute_uri(tarkib.image.url) if getattr(tarkib, 'image', None) else None,
@@ -1523,9 +1523,8 @@ class TarkibDetailViewSet(BaseViewSet):
                 for h in ["Ekspluatatsiyaga qo‘yilgan sana", "Turi", "Nomeri", "Masofa", "Hozirgi holati"]
             ],
             [
-                Paragraph(f"<b>{tarkib.ishga_tushgan_vaqti.strftime('%d-%m-%Y') if tarkib.ishga_tushgan_vaqti else '-'}</b>", 
-                            styles['Normal']),
-                Paragraph(f"<b>{tarkib.guruhi or '-'}</b>", styles['Normal']),
+                Paragraph(f"<b>{tarkib.ishga_tushgan_vaqti or '-'}</b>", styles['Normal']),
+                Paragraph(f"<b>{tarkib.turi or '-'}</b>", styles['Normal']),
                 Paragraph(f"<b>{tarkib.tarkib_raqami or '-'}</b>", styles['Normal']),
                 Paragraph(f"<b>{str(getattr(tarkib, 'masofa', '–'))}</b>", styles['Normal']),
                 Paragraph(f"<b>{tarkib.holati or '-'}</b>", styles['Normal']),
@@ -1723,7 +1722,6 @@ class TarkibDetailViewSet(BaseViewSet):
             ["Tarkib ID", tarkib.id],
             ["Tarkib raqami", tarkib.tarkib_raqami],
             ["Depo", tarkib.depo.qisqacha_nomi if tarkib.depo else "-"],
-            ["Guruhi", tarkib.guruhi or "-"],
             ["Turi", tarkib.turi or "-"],
             ["Holati", tarkib.holati or "-"],
             ["Ishga tushgan vaqti", safe_date(tarkib.ishga_tushgan_vaqti)],
@@ -1818,9 +1816,8 @@ class TexnikKorikByTypeViewSet(BaseViewSet):
                 for h in ["Ekspluatatsiyaga qo‘yilgan sana", "Turi", "Nomeri", "Masofa", "Hozirgi holati"]
             ],
             [
-                Paragraph(f"<b>{tarkib.ishga_tushgan_vaqti.strftime('%d-%m-%Y') if tarkib.ishga_tushgan_vaqti else '-'}</b>", 
-                            styles['Normal']),
-                Paragraph(f"<b>{tarkib.guruhi or '-'}</b>", styles['Normal']),
+                Paragraph(f"<b>{tarkib.ishga_tushgan_vaqti or '-'}</b>", styles['Normal']),
+                Paragraph(f"<b>{tarkib.turi or '-'}</b>", styles['Normal']),
                 Paragraph(f"<b>{tarkib.tarkib_raqami or '-'}</b>", styles['Normal']),
                 Paragraph(f"<b>{str(getattr(tarkib, 'masofa', '–'))}</b>", styles['Normal']),
                 Paragraph(f"<b>{tarkib.holati or '-'}</b>", styles['Normal']),
@@ -2074,8 +2071,8 @@ class TexnikKorikStepViewSet1(ViewSet):
                 for h in ["Ekspluatatsiyaga qo‘yilgan sana", "Turi", "Nomeri", "Masofa", "Hozirgi holati"]
             ],
             [
-                Paragraph(f"<b>{korik.tarkib.ishga_tushgan_vaqti.strftime('%d-%m-%Y') if getattr(korik.tarkib, 'ishga_tushgan_vaqti', None) else '-'}</b>", styles['Normal']),
-                Paragraph(f"<b>{korik.tarkib.guruhi if getattr(korik.tarkib, 'guruhi', None) else '-'}</b>", styles['Normal']),
+                Paragraph(f"<b>{korik.tarkib.ishga_tushgan_vaqti or '-'}</b>", styles['Normal']),
+                Paragraph(f"<b>{korik.tarkib.turi if getattr(korik.tarkib, 'turi', None) else '-'}</b>", styles['Normal']),
                 Paragraph(f"<b>{korik.tarkib.tarkib_raqami if getattr(korik.tarkib, 'tarkib_raqami', None) else '-'}</b>", styles['Normal']),
                 Paragraph(f"<b>{korik.tarkib.masofa if getattr(korik.tarkib, 'masofa', None) else '-'}</b>", styles['Normal']),
                 Paragraph(f"<b>{korik.tarkib.holati if getattr(korik.tarkib, 'holati', None) else '-'}</b>", styles['Normal']),
@@ -2302,8 +2299,8 @@ class NosozliklarPDFExportView(ViewSet):
                 for h in ["Ekspluatatsiyaga qo‘yilgan sana", "Turi", "Nomeri", "Masofa", "Hozirgi holati"]
             ],
             [
-                Paragraph(f"<b>{tarkib.ishga_tushgan_vaqti.strftime('%d-%m-%Y') if tarkib.ishga_tushgan_vaqti else '-'}</b>", styles['Normal']),
-                Paragraph(f"<b>{tarkib.guruhi or '-'}</b>", styles['Normal']),
+                Paragraph(f"<b>{tarkib.ishga_tushgan_vaqti or '-'}</b>", styles['Normal']),
+                Paragraph(f"<b>{tarkib.turi or '-'}</b>", styles['Normal']),
                 Paragraph(f"<b>{tarkib.tarkib_raqami or '-'}</b>", styles['Normal']),
                 Paragraph(f"<b>{str(getattr(tarkib, 'masofa', '–'))}</b>", styles['Normal']),
                 Paragraph(f"<b>{tarkib.holati or '-'}</b>", styles['Normal']),
@@ -2529,8 +2526,8 @@ class NosozlikStepViewSet1(ViewSet):
                 for h in ["Ekspluatatsiyaga qo‘yilgan sana", "Turi", "Nomeri", "Masofa", "Hozirgi holati"]
             ],
             [
-                Paragraph(f"<b>{nosozlik.tarkib.ishga_tushgan_vaqti.strftime('%d-%m-%Y') if getattr(nosozlik.tarkib, 'ishga_tushgan_vaqti', None) else '-'}</b>", styles['Normal']),
-                Paragraph(f"<b>{nosozlik.tarkib.guruhi if getattr(nosozlik.tarkib, 'guruhi', None) else '-'}</b>", styles['Normal']),
+                Paragraph(f"<b>{nosozlik.tarkib.ishga_tushgan_vaqti or '-'}</b>", styles['Normal']),
+                Paragraph(f"<b>{nosozlik.tarkib.turi if getattr(nosozlik.tarkib, 'turi', None) else '-'}</b>", styles['Normal']),
                 Paragraph(f"<b>{nosozlik.tarkib.tarkib_raqami if getattr(nosozlik.tarkib, 'tarkib_raqami', None) else '-'}</b>", styles['Normal']),
                 Paragraph(f"<b>{nosozlik.tarkib.masofa if getattr(nosozlik.tarkib, 'masofa', None) else '-'}</b>", styles['Normal']),
                 Paragraph(f"<b>{nosozlik.tarkib.holati if getattr(nosozlik.tarkib, 'holati', None) else '-'}</b>", styles['Normal']),
@@ -2824,7 +2821,24 @@ class TexnikKorikJadvalViewSet(viewsets.ModelViewSet):
     def list(self, request, *args, **kwargs):
         return super().list(request, *args, **kwargs)
         
-        
+    @action(detail=False, methods=["get"], url_path="available-months")
+    def available_months(self, request):
+        """
+        TexnikKo‘rikJadvaldagi mavjud bo‘lgan yil va oylarni qaytaradi.
+        """
+        user = request.user
+        queryset = self.get_queryset()
+
+        # Foydalanuvchiga mos filterlash (sizning get_queryset() allaqachon buni qiladi)
+        queryset = queryset.annotate(
+            yil=ExtractYear("sana"),
+            oy=ExtractMonth("sana")
+        ).values("yil", "oy").distinct().order_by("yil", "oy")
+
+        data = list(queryset)
+        return Response(data)
+    
+      
     @action(detail=False, methods=["get"])
     def export_excel(self, request):
         queryset = self.filter_queryset(self.get_queryset())
@@ -2951,7 +2965,7 @@ class TexnikKorikJadvalViewSet(viewsets.ModelViewSet):
                 "boshlanish": j.sana.day,
                 "tugash": end_kun,
                 "tamir_nomi": tamir_nomi,
-                "marshrut": j.marshrut or ""
+                "marshrut": getattr(j.marshrut, "marshrut_raqami", j.marshrut_id) or ""
             })
 
         elements = []
@@ -3034,9 +3048,9 @@ class TexnikKorikJadvalViewSet(viewsets.ModelViewSet):
                         t["boshlanish"], t["tugash"], t["tamir_nomi"], t["marshrut"]
                     )
                     if not tamir_nomi and marshrut:
-                        row[start] = Paragraph(f"<b>{marshrut}</b>", ParagraphStyle("", fontSize=9, alignment=1, fontName="Helvetica"))
+                        row[start] = Paragraph(f"<b>{marshrut}</b>", ParagraphStyle("", fontSize=10, alignment=1, fontName="Helvetica"))
                     elif tamir_nomi:
-                        row[start] = Paragraph(f"<b>{tamir_nomi}</b>", ParagraphStyle("", fontSize=8, alignment=1, fontName="Helvetica-Bold"))
+                        row[start] = Paragraph(f"<b>{tamir_nomi}</b>", ParagraphStyle("", fontSize=9, alignment=1, fontName="Helvetica-Bold"))
                         if tamir_nomi.startswith("TO"):
                             table_style.add("BACKGROUND", (start, row_index), (end, row_index), colors.HexColor("#fff566"))  # sariq
                         elif tamir_nomi.startswith("TR"):

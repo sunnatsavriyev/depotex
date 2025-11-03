@@ -93,8 +93,8 @@ class ElektroDepo(models.Model):
 
 
 class EhtiyotQismlari(models.Model):
-    ehtiyotqism_nomi = models.CharField(max_length=255, unique=True)
-    nomenklatura_raqami = models.CharField(max_length=100)
+    ehtiyotqism_nomi = models.CharField(max_length=255)
+    nomenklatura_raqami = models.CharField(max_length=100, unique=True)
     birligi = models.CharField(
         max_length=50,
         choices=[
@@ -102,6 +102,14 @@ class EhtiyotQismlari(models.Model):
             ("para", "Para"),
             ("metr", "Metr"),
             ("litr", "Litr"),
+            ("kg", "Kg"),
+            ("banka", "Banka"),
+            ("metr_kv", "Metr_kv"),
+            ("metr_kub", "Metr_kub"),
+            ("to'plam", "To'plam"),
+            ("quti", "Quti"),
+            ("rulon", "Rulon"),
+            ("k-t", "K-t"),
         ],
         default="dona"
     )
@@ -214,11 +222,10 @@ class NosozlikEhtiyotQismStep(models.Model):
 class HarakatTarkibi(models.Model):
     depo = models.ForeignKey("ElektroDepo", related_name="tarkiblar",
                              on_delete=models.SET_NULL, null=True, blank=True)
-    guruhi = models.CharField(max_length=100)
     turi = models.CharField(max_length=100)
     tarkib_raqami = models.CharField(max_length=255, blank=True, null=True)  
-    ishga_tushgan_vaqti = models.DateField()
-    eksplutatsiya_vaqti = models.BigIntegerField(help_text="km da")
+    ishga_tushgan_vaqti = models.CharField(help_text="yilda")
+    eksplutatsiya_vaqti = models.CharField(help_text="yilda")
     image = models.ImageField(upload_to="tarkiblar/", blank=True, null=True)
 
     holati = models.CharField(
@@ -324,32 +331,35 @@ class TexnikKorik(models.Model):
 
     def save(self, *args, **kwargs):
         """TexnikKorik modelining saqlash mantiqi"""
-        # 1️⃣ Kirgan vaqt bo‘lmasa → created_at yoki hozirgi vaqt bilan to‘ldir
         if not self.kirgan_vaqti:
             self.kirgan_vaqti = getattr(self, "created_at", timezone.now())
 
-        # 2️⃣ Yangi yozuv bo‘lsa
+        # 🔹 Yangi yozuv uchun statusni faqat berilmagan bo‘lsa o‘rnatamiz
         if not self.id:
-            self.status = TexnikKorik.Status.JARAYONDA
+            if not self.status:  # <-- Faqat status bo‘lmasa
+                self.status = TexnikKorik.Status.JARAYONDA
+
             # Tarkib holatini avtomatik o‘zgartirish
             if self.tarkib and self.tarkib.holati != "Texnik_korikda":
                 self.tarkib.holati = "Texnik_korikda"
                 self.tarkib.save()
         else:
-            # Eski yozuvda chiqqan vaqtni o‘zgartirmaymiz
             old = TexnikKorik.objects.filter(id=self.id).first()
             if old and old.chiqqan_vaqti:
                 self.chiqqan_vaqti = old.chiqqan_vaqti
 
-        # 3️⃣ Agar akt_file mavjud bo‘lsa va yakunlash True bo‘lsa
-        if self.akt_file and self.yakunlash:
+        # 🔹 Yakunlash holati (Soz_holatda)
+        if self.yakunlash:
             self.status = TexnikKorik.Status.BARTARAF_ETILDI
-            self.chiqqan_vaqti = timezone.now()
+            if not self.chiqqan_vaqti:
+                self.chiqqan_vaqti = timezone.now()
             if self.tarkib:
                 self.tarkib.holati = "Soz_holatda"
                 self.tarkib.save()
 
+
         super().save(*args, **kwargs)
+
 
 
 class TexnikKorikStep(models.Model):
@@ -377,10 +387,10 @@ class TexnikKorikStep(models.Model):
 
     def save(self, *args, **kwargs):
         """TexnikKorikStep modelining saqlash mantiqi"""
-        #  Kirgan vaqt bo‘lmasa → created_at yoki hozirgi vaqt bilan to‘ldir
+        yakunlash = getattr(self, "yakunlash", False)
 
-        # 2️Agar akt_file mavjud bo‘lsa → step yakunlandi
-        if self.akt_file:
+        # 🔹 Yakunlangan bo‘lsa yoki akt_file mavjud bo‘lsa
+        if yakunlash or self.akt_file:
             self.status = self.Status.BARTARAF_ETILDI
             self.chiqqan_vaqti = timezone.now()
 
@@ -397,13 +407,14 @@ class TexnikKorikStep(models.Model):
 
                 self.korik.save()
         else:
-            # 3️⃣ Aks holda jarayonda
+            # 🔸 Jarayonda bo‘lsa
             self.status = self.Status.JARAYONDA
             if self.korik and self.korik.tarkib.holati != "Texnik_korikda":
                 self.korik.tarkib.holati = "Texnik_korikda"
                 self.korik.tarkib.save()
 
         super().save(*args, **kwargs)
+
 
 
 
@@ -665,10 +676,19 @@ class Notification(models.Model):
     ehtiyot_qism = models.ForeignKey("EhtiyotQismlari", on_delete=models.CASCADE, null=True, blank=True)
 
     count = models.IntegerField(default=1)
-    is_read = models.BooleanField(default=False)
-    seen = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     last_occurrence = models.DateTimeField(auto_now=True)
 
     def __str__(self):
         return f"[{self.type}] {self.title}"
+
+
+class UserNotificationStatus(models.Model):
+    """Har bir user uchun xabar o‘qilganligini saqlaydi"""
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    notification = models.ForeignKey(Notification, on_delete=models.CASCADE, related_name="user_statuses")
+    is_read = models.BooleanField(default=False)
+
+    class Meta:
+        unique_together = ("user", "notification")
+

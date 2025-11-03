@@ -2,7 +2,8 @@ from django.contrib import admin
 from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
-
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import AllowAny, IsAdminUser
 # JWT views
 from rest_framework_simplejwt.views import (
     TokenObtainPairView,
@@ -12,7 +13,8 @@ from rest_framework_simplejwt.views import (
 # Swagger docs
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
-
+class PublicSpectacularAPIView(SpectacularAPIView):
+    permission_classes = [IsAdminUser]
 
 urlpatterns = [
     path("depo_admin/", admin.site.urls),
@@ -26,7 +28,7 @@ urlpatterns = [
     path("api-auth/", include("rest_framework.urls", namespace="rest_framework")),
 
     # Swagger docs
-    path("swagger/schema/", SpectacularAPIView.as_view(), name="schema"),  
+    path("swagger/schema/", PublicSpectacularAPIView.as_view(), name="schema"),
     path("swagger/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),  
 ]
 

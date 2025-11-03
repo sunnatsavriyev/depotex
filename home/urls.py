@@ -11,6 +11,11 @@ from .views import (
     get_me,NosozlikTuriViewSet,TexnikKorikJadvalViewSet,HarakatTarkibiHolatStatistikaViewSet,
     TexnikKorikByTypeViewSet,TexnikKorikStepViewSet1,NosozliklarPDFExportView,NosozlikStepViewSet1,NotificationViewSet,MarshrutJadvalViewSet,YilOyViewSet
 )
+from rest_framework_simplejwt.views import TokenObtainPairView
+from .serializers import MyTokenObtainPairSerializer
+class MyTokenObtainPairView(TokenObtainPairView):
+    serializer_class = MyTokenObtainPairSerializer
+
 routers
 router = DefaultRouter()
 router.register(r"tamir-turi", TamirTuriViewSet)
@@ -37,6 +42,7 @@ router.register(
 router.register(r'notifications', NotificationViewSet, basename='notifications')
 router.register(r'marshrut-jadval', MarshrutJadvalViewSet, basename='marshrut-jadval')
 router.register(r'yil-oy', YilOyViewSet, basename='yil-oy')
+
 
 
 
@@ -67,6 +73,7 @@ urlpatterns = [
         KunlikYurishHistoryAPIView.as_view(),
         name="kunlik-yurish-history"
     ),
+    path('api/token/', MyTokenObtainPairView.as_view(), name='token_obtain_pair'),
     path("nosozliklar-get/", NosozliklarGetViewSet.as_view({"get": "list"}), name="nosozliklar-get"),
     path("texnik-korik-get/", TexnikKorikGetViewSet.as_view({"get": "list"}), name="texnik-korik-get"),
 ]

@@ -6,7 +6,7 @@ from rest_framework.exceptions import NotFound
 
 class CustomPagination(PageNumberPagination):
     page_size = 5000000000000000000000000  # default
-    # page_size_query_param = None
+    page_size_query_param = 'limit'
     # page_query_param = None
 
     def paginate_queryset(self, queryset, request, view=None):
