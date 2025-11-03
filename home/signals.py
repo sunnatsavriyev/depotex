@@ -14,7 +14,7 @@ def create_or_update_nosozlik_notification(sender, instance, created, **kwargs):
     if not created:  # faqat yangi yozilganda ishlasin
         return
 
-    # print(f"🔔 SIGNAL ISHGA TUSHDI | ID={instance.id} | created={created}")
+    print(f"🔔 SIGNAL ISHGA TUSHDI | ID={instance.id} | created={created}")
 
     tarkib = instance.tarkib
     nosozlik_haqida = instance.nosozliklar_haqida
@@ -45,8 +45,8 @@ def create_or_update_nosozlik_notification(sender, instance, created, **kwargs):
     if last_notif:
         if last_notif.count != total_count:
             print("🔁 Mavjud xabar yangilanmoqda")
-            last_notif.count = total_count
-            last_notif.title = f"Nosozlik {display_count}-marta takrorlandi"
+            last_notif.count = display_count
+            last_notif.title = f"Nosozlik qayta takrorlandi"
             last_notif.message = f"{tarkib} tarkibida '{nosozlik_turi}' nosozligi {display_count}-marta qayd etildi."
             last_notif.last_occurrence = timezone.now()
             last_notif.save(update_fields=["count", "title", "message", "last_occurrence"])
@@ -56,7 +56,7 @@ def create_or_update_nosozlik_notification(sender, instance, created, **kwargs):
             tarkib=tarkib,
             nosozlik_turi=nosozlik_turi,
             type="nosozlik",
-            title=f"Nosozlik {display_count}-marta takrorlandi",
+            title=f"Nosozlik qayta takrorlandi",
             message=f"{tarkib} tarkibida '{nosozlik_turi}' nosozligi {display_count}-marta qayd etildi.",
             count=display_count,
         )
